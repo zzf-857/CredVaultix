@@ -85,7 +85,7 @@ AccountManager/
 │   └── main.tsx              # React 并发模式渲染入口
 ├── .antigravityignore        # AI Agent 控制防修改锁定文件
 └── package.json              # NPM 模块依赖
-\`\`\`
+```
 
 ---
 

@@ -27,12 +27,14 @@
         }
     },
     "include": [
-        "src",
-        "electron"
+        "src"
     ],
     "references": [
         {
             "path": "./tsconfig.node.json"
+        },
+        {
+            "path": "./tsconfig.electron.json"
         }
     ]
 }

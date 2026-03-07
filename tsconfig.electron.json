@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "composite": true,
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Node",
+        "allowSyntheticDefaultImports": true,
+        "skipLibCheck": true,
+        "strict": true,
+        "isolatedModules": true,
+        "emitDeclarationOnly": true,
+        "baseUrl": ".",
+        "types": [
+            "node",
+            "electron"
+        ]
+    },
+    "include": [
+        "electron"
+    ]
+}
