@@ -36,7 +36,7 @@ export default function TitleBar() {
           ml: 1,
         }}
       >
-        PROMPT MANAGER
+        ACCOUNT MANAGER
       </Typography>
 
       <Box sx={{ flex: 1 }} />

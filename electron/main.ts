@@ -35,6 +35,29 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  app.name = 'AccountManager'
+
+  // Auto-migrate old prompt-manager database to new AccountManager folder
+  try {
+    const oldUserDataPath = path.join(app.getPath('appData'), 'prompt-manager')
+    const newUserDataPath = app.getPath('userData') // Resolves to AccountManager now
+    
+    if (fs.existsSync(oldUserDataPath) && oldUserDataPath !== newUserDataPath) {
+      const oldDbPath = path.join(oldUserDataPath, 'prompt-manager.db')
+      const newDbPath = path.join(newUserDataPath, 'account-manager.db')
+      
+      if (fs.existsSync(oldDbPath) && !fs.existsSync(newDbPath)) {
+        if (!fs.existsSync(newUserDataPath)) {
+          fs.mkdirSync(newUserDataPath, { recursive: true })
+        }
+        fs.copyFileSync(oldDbPath, newDbPath)
+        console.log('Successfully migrated database from prompt-manager to AccountManager')
+      }
+    }
+  } catch (e) {
+    console.error('Error migrating old database:', e)
+  }
+
   initDatabase()
   registerIpcHandlers()
   createWindow()

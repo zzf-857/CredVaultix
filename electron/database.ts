@@ -5,7 +5,7 @@ import { app } from 'electron'
 let db: Database.Database
 
 export function initDatabase() {
-  const dbPath = path.join(app.getPath('userData'), 'prompt-manager.db')
+  const dbPath = path.join(app.getPath('userData'), 'account-manager.db')
   db = new Database(dbPath)
 
   // Enable WAL mode for better performance

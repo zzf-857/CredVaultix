@@ -1,7 +1,7 @@
 {
-  "name": "prompt-manager",
+  "name": "account-manager",
   "version": "1.0.0",
-  "description": "A sleek Windows desktop Prompt Manager with Material Design 3",
+  "description": "A sleek Windows desktop Account Manager with Material Design 3",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -41,8 +41,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.personal.prompt-manager",
-    "productName": "PromptManager",
+    "appId": "com.personal.account-manager",
+    "productName": "AccountManager",
     "directories": {
       "output": "release"
     },
