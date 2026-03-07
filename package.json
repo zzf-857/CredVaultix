@@ -10,7 +10,7 @@
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "vite build && electron-builder --win"
   },
-  "author": "",
+  "author": "zzf-857",
   "license": "MIT",
   "dependencies": {
     "@emotion/react": "^11.13.0",
@@ -55,6 +55,13 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zzf-857",
+        "repo": "AccountManager"
+      }
+    ]
   }
 }
