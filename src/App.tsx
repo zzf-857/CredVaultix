@@ -29,15 +29,21 @@ export default function App() {
         <TitleBar />
         <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
           <Sidebar />
-          {activeView === 'accounts' && <AccountManager />}
-          {activeView === 'prompts' && (
-            <>
-              <PromptList />
-              <PromptDetail />
-            </>
-          )}
-          {activeView === '2fa' && <TwoFactorPanel />}
-          {activeView === 'address-generator' && <AddressGenerator />}
+          <Box 
+            key={activeView} 
+            className="fade-in-up" 
+            sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}
+          >
+            {activeView === 'accounts' && <AccountManager />}
+            {activeView === 'prompts' && (
+              <>
+                <PromptList />
+                <PromptDetail />
+              </>
+            )}
+            {activeView === '2fa' && <TwoFactorPanel />}
+            {activeView === 'address-generator' && <AddressGenerator />}
+          </Box>
         </Box>
       </Box>
     </ThemeProvider>
