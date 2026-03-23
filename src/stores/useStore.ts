@@ -11,7 +11,7 @@ interface AppState {
   accounts: AccountRow[]
 
   // UI State
-  activeView: 'accounts' | 'prompts' | '2fa'
+  activeView: 'accounts' | 'prompts' | '2fa' | 'address-generator'
   selectedPromptId: string | null
   selectedAccountId: string | null
   selectedFolderId: string | null
@@ -24,7 +24,7 @@ interface AppState {
   sidebarWidth: number
 
   // Actions
-  setActiveView: (view: 'accounts' | 'prompts' | '2fa') => void
+  setActiveView: (view: 'accounts' | 'prompts' | '2fa' | 'address-generator') => void
   loadData: () => Promise<void>
   loadTotpAccounts: () => Promise<void>
   loadAccounts: () => Promise<void>

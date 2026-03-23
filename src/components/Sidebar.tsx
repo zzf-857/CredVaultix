@@ -13,6 +13,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditIcon from '@mui/icons-material/Edit'
 import SecurityIcon from '@mui/icons-material/Security'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
+import LocationCityOutlinedIcon from '@mui/icons-material/LocationCityOutlined'
 import { useStore } from '../stores/useStore'
 
 export default function Sidebar() {
@@ -130,6 +131,19 @@ export default function Sidebar() {
             </ListItemIcon>
             <ListItemText
               primary="2FA 验证器"
+              primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500 }}
+            />
+          </ListItemButton>
+
+          <ListItemButton
+            selected={activeView === 'address-generator'}
+            onClick={() => setActiveView('address-generator')}
+          >
+            <ListItemIcon sx={{ minWidth: 36 }}>
+              <LocationCityOutlinedIcon sx={{ fontSize: 20, color: '#f2b8b5' }} />
+            </ListItemIcon>
+            <ListItemText
+              primary="地址生成器"
               primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500 }}
             />
           </ListItemButton>

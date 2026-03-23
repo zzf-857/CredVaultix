@@ -8,6 +8,7 @@ import PromptList from './components/PromptList'
 import PromptDetail from './components/PromptDetail'
 import TwoFactorPanel from './components/TwoFactorPanel'
 import AccountManager from './components/AccountManager'
+import AddressGenerator from './components/AddressGenerator'
 
 export default function App() {
   const themeMode = useStore((s) => s.themeMode)
@@ -36,6 +37,7 @@ export default function App() {
             </>
           )}
           {activeView === '2fa' && <TwoFactorPanel />}
+          {activeView === 'address-generator' && <AddressGenerator />}
         </Box>
       </Box>
     </ThemeProvider>

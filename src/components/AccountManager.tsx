@@ -9,6 +9,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditIcon from '@mui/icons-material/Edit'
 import SaveIcon from '@mui/icons-material/Save'
@@ -44,11 +45,11 @@ function useCopy() {
 // Sensitive field with show/hide + copy
 function SensitiveField({
   icon, label, value, fieldKey, copiedField, onCopy, editing,
-  onChange,
+  onChange, onGenerate,
 }: {
   icon: React.ReactNode; label: string; value: string; fieldKey: string
   copiedField: string | null; onCopy: (val: string, key: string) => void
-  editing: boolean; onChange?: (val: string) => void
+  editing: boolean; onChange?: (val: string) => void; onGenerate?: () => void
 }) {
   const [visible, setVisible] = useState(false)
   const hasValue = value && value.length > 0
@@ -63,6 +64,15 @@ function SensitiveField({
         onChange={(e) => onChange?.(e.target.value)}
         InputProps={{
           startAdornment: <InputAdornment position="start">{icon}</InputAdornment>,
+          endAdornment: onGenerate ? (
+            <InputAdornment position="end">
+              <Tooltip title="随机生成高强度密码">
+                <IconButton size="small" onClick={onGenerate} edge="end">
+                  <RefreshIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </InputAdornment>
+          ) : undefined,
         }}
         sx={{ mb: 1.5 }}
       />
@@ -270,7 +280,22 @@ function AccountDetail({
         </Typography>
         <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
           <SensitiveField icon={<PersonIcon sx={{ fontSize: 18 }} />} label="账号" value={editing ? editData.username : account.username} fieldKey="username" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(v) => setEditData({ ...editData, username: v })} />
-          <SensitiveField icon={<LockIcon sx={{ fontSize: 18 }} />} label="密码" value={editing ? editData.password : account.password} fieldKey="password" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(v) => setEditData({ ...editData, password: v })} />
+          <SensitiveField 
+            icon={<LockIcon sx={{ fontSize: 18 }} />} 
+            label="密码" 
+            value={editing ? editData.password : account.password} 
+            fieldKey="password" 
+            copiedField={copiedField} 
+            onCopy={copy} 
+            editing={editing} 
+            onChange={(v) => setEditData({ ...editData, password: v })}
+            onGenerate={editing ? () => {
+              const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'
+              let pwd = ''
+              for (let i = 0; i < 16; i++) pwd += chars.charAt(Math.floor(Math.random() * chars.length))
+              setEditData({ ...editData, password: pwd })
+            } : undefined}
+          />
           <SensitiveField icon={<PhoneIcon sx={{ fontSize: 18 }} />} label="绑定手机号" value={editing ? editData.phone : account.phone} fieldKey="phone" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(v) => setEditData({ ...editData, phone: v })} />
           <SensitiveField icon={<EmailIcon sx={{ fontSize: 18 }} />} label="备用邮箱" value={editing ? editData.backupEmail : account.backup_email} fieldKey="backup_email" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(v) => setEditData({ ...editData, backupEmail: v })} />
           <SensitiveField icon={<SecurityIcon sx={{ fontSize: 18 }} />} label="2FA 密钥" value={editing ? editData.totpSecret : account.totp_secret} fieldKey="totp_secret" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(v) => setEditData({ ...editData, totpSecret: v })} />
@@ -584,10 +609,16 @@ export default function AccountManager() {
       ) : (
         <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ textAlign: 'center', px: 3 }}>
-            <LockIcon sx={{ fontSize: 48, color: 'text.secondary', opacity: 0.3, mb: 2 }} />
-            <Typography variant="body1" sx={{ color: 'text.secondary' }}>
-              选择一个账号查看详情
+            <LockIcon sx={{ fontSize: 64, color: 'primary.main', opacity: 0.2, mb: 2 }} />
+            <Typography variant="h6" sx={{ color: 'text.secondary', mb: 1 }}>
+              选择或创建一个账号
             </Typography>
+            <Typography variant="body2" sx={{ color: 'text.secondary', opacity: 0.7, mb: 3 }}>
+              您的所有账号密保信息都在本地被安全加固与隔离
+            </Typography>
+            <Button variant="outlined" startIcon={<AddIcon />} onClick={handleCreate} sx={{ borderRadius: 2 }}>
+              立刻添加新账号
+            </Button>
           </Box>
         </Box>
       )}
