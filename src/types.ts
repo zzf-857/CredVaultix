@@ -6,8 +6,6 @@ export interface ElectronAPI {
   close: () => void
   isMaximized: () => Promise<boolean>
 
-  getTags: () => Promise<TagRow[]>
-
   getTotpAccounts: () => Promise<TotpAccountRow[]>
   createTotpAccount: (data: CreateTotpData) => Promise<{ id: string }>
   updateTotpAccount: (id: string, data: Partial<TotpAccountRow>) => Promise<{ success: boolean }>

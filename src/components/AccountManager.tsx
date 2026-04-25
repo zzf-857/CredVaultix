@@ -212,7 +212,7 @@ function AccountDetail({
   const [showAddField, setShowAddField] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [notesExpanded, setNotesExpanded] = useState(false)
-  const [linkPromptOpen, setLinkPromptOpen] = useState(false)
+  const [linkTotpDialogOpen, setLinkTotpDialogOpen] = useState(false)
   const [linkData, setLinkData] = useState({ issuer: '', label: '', secret: '', otpType: 'totp' })
   const [newTagName, setNewTagName] = useState('')
   const { copiedField, copy } = useCopy()
@@ -268,7 +268,7 @@ function AccountDetail({
         secret: editData.totpSecret.trim(),
         otpType: 'totp',
       })
-      setLinkPromptOpen(true)
+      setLinkTotpDialogOpen(true)
       return
     }
 
@@ -278,13 +278,13 @@ function AccountDetail({
 
   const handleConfirmLink = async () => {
     await createTotpAccount(linkData.issuer, linkData.label, linkData.secret, linkData.otpType, accountId)
-    setLinkPromptOpen(false)
+    setLinkTotpDialogOpen(false)
     setEditing(false)
     await loadAccount()
   }
 
   const handleSkipLink = async () => {
-    setLinkPromptOpen(false)
+    setLinkTotpDialogOpen(false)
     setEditing(false)
     await loadAccount()
   }
@@ -728,7 +728,7 @@ function AccountDetail({
         </DialogActions>
       </Dialog>
 
-      <Dialog open={linkPromptOpen} onClose={handleSkipLink} maxWidth="sm" fullWidth>
+      <Dialog open={linkTotpDialogOpen} onClose={handleSkipLink} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon sx={{ color: 'primary.main' }} />
           自动生成 2FA 账户

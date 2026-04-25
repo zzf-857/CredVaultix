@@ -53,7 +53,7 @@ function createWindow() {
 app.whenReady().then(() => {
   app.name = 'AccountManager'
 
-  // Auto-migrate old prompt-manager database to new AccountManager folder
+  // Auto-migrate the legacy database location into the current AccountManager app data folder
   try {
     const oldUserDataPath = path.join(app.getPath('appData'), 'prompt-manager')
     const newUserDataPath = app.getPath('userData') // Resolves to AccountManager now
@@ -67,7 +67,7 @@ app.whenReady().then(() => {
           fs.mkdirSync(newUserDataPath, { recursive: true })
         }
         fs.copyFileSync(oldDbPath, newDbPath)
-        console.log('Successfully migrated database from prompt-manager to AccountManager')
+        console.log('Successfully migrated legacy database into AccountManager')
       }
     }
   } catch (e) {
@@ -118,150 +118,6 @@ function registerIpcHandlers() {
   })
   ipcMain.on('window:close', () => mainWindow?.close())
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized())
-
-  // ============ Prompts ============
-  ipcMain.handle('prompts:getAll', (_event, filters?: { folderId?: string; tagId?: string; search?: string; favoritesOnly?: boolean }) => {
-    let query = `
-      SELECT p.*, GROUP_CONCAT(pt.tag_id) as tag_ids
-      FROM prompts p
-      LEFT JOIN prompt_tags pt ON p.id = pt.prompt_id
-    `
-    const conditions: string[] = []
-    const params: any[] = []
-
-    if (filters?.folderId) {
-      conditions.push('p.folder_id = ?')
-      params.push(filters.folderId)
-    }
-    if (filters?.tagId) {
-      conditions.push('p.id IN (SELECT prompt_id FROM prompt_tags WHERE tag_id = ?)')
-      params.push(filters.tagId)
-    }
-    if (filters?.search) {
-      conditions.push('(p.title LIKE ? OR p.content LIKE ?)')
-      params.push(`%${filters.search}%`, `%${filters.search}%`)
-    }
-    if (filters?.favoritesOnly) {
-      conditions.push('p.is_favorite = 1')
-    }
-
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ')
-    }
-    query += ' GROUP BY p.id ORDER BY p.updated_at DESC'
-
-    return db.prepare(query).all(...params)
-  })
-
-  ipcMain.handle('prompts:getById', (_event, id: string) => {
-    const prompt = db.prepare(`
-      SELECT p.*, GROUP_CONCAT(pt.tag_id) as tag_ids
-      FROM prompts p
-      LEFT JOIN prompt_tags pt ON p.id = pt.prompt_id
-      WHERE p.id = ?
-      GROUP BY p.id
-    `).get(id)
-    return prompt
-  })
-
-  ipcMain.handle('prompts:create', (_event, data: { id: string; title: string; content: string; folderId?: string; tags?: string[] }) => {
-    const now = new Date().toISOString()
-    db.prepare(`
-      INSERT INTO prompts (id, title, content, folder_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(data.id, data.title, data.content, data.folderId || null, now, now)
-
-    if (data.tags && data.tags.length > 0) {
-      const insertTag = db.prepare('INSERT OR IGNORE INTO prompt_tags (prompt_id, tag_id) VALUES (?, ?)')
-      for (const tagId of data.tags) {
-        insertTag.run(data.id, tagId)
-      }
-    }
-    return { id: data.id }
-  })
-
-  ipcMain.handle('prompts:update', (_event, id: string, data: { title?: string; content?: string; folderId?: string | null; tags?: string[]; isFavorite?: number }) => {
-    const now = new Date().toISOString()
-    const updates: string[] = ['updated_at = ?']
-    const params: any[] = [now]
-
-    if (data.title !== undefined) { updates.push('title = ?'); params.push(data.title) }
-    if (data.content !== undefined) { updates.push('content = ?'); params.push(data.content) }
-    if (data.folderId !== undefined) { updates.push('folder_id = ?'); params.push(data.folderId) }
-    if (data.isFavorite !== undefined) { updates.push('is_favorite = ?'); params.push(data.isFavorite) }
-
-    params.push(id)
-    db.prepare(`UPDATE prompts SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-
-    if (data.tags !== undefined) {
-      db.prepare('DELETE FROM prompt_tags WHERE prompt_id = ?').run(id)
-      const insertTag = db.prepare('INSERT OR IGNORE INTO prompt_tags (prompt_id, tag_id) VALUES (?, ?)')
-      for (const tagId of data.tags) {
-        insertTag.run(id, tagId)
-      }
-    }
-    return { success: true }
-  })
-
-  ipcMain.handle('prompts:delete', (_event, id: string) => {
-    db.prepare('DELETE FROM prompts WHERE id = ?').run(id)
-    return { success: true }
-  })
-
-  // ============ Folders ============
-  ipcMain.handle('folders:getAll', () => {
-    return db.prepare('SELECT * FROM folders ORDER BY sort_order ASC, name ASC').all()
-  })
-
-  ipcMain.handle('folders:create', (_event, data: { id: string; name: string; parentId?: string }) => {
-    const now = new Date().toISOString()
-    db.prepare('INSERT INTO folders (id, name, parent_id, created_at) VALUES (?, ?, ?, ?)').run(data.id, data.name, data.parentId || null, now)
-    return { id: data.id }
-  })
-
-  ipcMain.handle('folders:update', (_event, id: string, data: { name?: string; parentId?: string | null; sortOrder?: number }) => {
-    const updates: string[] = []
-    const params: any[] = []
-    if (data.name !== undefined) { updates.push('name = ?'); params.push(data.name) }
-    if (data.parentId !== undefined) { updates.push('parent_id = ?'); params.push(data.parentId) }
-    if (data.sortOrder !== undefined) { updates.push('sort_order = ?'); params.push(data.sortOrder) }
-    params.push(id)
-    db.prepare(`UPDATE folders SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-    return { success: true }
-  })
-
-  ipcMain.handle('folders:delete', (_event, id: string) => {
-    db.prepare('UPDATE prompts SET folder_id = NULL WHERE folder_id = ?').run(id)
-    db.prepare('DELETE FROM folders WHERE id = ?').run(id)
-    return { success: true }
-  })
-
-  // ============ Tags ============
-  ipcMain.handle('tags:getAll', () => {
-    return db.prepare('SELECT * FROM tags ORDER BY name ASC').all()
-  })
-
-  ipcMain.handle('tags:create', (_event, data: { id: string; name: string; color: string }) => {
-    db.prepare('INSERT INTO tags (id, name, color) VALUES (?, ?, ?)').run(data.id, data.name, data.color)
-    return { id: data.id }
-  })
-
-  ipcMain.handle('tags:update', (_event, id: string, data: { name?: string; color?: string }) => {
-    const updates: string[] = []
-    const params: any[] = []
-    if (data.name !== undefined) { updates.push('name = ?'); params.push(data.name) }
-    if (data.color !== undefined) { updates.push('color = ?'); params.push(data.color) }
-    params.push(id)
-    db.prepare(`UPDATE tags SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-    return { success: true }
-  })
-
-  ipcMain.handle('tags:delete', (_event, id: string) => {
-    db.prepare('DELETE FROM prompt_tags WHERE tag_id = ?').run(id)
-    db.prepare('DELETE FROM account_tags WHERE tag_id = ?').run(id)
-    db.prepare('DELETE FROM tags WHERE id = ?').run(id)
-    return { success: true }
-  })
 
   // ============ Accounts ============
   ipcMain.handle('accounts:getAll', (_event, filters?: { search?: string; favoritesOnly?: boolean; isDeleted?: boolean; platform?: string }) => {
@@ -537,12 +393,9 @@ function registerIpcHandlers() {
       fs.copyFileSync(dbPath, result.filePath)
     } else {
       const data = {
-        version: 3,
+        version: 4,
         exportedAt: new Date().toISOString(),
-        prompts: db.prepare('SELECT * FROM prompts').all(),
-        folders: db.prepare('SELECT * FROM folders').all(),
         tags: db.prepare('SELECT * FROM tags').all(),
-        promptTags: db.prepare('SELECT * FROM prompt_tags').all(),
         totpAccounts: db.prepare('SELECT * FROM totp_accounts').all(),
         accounts: db.prepare('SELECT * FROM accounts').all(),
         accountCustomFields: db.prepare('SELECT * FROM account_custom_fields').all(),
@@ -578,33 +431,15 @@ function registerIpcHandlers() {
       const data = JSON.parse(raw)
 
       const importTransaction = db.transaction(() => {
-        db.prepare('DELETE FROM prompt_tags').run()
-        db.prepare('DELETE FROM prompts').run()
         db.prepare('DELETE FROM tags').run()
-        db.prepare('DELETE FROM folders').run()
         db.prepare('DELETE FROM totp_accounts').run()
         db.prepare('DELETE FROM account_custom_fields').run()
         db.prepare('DELETE FROM account_tags').run()
         db.prepare('DELETE FROM accounts').run()
 
-        const insertFolder = db.prepare('INSERT INTO folders (id, name, parent_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?)')
-        for (const f of data.folders || []) {
-          insertFolder.run(f.id, f.name, f.parent_id, f.sort_order || 0, f.created_at)
-        }
-
         const insertTag = db.prepare('INSERT INTO tags (id, name, color) VALUES (?, ?, ?)')
         for (const t of data.tags || []) {
           insertTag.run(t.id, t.name, t.color)
-        }
-
-        const insertPrompt = db.prepare('INSERT INTO prompts (id, title, content, folder_id, is_favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        for (const p of data.prompts || []) {
-          insertPrompt.run(p.id, p.title, p.content, p.folder_id, p.is_favorite || 0, p.created_at, p.updated_at)
-        }
-
-        const insertPT = db.prepare('INSERT INTO prompt_tags (prompt_id, tag_id) VALUES (?, ?)')
-        for (const pt of data.promptTags || []) {
-          insertPT.run(pt.prompt_id, pt.tag_id)
         }
 
         // Import TOTP accounts
@@ -614,7 +449,7 @@ function registerIpcHandlers() {
         }
 
         // Import Accounts
-        const insertAccount = db.prepare('INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, folder_id, is_favorite, is_deleted, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        const insertAccount = db.prepare('INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, is_favorite, is_deleted, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         for (const a of data.accounts || []) {
           insertAccount.run(
             a.id,
@@ -626,7 +461,6 @@ function registerIpcHandlers() {
             a.backup_email || '',
             a.totp_secret || '',
             a.notes || '',
-            a.folder_id,
             a.is_favorite || 0,
             a.is_deleted || 0,
             a.deleted_at || null,

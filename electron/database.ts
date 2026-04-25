@@ -13,39 +13,11 @@ export function initDatabase() {
 
   // Create tables
   db.exec(`
-    CREATE TABLE IF NOT EXISTS folders (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      parent_id TEXT REFERENCES folders(id),
-      sort_order INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
     CREATE TABLE IF NOT EXISTS tags (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       color TEXT DEFAULT '#1976d2'
     );
-
-    CREATE TABLE IF NOT EXISTS prompts (
-      id TEXT PRIMARY KEY,
-      title TEXT NOT NULL,
-      content TEXT NOT NULL DEFAULT '',
-      folder_id TEXT REFERENCES folders(id),
-      is_favorite INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS prompt_tags (
-      prompt_id TEXT REFERENCES prompts(id) ON DELETE CASCADE,
-      tag_id TEXT REFERENCES tags(id) ON DELETE CASCADE,
-      PRIMARY KEY (prompt_id, tag_id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_prompts_folder ON prompts(folder_id);
-    CREATE INDEX IF NOT EXISTS idx_prompts_favorite ON prompts(is_favorite);
-    CREATE INDEX IF NOT EXISTS idx_prompts_updated ON prompts(updated_at);
 
     CREATE TABLE IF NOT EXISTS totp_accounts (
       id TEXT PRIMARY KEY,
@@ -72,7 +44,6 @@ export function initDatabase() {
       backup_email TEXT DEFAULT '',
       totp_secret TEXT DEFAULT '',
       notes TEXT DEFAULT '',
-      folder_id TEXT,
       is_favorite INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -93,7 +64,6 @@ export function initDatabase() {
       PRIMARY KEY (account_id, tag_id)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_accounts_folder ON accounts(folder_id);
     CREATE INDEX IF NOT EXISTS idx_accounts_favorite ON accounts(is_favorite);
     CREATE INDEX IF NOT EXISTS idx_accounts_updated ON accounts(updated_at);
     CREATE INDEX IF NOT EXISTS idx_custom_fields_account ON account_custom_fields(account_id);

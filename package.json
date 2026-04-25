@@ -20,11 +20,9 @@
   "dependencies": {
     "@emotion/react": "^11.13.0",
     "@emotion/styled": "^11.13.0",
-    "@faker-js/faker": "^10.3.0",
     "@mui/icons-material": "^5.16.0",
     "@mui/material": "^5.16.0",
     "@types/papaparse": "^5.5.2",
-    "@uiw/react-md-editor": "^4.0.4",
     "better-sqlite3": "^11.3.0",
     "otpauth": "^9.5.0",
     "papaparse": "^5.5.3",

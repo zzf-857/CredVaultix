@@ -7,25 +7,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.send('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
 
-  // Prompts
-  getPrompts: (filters?: any) => ipcRenderer.invoke('prompts:getAll', filters),
-  getPromptById: (id: string) => ipcRenderer.invoke('prompts:getById', id),
-  createPrompt: (data: any) => ipcRenderer.invoke('prompts:create', data),
-  updatePrompt: (id: string, data: any) => ipcRenderer.invoke('prompts:update', id, data),
-  deletePrompt: (id: string) => ipcRenderer.invoke('prompts:delete', id),
-
-  // Folders
-  getFolders: () => ipcRenderer.invoke('folders:getAll'),
-  createFolder: (data: any) => ipcRenderer.invoke('folders:create', data),
-  updateFolder: (id: string, data: any) => ipcRenderer.invoke('folders:update', id, data),
-  deleteFolder: (id: string) => ipcRenderer.invoke('folders:delete', id),
-
-  // Tags
-  getTags: () => ipcRenderer.invoke('tags:getAll'),
-  createTag: (data: any) => ipcRenderer.invoke('tags:create', data),
-  updateTag: (id: string, data: any) => ipcRenderer.invoke('tags:update', id, data),
-  deleteTag: (id: string) => ipcRenderer.invoke('tags:delete', id),
-
   // TOTP 2FA
   getTotpAccounts: () => ipcRenderer.invoke('totp:getAll'),
   createTotpAccount: (data: any) => ipcRenderer.invoke('totp:create', data),
