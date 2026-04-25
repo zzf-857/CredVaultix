@@ -65,6 +65,7 @@ export function initDatabase() {
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      platform TEXT DEFAULT 'other',
       username TEXT DEFAULT '',
       password TEXT DEFAULT '',
       phone TEXT DEFAULT '',
@@ -82,13 +83,22 @@ export function initDatabase() {
       account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
       field_name TEXT NOT NULL,
       field_value TEXT DEFAULT '',
-      is_secret INTEGER DEFAULT 0
+      is_secret INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS account_tags (
+      account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+      tag_id TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (account_id, tag_id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_accounts_folder ON accounts(folder_id);
     CREATE INDEX IF NOT EXISTS idx_accounts_favorite ON accounts(is_favorite);
     CREATE INDEX IF NOT EXISTS idx_accounts_updated ON accounts(updated_at);
     CREATE INDEX IF NOT EXISTS idx_custom_fields_account ON account_custom_fields(account_id);
+    CREATE INDEX IF NOT EXISTS idx_account_tags_account ON account_tags(account_id);
+    CREATE INDEX IF NOT EXISTS idx_account_tags_tag ON account_tags(tag_id);
   `)
 
   // Migrations for existing databases
@@ -111,8 +121,38 @@ export function initDatabase() {
       console.error('Migration error for linked_account_id:', e)
     }
   }
+
+  try {
+    db.prepare('ALTER TABLE accounts ADD COLUMN is_deleted INTEGER DEFAULT 0').run()
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) console.error('Migration error for is_deleted:', e)
+  }
+
+  try {
+    db.prepare('ALTER TABLE accounts ADD COLUMN deleted_at DATETIME DEFAULT NULL').run()
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) console.error('Migration error for deleted_at:', e)
+  }
+
+  try {
+    db.prepare("ALTER TABLE accounts ADD COLUMN platform TEXT DEFAULT 'other'").run()
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) console.error('Migration error for platform:', e)
+  }
+
+  try {
+    db.prepare('ALTER TABLE account_custom_fields ADD COLUMN sort_order INTEGER DEFAULT 0').run()
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) console.error('Migration error for account_custom_fields.sort_order:', e)
+  }
+
+  db.prepare(`
+    UPDATE accounts
+    SET platform = 'other'
+    WHERE platform IS NULL OR platform NOT IN ('google', 'microsoft', 'other')
+  `).run()
 }
 
-export function getDatabase() {
+export function getDatabase(): Database.Database {
   return db
 }

@@ -3,8 +3,24 @@ import path from 'path'
 import { initDatabase, getDatabase } from './database'
 import { encrypt, decrypt } from './crypto'
 import fs from 'fs'
+import Papa from 'papaparse'
+import { v4 as uuidv4 } from 'uuid'
 
 let mainWindow: BrowserWindow | null = null
+const TAG_COLOR_PALETTE = ['#a8c7fa', '#81c995', '#f2b8b5', '#fdd663', '#d7aefb', '#78d9ec', '#fcb68e']
+
+function normalizeAccountPlatform(value?: string | null) {
+  if (value === 'google' || value === 'microsoft' || value === 'other') {
+    return value
+  }
+
+  return 'other'
+}
+
+function pickTagColor(name: string) {
+  const seed = Array.from(name).reduce((total, char) => total + char.charCodeAt(0), 0)
+  return TAG_COLOR_PALETTE[seed % TAG_COLOR_PALETTE.length]
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -68,7 +84,28 @@ app.on('window-all-closed', () => {
 })
 
 function registerIpcHandlers() {
-  const db = getDatabase()
+  let db = getDatabase()
+
+  const getTagsForAccount = (accountId: string) => {
+    return db.prepare(`
+      SELECT t.*
+      FROM tags t
+      INNER JOIN account_tags at ON at.tag_id = t.id
+      WHERE at.account_id = ?
+      ORDER BY t.name ASC
+    `).all(accountId)
+  }
+
+  const hydrateAccountRow = (row: any) => ({
+    ...row,
+    platform: normalizeAccountPlatform(row.platform),
+    username: decrypt(row.username),
+    password: decrypt(row.password),
+    phone: decrypt(row.phone),
+    backup_email: decrypt(row.backup_email),
+    totp_secret: decrypt(row.totp_secret),
+    tags: getTagsForAccount(row.id),
+  })
 
   // Window controls
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
@@ -221,15 +258,22 @@ function registerIpcHandlers() {
 
   ipcMain.handle('tags:delete', (_event, id: string) => {
     db.prepare('DELETE FROM prompt_tags WHERE tag_id = ?').run(id)
+    db.prepare('DELETE FROM account_tags WHERE tag_id = ?').run(id)
     db.prepare('DELETE FROM tags WHERE id = ?').run(id)
     return { success: true }
   })
 
   // ============ Accounts ============
-  ipcMain.handle('accounts:getAll', (_event, filters?: { search?: string; favoritesOnly?: boolean }) => {
+  ipcMain.handle('accounts:getAll', (_event, filters?: { search?: string; favoritesOnly?: boolean; isDeleted?: boolean; platform?: string }) => {
     let query = 'SELECT * FROM accounts'
     const conditions: string[] = []
     const params: any[] = []
+
+    if (filters?.isDeleted) {
+      conditions.push('is_deleted = 1')
+    } else {
+      conditions.push('is_deleted = 0')
+    }
 
     if (filters?.search) {
       conditions.push('(name LIKE ? OR username LIKE ? OR notes LIKE ?)')
@@ -238,48 +282,40 @@ function registerIpcHandlers() {
     if (filters?.favoritesOnly) {
       conditions.push('is_favorite = 1')
     }
+    if (filters?.platform && filters.platform !== 'all') {
+      conditions.push('platform = ?')
+      params.push(normalizeAccountPlatform(filters.platform))
+    }
     if (conditions.length > 0) {
       query += ' WHERE ' + conditions.join(' AND ')
     }
     query += ' ORDER BY updated_at DESC'
 
     const rows = db.prepare(query).all(...params) as any[]
-    // Decrypt sensitive fields for frontend
-    return rows.map(row => ({
-      ...row,
-      username: decrypt(row.username),
-      password: decrypt(row.password),
-      phone: decrypt(row.phone),
-      backup_email: decrypt(row.backup_email),
-      totp_secret: decrypt(row.totp_secret),
-    }))
+    return rows.map(hydrateAccountRow)
   })
 
   ipcMain.handle('accounts:getById', (_event, id: string) => {
     const row = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as any
     if (!row) return null
-    row.username = decrypt(row.username)
-    row.password = decrypt(row.password)
-    row.phone = decrypt(row.phone)
-    row.backup_email = decrypt(row.backup_email)
-    row.totp_secret = decrypt(row.totp_secret)
+    const hydrated = hydrateAccountRow(row)
 
     // Get custom fields
     const fields = db.prepare('SELECT * FROM account_custom_fields WHERE account_id = ? ORDER BY sort_order ASC').all(id) as any[]
-    row.customFields = fields.map((f: any) => ({
+    hydrated.customFields = fields.map((f: any) => ({
       ...f,
       field_value: f.is_secret ? decrypt(f.field_value) : f.field_value,
     }))
-    return row
+    return hydrated
   })
 
-  ipcMain.handle('accounts:create', (_event, data: { id: string; name: string; username?: string; password?: string; phone?: string; backupEmail?: string; totpSecret?: string; notes?: string }) => {
+  ipcMain.handle('accounts:create', (_event, data: { id: string; name: string; platform?: string; username?: string; password?: string; phone?: string; backupEmail?: string; totpSecret?: string; notes?: string }) => {
     const now = new Date().toISOString()
     db.prepare(`
-      INSERT INTO accounts (id, name, username, password, phone, backup_email, totp_secret, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      data.id, data.name,
+      data.id, data.name, normalizeAccountPlatform(data.platform ?? 'google'),
       encrypt(data.username || ''), encrypt(data.password || ''),
       encrypt(data.phone || ''), encrypt(data.backupEmail || ''),
       encrypt(data.totpSecret || ''), data.notes || '',
@@ -288,12 +324,13 @@ function registerIpcHandlers() {
     return { id: data.id }
   })
 
-  ipcMain.handle('accounts:update', (_event, id: string, data: { name?: string; username?: string; password?: string; phone?: string; backupEmail?: string; totpSecret?: string; notes?: string; isFavorite?: number }) => {
+  ipcMain.handle('accounts:update', (_event, id: string, data: { name?: string; platform?: string; username?: string; password?: string; phone?: string; backupEmail?: string; totpSecret?: string; notes?: string; isFavorite?: number }) => {
     const now = new Date().toISOString()
     const updates: string[] = ['updated_at = ?']
     const params: any[] = [now]
 
     if (data.name !== undefined) { updates.push('name = ?'); params.push(data.name) }
+    if (data.platform !== undefined) { updates.push('platform = ?'); params.push(normalizeAccountPlatform(data.platform)) }
     if (data.username !== undefined) { updates.push('username = ?'); params.push(encrypt(data.username)) }
     if (data.password !== undefined) { updates.push('password = ?'); params.push(encrypt(data.password)) }
     if (data.phone !== undefined) { updates.push('phone = ?'); params.push(encrypt(data.phone)) }
@@ -323,10 +360,90 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('accounts:delete', (_event, id: string) => {
+    const now = new Date().toISOString()
+    db.prepare('UPDATE accounts SET is_deleted = 1, deleted_at = ? WHERE id = ?').run(now, id)
+    return { success: true }
+  })
+
+  ipcMain.handle('accounts:restore', (_event, id: string) => {
+    db.prepare('UPDATE accounts SET is_deleted = 0, deleted_at = NULL WHERE id = ?').run(id)
+    return { success: true }
+  })
+
+  ipcMain.handle('accounts:hardDelete', (_event, id: string) => {
     db.prepare('DELETE FROM account_custom_fields WHERE account_id = ?').run(id)
-    // Instead of deleting the 2FA record, we mark the linked_account_id as orphaned so it shows "Main account deleted" status.
+    db.prepare('DELETE FROM account_tags WHERE account_id = ?').run(id)
     db.prepare("UPDATE totp_accounts SET linked_account_id = ? WHERE linked_account_id = ?").run('!deleted-' + id, id)
     db.prepare('DELETE FROM accounts WHERE id = ?').run(id)
+    return { success: true }
+  })
+
+  ipcMain.handle('accounts:importCsv', async () => {
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: '导入 CSV 账号数据',
+      filters: [{ name: 'CSV 文件', extensions: ['csv'] }],
+      properties: ['openFile']
+    })
+
+    if (result.canceled || result.filePaths.length === 0) return { count: 0 }
+    const raw = fs.readFileSync(result.filePaths[0], 'utf-8')
+    
+    // Parse CSV
+    const parsed = Papa.parse(raw, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => header.trim().toLowerCase()
+    })
+
+    if (parsed.errors.length && parsed.data.length === 0) return { count: 0 }
+
+    let count = 0
+    const now = new Date().toISOString()
+    const insertAccount = db.prepare('INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, is_favorite, is_deleted, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+
+    db.transaction(() => {
+      for (const row of parsed.data as any[]) {
+        const id = uuidv4()
+        const name = row.name || row.url || row.title || '未命名账号'
+        const username = row.username || row.login || row.email || ''
+        const password = row.password || ''
+        const notes = row.note || row.notes || ''
+        const totp = row.totp || row.authenticator || ''
+        
+        insertAccount.run(
+          id, name,
+          'other',
+          encrypt(username), encrypt(password),
+          encrypt(''), encrypt(''), encrypt(totp),
+          notes, 0, 0, now, now
+        )
+        count++
+      }
+    })()
+
+    return { count }
+  })
+
+  ipcMain.handle('accounts:addTag', (_event, data: { accountId: string; tagName: string; color?: string }) => {
+    const tagName = data.tagName.trim()
+    if (!tagName) {
+      throw new Error('Tag name is required')
+    }
+
+    let tag = db.prepare('SELECT * FROM tags WHERE lower(name) = lower(?)').get(tagName) as any
+    if (!tag) {
+      const tagId = uuidv4()
+      const color = data.color || pickTagColor(tagName)
+      db.prepare('INSERT INTO tags (id, name, color) VALUES (?, ?, ?)').run(tagId, tagName, color)
+      tag = { id: tagId, name: tagName, color }
+    }
+
+    db.prepare('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)').run(data.accountId, tag.id)
+    return { tagId: tag.id }
+  })
+
+  ipcMain.handle('accounts:removeTag', (_event, data: { accountId: string; tagId: string }) => {
+    db.prepare('DELETE FROM account_tags WHERE account_id = ? AND tag_id = ?').run(data.accountId, data.tagId)
     return { success: true }
   })
 
@@ -406,7 +523,7 @@ function registerIpcHandlers() {
   ipcMain.handle('db:export', async () => {
     const result = await dialog.showSaveDialog(mainWindow!, {
       title: '导出数据库',
-      defaultPath: `PromptManager_backup_${new Date().toISOString().slice(0, 10)}.json`,
+      defaultPath: `AccountManager_backup_${new Date().toISOString().slice(0, 10)}.json`,
       filters: [
         { name: 'JSON 备份', extensions: ['json'] },
         { name: 'SQLite 数据库', extensions: ['db'] }
@@ -416,11 +533,11 @@ function registerIpcHandlers() {
     if (result.canceled || !result.filePath) return { success: false }
 
     if (result.filePath.endsWith('.db')) {
-      const dbPath = path.join(app.getPath('userData'), 'prompt-manager.db')
+      const dbPath = path.join(app.getPath('userData'), 'account-manager.db')
       fs.copyFileSync(dbPath, result.filePath)
     } else {
       const data = {
-        version: 2,
+        version: 3,
         exportedAt: new Date().toISOString(),
         prompts: db.prepare('SELECT * FROM prompts').all(),
         folders: db.prepare('SELECT * FROM folders').all(),
@@ -429,6 +546,7 @@ function registerIpcHandlers() {
         totpAccounts: db.prepare('SELECT * FROM totp_accounts').all(),
         accounts: db.prepare('SELECT * FROM accounts').all(),
         accountCustomFields: db.prepare('SELECT * FROM account_custom_fields').all(),
+        accountTags: db.prepare('SELECT * FROM account_tags').all(),
       }
       fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), 'utf-8')
     }
@@ -450,10 +568,11 @@ function registerIpcHandlers() {
     const filePath = result.filePaths[0]
 
     if (filePath.endsWith('.db')) {
-      const dbPath = path.join(app.getPath('userData'), 'prompt-manager.db')
+      const dbPath = path.join(app.getPath('userData'), 'account-manager.db')
       db.close()
       fs.copyFileSync(filePath, dbPath)
       initDatabase()
+      db = getDatabase()
     } else {
       const raw = fs.readFileSync(filePath, 'utf-8')
       const data = JSON.parse(raw)
@@ -465,6 +584,7 @@ function registerIpcHandlers() {
         db.prepare('DELETE FROM folders').run()
         db.prepare('DELETE FROM totp_accounts').run()
         db.prepare('DELETE FROM account_custom_fields').run()
+        db.prepare('DELETE FROM account_tags').run()
         db.prepare('DELETE FROM accounts').run()
 
         const insertFolder = db.prepare('INSERT INTO folders (id, name, parent_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?)')
@@ -494,15 +614,36 @@ function registerIpcHandlers() {
         }
 
         // Import Accounts
-        const insertAccount = db.prepare('INSERT INTO accounts (id, name, username, password, phone, backup_email, totp_secret, notes, folder_id, is_favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        const insertAccount = db.prepare('INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, folder_id, is_favorite, is_deleted, deleted_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         for (const a of data.accounts || []) {
-          insertAccount.run(a.id, a.name, a.username || '', a.password || '', a.phone || '', a.backup_email || '', a.totp_secret || '', a.notes || '', a.folder_id, a.is_favorite || 0, a.created_at, a.updated_at)
+          insertAccount.run(
+            a.id,
+            a.name,
+            normalizeAccountPlatform(a.platform),
+            a.username || '',
+            a.password || '',
+            a.phone || '',
+            a.backup_email || '',
+            a.totp_secret || '',
+            a.notes || '',
+            a.folder_id,
+            a.is_favorite || 0,
+            a.is_deleted || 0,
+            a.deleted_at || null,
+            a.created_at,
+            a.updated_at
+          )
         }
 
         // Import Account Custom Fields
         const insertField = db.prepare('INSERT INTO account_custom_fields (id, account_id, field_name, field_value, is_secret, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
         for (const f of data.accountCustomFields || []) {
           insertField.run(f.id, f.account_id, f.field_name, f.field_value || '', f.is_secret || 0, f.sort_order || 0)
+        }
+
+        const insertAccountTag = db.prepare('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)')
+        for (const tag of data.accountTags || []) {
+          insertAccountTag.run(tag.account_id, tag.tag_id)
         }
       })
 

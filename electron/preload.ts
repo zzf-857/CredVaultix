@@ -39,6 +39,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createAccount: (data: any) => ipcRenderer.invoke('accounts:create', data),
   updateAccount: (id: string, data: any) => ipcRenderer.invoke('accounts:update', id, data),
   deleteAccount: (id: string) => ipcRenderer.invoke('accounts:delete', id),
+  restoreAccount: (id: string) => ipcRenderer.invoke('accounts:restore', id),
+  hardDeleteAccount: (id: string) => ipcRenderer.invoke('accounts:hardDelete', id),
+  importCsvAccounts: () => ipcRenderer.invoke('accounts:importCsv'),
+  addAccountTag: (data: any) => ipcRenderer.invoke('accounts:addTag', data),
+  removeAccountTag: (data: any) => ipcRenderer.invoke('accounts:removeTag', data),
 
   // Custom Fields
   addAccountField: (data: any) => ipcRenderer.invoke('accounts:addField', data),

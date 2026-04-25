@@ -4,11 +4,9 @@ import { darkTheme, lightTheme } from './theme'
 import { useStore } from './stores/useStore'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
-import PromptList from './components/PromptList'
-import PromptDetail from './components/PromptDetail'
 import TwoFactorPanel from './components/TwoFactorPanel'
 import AccountManager from './components/AccountManager'
-import AddressGenerator from './components/AddressGenerator'
+import TrashManager from './components/TrashManager'
 
 export default function App() {
   const themeMode = useStore((s) => s.themeMode)
@@ -35,14 +33,8 @@ export default function App() {
             sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}
           >
             {activeView === 'accounts' && <AccountManager />}
-            {activeView === 'prompts' && (
-              <>
-                <PromptList />
-                <PromptDetail />
-              </>
-            )}
             {activeView === '2fa' && <TwoFactorPanel />}
-            {activeView === 'address-generator' && <AddressGenerator />}
+            {activeView === 'trash' && <TrashManager />}
           </Box>
         </Box>
       </Box>
