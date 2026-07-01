@@ -280,7 +280,7 @@ function TotpCard({
           sx={{
             fontFamily: "'Inter', monospace",
             fontWeight: 700,
-            letterSpacing: '0.12em',
+            letterSpacing: 0,
             fontSize: '1.75rem',
             color: isUrgent ? 'error.main' : 'primary.main',
             flex: 1,
@@ -480,7 +480,7 @@ function TempTotpDisplay({
           sx={{
             fontFamily: "'Inter', monospace",
             fontWeight: 700,
-            letterSpacing: '0.12em',
+            letterSpacing: 0,
             fontSize: '1.75rem',
             color: isUrgent ? 'error.main' : 'primary.main',
             flex: 1,

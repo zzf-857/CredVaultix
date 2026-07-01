@@ -22,7 +22,7 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
       }}
     >
       <Box sx={{ px: 2, pt: 2.5, pb: 1.5, display: collapsed ? 'none' : 'block' }}>
-        <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '0.12em' }}>
+        <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: 0 }}>
           CredVaultix
         </Typography>
         <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1rem' }}>

@@ -30,7 +30,7 @@ export default function TitleBar() {
         variant="subtitle2"
         sx={{
           fontWeight: 700,
-          letterSpacing: '0.04em',
+          letterSpacing: 0,
           fontSize: '0.8rem',
           color: 'text.secondary',
           ml: 1,

@@ -1,10 +1,11 @@
 # AccountManager / 本地账号管家
 
-一个基于 **Electron + React + Vite** 的本地桌面账号管家，1.x 版本只聚焦三件事：
+一个基于 **Electron + React + Vite** 的本地桌面账号管家，聚焦本地账号、2FA 与服务密钥资料管理：
 
 1. 管理 `Google` 和 `Microsoft` 主账号
 2. 用标签记录这些主账号登录过的平台
 3. 管理并查看关联的 `2FA` 动态口令
+4. 整理 API Key、AppID、SecretKey、服务器信息、MCP 服务配置等自定义服务资料
 
 ![演示视频](myFolder/v.beta.0.1演示.gif)
 
@@ -37,6 +38,15 @@
 
 - 支持导入 / 导出本地数据库
 - 支持 CSV 导入旧账号数据
+- 涉及数据库结构升级或导入覆盖前，会优先备份当前 SQLite 数据库
+
+### 5. 服务信息库
+
+- 用完全自定义的服务记录保存 API Key、服务器信息、MCP 配置、云厂商凭证和其他重要资料
+- 支持外部分组与服务内部字段分组，分组可以重命名、折叠、删除，删除分组不会删除其中内容
+- 字段名称完全自定义，适配不同厂商的 `SecretId`、`SecretKey`、`AppID`、`Token` 等叫法
+- 敏感字段默认隐藏并加密保存，可以按需显示或复制
+- 升级前会自动备份本地数据库，优先保护已有账号、标签、2FA 与自定义字段数据
 
 ---
 
@@ -89,6 +99,7 @@ AccountManager/
 ├── electron/                 # Electron 主线程与 SQLite / IPC
 ├── src/
 │   ├── components/           # 账号、2FA、回收站等界面
+│   │   └── service-info/      # 服务信息库界面
 │   ├── stores/               # Zustand 状态
 │   ├── utils/                # 平台与标签辅助逻辑
 │   ├── theme/                # MUI 主题
@@ -101,4 +112,4 @@ AccountManager/
 
 ## 隐私说明
 
-应用不包含自建云同步或分析埋点。账号记录、标签、2FA 种子与数据库备份均由本机 `account-manager.db` 管理，你可以自行备份和迁移。
+应用不包含自建云同步或分析埋点。账号记录、标签、2FA 种子、服务信息与数据库备份均由本机 `account-manager.db` 管理，你可以在应用内打开数据目录并自行备份和迁移。

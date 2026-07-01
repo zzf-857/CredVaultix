@@ -345,7 +345,7 @@ function AccountDetail({
 
   const renderAccountInfoSection = () => (
     <React.Fragment key="account-info">
-      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: '0.06em', mb: 1, display: 'block' }}>
+      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, mb: 1, display: 'block' }}>
         账号信息
       </Typography>
       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
@@ -418,7 +418,7 @@ function AccountDetail({
 
   const renderRealtimeCodeSection = () => (
     <React.Fragment key="realtime-code">
-      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: '0.06em', mb: 1, display: 'block' }}>
+      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, mb: 1, display: 'block' }}>
         实时验证码
       </Typography>
       <Box sx={{ mb: 2 }}>
@@ -429,7 +429,7 @@ function AccountDetail({
 
   const renderTagsSection = () => (
     <React.Fragment key="registered-platform-tags">
-      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: '0.06em', mb: 1, display: 'block' }}>
+      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, mb: 1, display: 'block' }}>
         注册平台标签
       </Typography>
       <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
@@ -515,7 +515,7 @@ function AccountDetail({
   const renderCustomFieldsSection = () => (
     <React.Fragment key="custom-fields">
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: '0.06em', flex: 1 }}>
+        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, flex: 1 }}>
           自定义字段
         </Typography>
         {!editing && (
@@ -592,7 +592,7 @@ function AccountDetail({
 
   const renderNotesSection = () => (
     <React.Fragment key="notes">
-      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: '0.06em', mb: 1, display: 'block' }}>
+      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, mb: 1, display: 'block' }}>
         备注
       </Typography>
       {editing ? (
