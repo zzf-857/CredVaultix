@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar'
 import TwoFactorPanel from './components/TwoFactorPanel'
 import AccountManager from './components/AccountManager'
 import TrashManager from './components/TrashManager'
+import ServiceInfoManager from './components/service-info/ServiceInfoManager'
 
 export default function App() {
   const themeMode = useStore((s) => s.themeMode)
@@ -88,6 +89,7 @@ export default function App() {
             sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}
           >
             {activeView === 'accounts' && <AccountManager />}
+            {activeView === 'service-info' && <ServiceInfoManager />}
             {activeView === '2fa' && <TwoFactorPanel />}
             {activeView === 'trash' && <TrashManager />}
           </Box>

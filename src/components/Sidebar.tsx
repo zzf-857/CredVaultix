@@ -3,6 +3,7 @@ import { Box, Divider, List, ListItemButton, ListItemIcon, ListItemText, Typogra
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import SecurityIcon from '@mui/icons-material/Security'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import VpnKeyIcon from '@mui/icons-material/VpnKey'
 import { useStore } from '../stores/useStore'
 
 export default function Sidebar({ width = 260 }: { width?: number }) {
@@ -24,13 +25,13 @@ export default function Sidebar({ width = 260 }: { width?: number }) {
     >
       <Box sx={{ px: 2, pt: 2.5, pb: 1.5 }}>
         <Typography variant="overline" sx={{ color: 'text.secondary', letterSpacing: '0.12em' }}>
-          Focused 1.x
+          CredVaultix
         </Typography>
         <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '1rem' }}>
-          账号与 2FA
+          账号与服务信息
         </Typography>
         <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.82rem', mt: 0.75 }}>
-          仅保留 Google / Microsoft 主账号、平台标签和本地 2FA。
+          本地管理账号、2FA 与自定义密钥资料。
         </Typography>
       </Box>
 
@@ -48,6 +49,22 @@ export default function Sidebar({ width = 260 }: { width?: number }) {
           <ListItemText
             primary="账号管理"
             secondary="Google / Microsoft 主账号"
+            primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 600 }}
+            secondaryTypographyProps={{ fontSize: '0.74rem' }}
+          />
+        </ListItemButton>
+
+        <ListItemButton
+          selected={activeView === 'service-info'}
+          onClick={() => setActiveView('service-info')}
+          sx={{ borderRadius: 2, mb: 0.5 }}
+        >
+          <ListItemIcon sx={{ minWidth: 36 }}>
+            <VpnKeyIcon sx={{ fontSize: 20, color: '#f6c177' }} />
+          </ListItemIcon>
+          <ListItemText
+            primary="服务信息"
+            secondary="API Key / Secret / 自定义资料"
             primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 600 }}
             secondaryTypographyProps={{ fontSize: '0.74rem' }}
           />
