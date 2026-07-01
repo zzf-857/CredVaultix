@@ -1,7 +1,14 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import type Database from 'better-sqlite3'
 import path from 'path'
 import { initDatabase, getDatabase } from './database'
 import { encrypt, decrypt } from './crypto'
+import { backupDatabaseIfExists } from './databaseSafety'
+import {
+  SERVICE_INFO_BACKUP_VERSION,
+  importServiceInfoBackupData,
+  readServiceInfoBackupData,
+} from './serviceInfoBackup'
 import { registerServiceInfoIpc } from './serviceInfoRepository'
 import fs from 'fs'
 import Papa from 'papaparse'
@@ -21,6 +28,19 @@ function normalizeAccountPlatform(value?: string | null) {
 function pickTagColor(name: string) {
   const seed = Array.from(name).reduce((total, char) => total + char.charCodeAt(0), 0)
   return TAG_COLOR_PALETTE[seed % TAG_COLOR_PALETTE.length]
+}
+
+function backupCurrentDatabaseBeforeImport(currentDb: Database.Database) {
+  const userDataPath = app.getPath('userData')
+  const dbPath = path.join(userDataPath, 'account-manager.db')
+
+  try {
+    currentDb.pragma('wal_checkpoint(FULL)')
+  } catch (error) {
+    console.warn('Failed to checkpoint database before import backup:', error)
+  }
+
+  backupDatabaseIfExists(dbPath, userDataPath)
 }
 
 function createWindow() {
@@ -395,13 +415,14 @@ function registerIpcHandlers() {
       fs.copyFileSync(dbPath, result.filePath)
     } else {
       const data = {
-        version: 4,
+        version: SERVICE_INFO_BACKUP_VERSION,
         exportedAt: new Date().toISOString(),
         tags: db.prepare('SELECT * FROM tags').all(),
         totpAccounts: db.prepare('SELECT * FROM totp_accounts').all(),
         accounts: db.prepare('SELECT * FROM accounts').all(),
         accountCustomFields: db.prepare('SELECT * FROM account_custom_fields').all(),
         accountTags: db.prepare('SELECT * FROM account_tags').all(),
+        ...readServiceInfoBackupData(db),
       }
       fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), 'utf-8')
     }
@@ -424,6 +445,7 @@ function registerIpcHandlers() {
 
     if (filePath.endsWith('.db')) {
       const dbPath = path.join(app.getPath('userData'), 'account-manager.db')
+      backupCurrentDatabaseBeforeImport(db)
       db.close()
       fs.copyFileSync(filePath, dbPath)
       initDatabase()
@@ -431,6 +453,8 @@ function registerIpcHandlers() {
     } else {
       const raw = fs.readFileSync(filePath, 'utf-8')
       const data = JSON.parse(raw)
+
+      backupCurrentDatabaseBeforeImport(db)
 
       const importTransaction = db.transaction(() => {
         db.prepare('DELETE FROM tags').run()
@@ -481,6 +505,8 @@ function registerIpcHandlers() {
         for (const tag of data.accountTags || []) {
           insertAccountTag.run(tag.account_id, tag.tag_id)
         }
+
+        importServiceInfoBackupData(db, data)
       })
 
       importTransaction()
