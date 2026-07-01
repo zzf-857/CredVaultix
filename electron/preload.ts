@@ -31,6 +31,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateAccountField: (id: string, data: any) => ipcRenderer.invoke('accounts:updateField', id, data),
   deleteAccountField: (id: string) => ipcRenderer.invoke('accounts:deleteField', id),
 
+  // Service Information
+  getServiceInfo: () => ipcRenderer.invoke('serviceInfo:getAll'),
+  getServiceDetail: (serviceId: string) => ipcRenderer.invoke('serviceInfo:getDetail', serviceId),
+  createSecretGroup: (data: any) => ipcRenderer.invoke('serviceInfo:createGroup', data),
+  updateSecretGroup: (id: string, data: any) => ipcRenderer.invoke('serviceInfo:updateGroup', id, data),
+  deleteSecretGroup: (id: string) => ipcRenderer.invoke('serviceInfo:deleteGroup', id),
+  createSecretService: (data: any) => ipcRenderer.invoke('serviceInfo:createService', data),
+  updateSecretService: (id: string, data: any) => ipcRenderer.invoke('serviceInfo:updateService', id, data),
+  deleteSecretService: (id: string) => ipcRenderer.invoke('serviceInfo:deleteService', id),
+  moveSecretServices: (data: any) => ipcRenderer.invoke('serviceInfo:moveServices', data),
+  reorderSecretServices: (data: any) => ipcRenderer.invoke('serviceInfo:reorderServices', data),
+  createSecretFieldGroup: (data: any) => ipcRenderer.invoke('serviceInfo:createFieldGroup', data),
+  updateSecretFieldGroup: (id: string, data: any) => ipcRenderer.invoke('serviceInfo:updateFieldGroup', id, data),
+  deleteSecretFieldGroup: (id: string) => ipcRenderer.invoke('serviceInfo:deleteFieldGroup', id),
+  createSecretField: (data: any) => ipcRenderer.invoke('serviceInfo:createField', data),
+  updateSecretField: (id: string, data: any) => ipcRenderer.invoke('serviceInfo:updateField', id, data),
+  deleteSecretField: (id: string) => ipcRenderer.invoke('serviceInfo:deleteField', id),
+  moveSecretFields: (data: any) => ipcRenderer.invoke('serviceInfo:moveFields', data),
+  reorderSecretFields: (data: any) => ipcRenderer.invoke('serviceInfo:reorderFields', data),
+  openDataDirectory: () => ipcRenderer.invoke('app:openDataDirectory'),
+
+  // Preferences
+  getAppPreferences: () => ipcRenderer.invoke('preferences:get'),
+  updateAppPreferences: (patch: any) => ipcRenderer.invoke('preferences:update', patch),
+  resetAppPreferences: () => ipcRenderer.invoke('preferences:reset'),
+
   // Database
   exportDatabase: () => ipcRenderer.invoke('db:export'),
   importDatabase: () => ipcRenderer.invoke('db:import'),

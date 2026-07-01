@@ -1,15 +1,40 @@
 import Database from 'better-sqlite3'
+import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
+import {
+  assertCountsNotReduced,
+  backupDatabaseIfExists,
+  getExistingTableCounts,
+  hasServiceInfoSchema,
+} from './databaseSafety'
 
 let db: Database.Database
 
 export function initDatabase() {
-  const dbPath = path.join(app.getPath('userData'), 'account-manager.db')
+  const userDataPath = app.getPath('userData')
+  const dbPath = path.join(userDataPath, 'account-manager.db')
+  let needsServiceInfoMigration = false
+
+  if (fs.existsSync(dbPath)) {
+    const schemaCheckDb = new Database(dbPath, { readonly: true, fileMustExist: true })
+    try {
+      needsServiceInfoMigration = !hasServiceInfoSchema(schemaCheckDb)
+    } finally {
+      schemaCheckDb.close()
+    }
+  }
+
+  if (needsServiceInfoMigration) {
+    backupDatabaseIfExists(dbPath, userDataPath)
+  }
+
   db = new Database(dbPath)
 
   // Enable WAL mode for better performance
   db.pragma('journal_mode = WAL')
+
+  const protectedCountsBefore = getExistingTableCounts(db)
 
   // Create tables
   db.exec(`
@@ -69,6 +94,61 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_custom_fields_account ON account_custom_fields(account_id);
     CREATE INDEX IF NOT EXISTS idx_account_tags_account ON account_tags(account_id);
     CREATE INDEX IF NOT EXISTS idx_account_tags_tag ON account_tags(tag_id);
+
+    CREATE TABLE IF NOT EXISTS secret_groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color TEXT DEFAULT '#a8c7fa',
+      sort_order INTEGER DEFAULT 0,
+      is_collapsed INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS secret_services (
+      id TEXT PRIMARY KEY,
+      group_id TEXT DEFAULT NULL REFERENCES secret_groups(id) ON DELETE SET NULL,
+      linked_account_id TEXT DEFAULT NULL REFERENCES accounts(id) ON DELETE SET NULL,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      url TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      is_favorite INTEGER DEFAULT 0,
+      is_deleted INTEGER DEFAULT 0,
+      deleted_at DATETIME DEFAULT NULL,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS secret_field_groups (
+      id TEXT PRIMARY KEY,
+      service_id TEXT NOT NULL REFERENCES secret_services(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      color TEXT DEFAULT '#a8c7fa',
+      sort_order INTEGER DEFAULT 0,
+      is_collapsed INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS secret_fields (
+      id TEXT PRIMARY KEY,
+      service_id TEXT NOT NULL REFERENCES secret_services(id) ON DELETE CASCADE,
+      group_id TEXT DEFAULT NULL REFERENCES secret_field_groups(id) ON DELETE SET NULL,
+      field_name TEXT NOT NULL,
+      field_value TEXT DEFAULT '',
+      is_secret INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_secret_services_group ON secret_services(group_id);
+    CREATE INDEX IF NOT EXISTS idx_secret_services_deleted ON secret_services(is_deleted);
+    CREATE INDEX IF NOT EXISTS idx_secret_field_groups_service ON secret_field_groups(service_id);
+    CREATE INDEX IF NOT EXISTS idx_secret_fields_service ON secret_fields(service_id);
+    CREATE INDEX IF NOT EXISTS idx_secret_fields_group ON secret_fields(group_id);
   `)
 
   // Migrations for existing databases
@@ -121,6 +201,9 @@ export function initDatabase() {
     SET platform = 'other'
     WHERE platform IS NULL OR platform NOT IN ('google', 'microsoft', 'other')
   `).run()
+
+  const protectedCountsAfter = getExistingTableCounts(db)
+  assertCountsNotReduced(protectedCountsBefore, protectedCountsAfter)
 }
 
 export function getDatabase(): Database.Database {
