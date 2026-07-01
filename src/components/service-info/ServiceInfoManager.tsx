@@ -27,6 +27,7 @@ import type { SecretGroupRow, SecretServiceRow, ServiceInfoSortMode } from '../.
 import { getGroupedItems, sortServiceInfoItems } from '../../utils/serviceInfoGrouping'
 import BatchActionBar from './BatchActionBar'
 import ServiceGroupList from './ServiceGroupList'
+import ServiceDetail from './ServiceDetail'
 
 const GROUP_COLORS = ['#a8c7fa', '#78d9ec', '#f6c177', '#b8e986', '#f4a6a6', '#c4b5fd']
 
@@ -306,11 +307,7 @@ export default function ServiceInfoManager() {
         </Box>
       </Box>
 
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', px: 3 }}>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          选择一个服务信息
-        </Typography>
-      </Box>
+      <ServiceDetail />
 
       <Dialog open={serviceDialogOpen} onClose={() => setServiceDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>新建服务</DialogTitle>
