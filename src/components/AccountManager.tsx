@@ -44,6 +44,8 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 import ShieldIcon from '@mui/icons-material/Shield'
 import LabelOutlinedIcon from '@mui/icons-material/LabelOutlined'
 import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
+import PushPinIcon from '@mui/icons-material/PushPin'
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import { v4 as uuidv4 } from 'uuid'
 import AccountPlatformDialog from './AccountPlatformDialog'
 import TotpCodeDisplay from './TotpCodeDisplay'
@@ -181,10 +183,14 @@ function AccountDetail({
   accountId,
   onClose,
   editSignal,
+  isPinned,
+  onTogglePin,
 }: {
   accountId: string
   onClose: () => void
   editSignal?: number
+  isPinned: boolean
+  onTogglePin: (e: React.MouseEvent) => void
 }) {
   const {
     addAccountTag,
@@ -679,6 +685,15 @@ function AccountDetail({
             </>
           ) : (
             <>
+              <Tooltip title={isPinned ? "取消置顶" : "置顶主账号"} arrow TransitionComponent={Fade}>
+                <IconButton
+                  size="small"
+                  onClick={onTogglePin}
+                  sx={{ color: isPinned ? 'primary.main' : 'text.secondary' }}
+                >
+                  {isPinned ? <PushPinIcon sx={{ fontSize: 20 }} /> : <PushPinOutlinedIcon sx={{ fontSize: 20 }} />}
+                </IconButton>
+              </Tooltip>
               <IconButton size="small" onClick={() => setEditing(true)} sx={{ color: 'text.secondary' }}>
                 <EditIcon sx={{ fontSize: 20 }} />
               </IconButton>
@@ -786,6 +801,10 @@ export default function AccountManager() {
     setAccountPlatformFilter,
     setAccountSearchQuery,
     setSelectedAccount,
+    accountsPinnedIds,
+    accountsCustomOrder,
+    togglePinAccount,
+    updateAccountsCustomOrder,
   } = useStore()
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<{ mouseX: number; mouseY: number; accountId: string } | null>(null)
@@ -793,6 +812,94 @@ export default function AccountManager() {
   const [editSignal, setEditSignal] = useState(0)
   const [platformDialogOpen, setPlatformDialogOpen] = useState(false)
   const { copiedField, copy } = useCopy()
+
+  // Drag and drop states for custom account ordering
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+
+  // List container custom width states
+  const [listWidth, setListWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('accounts_list_width')
+      return saved ? parseInt(saved, 10) : 360
+    } catch {
+      return 360
+    }
+  })
+
+  const handleListResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = listWidth
+
+    const doDrag = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(280, Math.min(600, startWidth + (moveEvent.clientX - startX)))
+      setListWidth(newWidth)
+      try {
+        localStorage.setItem('accounts_list_width', newWidth.toString())
+      } catch {}
+    }
+
+    const stopDrag = () => {
+      window.removeEventListener('mousemove', doDrag)
+      window.removeEventListener('mouseup', stopDrag)
+    }
+
+    window.addEventListener('mousemove', doDrag)
+    window.addEventListener('mouseup', stopDrag)
+  }
+
+  // Sort accounts list locally: 1. Pinned accounts first, 2. customOrder sequence
+  const sortedAccounts = [...accounts].sort((a, b) => {
+    const aPinned = accountsPinnedIds.includes(a.id)
+    const bPinned = accountsPinnedIds.includes(b.id)
+    
+    if (aPinned && !bPinned) return -1
+    if (!aPinned && bPinned) return 1
+
+    const aIndex = accountsCustomOrder.indexOf(a.id)
+    const bIndex = accountsCustomOrder.indexOf(b.id)
+    const aHas = aIndex !== -1
+    const bHas = bIndex !== -1
+    if (aHas && bHas) return aIndex - bIndex
+    if (aHas && !bHas) return -1
+    if (!aHas && bHas) return 1
+    return 0
+  })
+
+  // DND event handlers for main accounts
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedId(id)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault()
+    if (!draggedId || draggedId === targetId) return
+
+    const currentIds = sortedAccounts.map(a => a.id)
+    const draggedIndex = currentIds.indexOf(draggedId)
+    const targetIndex = currentIds.indexOf(targetId)
+
+    if (draggedIndex === -1 || targetIndex === -1) return
+
+    const newSortedIds = [...currentIds]
+    const [removed] = newSortedIds.splice(draggedIndex, 1)
+    newSortedIds.splice(targetIndex, 0, removed)
+
+    // Save configuration sequence to global store
+    updateAccountsCustomOrder(newSortedIds)
+
+    setDraggedId(null)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedId(null)
+  }
 
   useEffect(() => {
     loadAccounts()
@@ -832,7 +939,7 @@ export default function AccountManager() {
 
   return (
     <Box sx={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden' }}>
-      <Box sx={{ width: 360, minWidth: 360, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <Box sx={{ width: listWidth, minWidth: listWidth, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', height: '100%' }}>
         <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
           <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 700 }}>
             主账号仓库
@@ -898,9 +1005,14 @@ export default function AccountManager() {
               </Button>
             </Box>
           ) : (
-            accounts.map((account) => (
+            sortedAccounts.map((account) => (
               <Box
                 key={account.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, account.id)}
+                onDragOver={(e) => handleDragOver(e, account.id)}
+                onDrop={(e) => handleDrop(e, account.id)}
+                onDragEnd={handleDragEnd}
                 onClick={() => setSelectedAccount(account.id)}
                 onContextMenu={(event) => handleContextMenu(event, account.id)}
                 onMouseEnter={() => setHoveredId(account.id)}
@@ -908,12 +1020,19 @@ export default function AccountManager() {
                 sx={{
                   px: 2,
                   py: 1.5,
-                  cursor: 'pointer',
+                  cursor: 'grab',
                   borderBottom: '1px solid',
                   borderColor: 'divider',
                   bgcolor: selectedAccountId === account.id ? 'action.selected' : 'transparent',
-                  '&:hover': { bgcolor: selectedAccountId === account.id ? 'action.selected' : 'action.hover' },
-                  transition: 'background-color 0.1s',
+                  opacity: draggedId === account.id ? 0.35 : 1,
+                  transform: draggedId === account.id ? 'scale(0.98)' : 'scale(1)',
+                  transition: 'all 0.15s ease',
+                  borderLeft: accountsPinnedIds.includes(account.id) ? '3px solid #a8c7fa' : '3px solid transparent',
+                  '&:active': { cursor: 'grabbing' },
+                  '&:hover': {
+                    bgcolor: selectedAccountId === account.id ? 'action.selected' : 'action.hover',
+                    borderColor: draggedId && draggedId !== account.id ? 'primary.main' : 'divider',
+                  },
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
@@ -950,6 +1069,22 @@ export default function AccountManager() {
                   </Box>
 
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
+                    {/* Pin 置顶按钮 */}
+                    <Tooltip title={accountsPinnedIds.includes(account.id) ? "取消置顶" : "置顶主账号"} arrow TransitionComponent={Fade}>
+                      <IconButton
+                        size="small"
+                        onClick={(event) => { event.stopPropagation(); togglePinAccount(account.id) }}
+                        sx={{
+                          color: accountsPinnedIds.includes(account.id) ? 'primary.main' : 'text.secondary',
+                          opacity: accountsPinnedIds.includes(account.id) ? 1 : (hoveredId === account.id ? 0.85 : 0.25),
+                          transition: 'opacity 0.15s',
+                          '&:hover': { color: 'primary.main', opacity: 1 }
+                        }}
+                      >
+                        {accountsPinnedIds.includes(account.id) ? <PushPinIcon sx={{ fontSize: 16 }} /> : <PushPinOutlinedIcon sx={{ fontSize: 16 }} />}
+                      </IconButton>
+                    </Tooltip>
+
                     {account.totp_secret && account.totp_secret.trim() && (
                       <Tooltip title="已启用 2FA" arrow>
                         <ShieldIcon sx={{ fontSize: 16, color: '#81c995' }} />
@@ -977,8 +1112,38 @@ export default function AccountManager() {
         </Box>
       </Box>
 
+      {/* 垂直拖动分割条 */}
+      <Box
+        onMouseDown={handleListResizeStart}
+        sx={{
+          width: '4px',
+          cursor: 'col-resize',
+          bgcolor: 'divider',
+          transition: 'background-color 0.2s',
+          position: 'relative',
+          zIndex: 10,
+          '&:hover': {
+            bgcolor: 'primary.main',
+          },
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: '-4px',
+            right: '-4px',
+            bottom: 0,
+          }
+        }}
+      />
+
       {selectedAccountId ? (
-        <AccountDetail accountId={selectedAccountId} onClose={() => setSelectedAccount(null)} editSignal={editSignal} />
+        <AccountDetail
+          accountId={selectedAccountId}
+          onClose={() => setSelectedAccount(null)}
+          editSignal={editSignal}
+          isPinned={accountsPinnedIds.includes(selectedAccountId)}
+          onTogglePin={(e) => { e.stopPropagation(); togglePinAccount(selectedAccountId) }}
+        />
       ) : (
         <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Box sx={{ textAlign: 'center', px: 3, maxWidth: 420 }}>

@@ -14,11 +14,17 @@ interface AppState {
   accountPlatformFilter: AccountPlatform | 'all'
   themeMode: 'dark' | 'light'
 
+  accountsPinnedIds: string[]
+  accountsCustomOrder: string[]
+
   setActiveView: (view: 'accounts' | '2fa' | 'trash') => void
   setSelectedAccount: (id: string | null) => void
   setAccountSearchQuery: (query: string) => void
   setAccountPlatformFilter: (platform: AccountPlatform | 'all') => void
   toggleTheme: () => void
+
+  togglePinAccount: (id: string) => void
+  updateAccountsCustomOrder: (order: string[]) => void
 
   loadTotpAccounts: () => Promise<void>
   loadAccounts: () => Promise<void>
@@ -52,11 +58,50 @@ export const useStore = create<AppState>((set, get) => ({
   accountPlatformFilter: 'all',
   themeMode: 'dark',
 
+  accountsPinnedIds: (() => {
+    try {
+      const saved = localStorage.getItem('accounts_pinned_ids')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })(),
+  accountsCustomOrder: (() => {
+    try {
+      const saved = localStorage.getItem('accounts_custom_order')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })(),
+
   setActiveView: (view) => set({ activeView: view }),
   setSelectedAccount: (id) => set({ selectedAccountId: id }),
   setAccountSearchQuery: (accountSearchQuery) => set({ accountSearchQuery }),
   setAccountPlatformFilter: (accountPlatformFilter) => set({ accountPlatformFilter }),
   toggleTheme: () => set((state) => ({ themeMode: state.themeMode === 'dark' ? 'light' : 'dark' })),
+
+  togglePinAccount: (id) => {
+    set((state) => {
+      const accountsPinnedIds = state.accountsPinnedIds.includes(id)
+        ? state.accountsPinnedIds.filter(x => x !== id)
+        : [...state.accountsPinnedIds, id]
+      try {
+        localStorage.setItem('accounts_pinned_ids', JSON.stringify(accountsPinnedIds))
+      } catch (err) {
+        console.error('Failed to save accounts pinned ids:', err)
+      }
+      return { accountsPinnedIds }
+    })
+  },
+  updateAccountsCustomOrder: (order) => {
+    set({ accountsCustomOrder: order })
+    try {
+      localStorage.setItem('accounts_custom_order', JSON.stringify(order))
+    } catch (err) {
+      console.error('Failed to save accounts custom order:', err)
+    }
+  },
 
   loadTotpAccounts: async () => {
     const totpAccounts = await window.electronAPI.getTotpAccounts()

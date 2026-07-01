@@ -32,7 +32,8 @@ export const darkTheme = createTheme({
     },
   },
   typography: {
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', sans-serif",
+    fontSize: 15.2,
     h4: {
       fontWeight: 600,
       letterSpacing: '-0.02em',
@@ -50,6 +51,7 @@ export const darkTheme = createTheme({
     },
     body2: {
       color: '#9e9e9e',
+      fontSize: '0.9rem',
     },
   },
   shape: {
@@ -177,12 +179,13 @@ export const lightTheme = createTheme({
     },
   },
   typography: {
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', sans-serif",
+    fontSize: 15.2,
     h4: { fontWeight: 600, letterSpacing: '-0.02em' },
     h5: { fontWeight: 600, letterSpacing: '-0.01em' },
     h6: { fontWeight: 600, letterSpacing: '-0.01em' },
     subtitle1: { fontWeight: 500 },
-    body2: { color: '#5f6368' },
+    body2: { color: '#5f6368', fontSize: '0.9rem' },
   },
   shape: { borderRadius: 12 },
   components: {

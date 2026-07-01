@@ -5,14 +5,14 @@ import SecurityIcon from '@mui/icons-material/Security'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import { useStore } from '../stores/useStore'
 
-export default function Sidebar() {
+export default function Sidebar({ width = 260 }: { width?: number }) {
   const { activeView, setActiveView } = useStore()
 
   return (
     <Box
       sx={{
-        width: 260,
-        minWidth: 260,
+        width: width,
+        minWidth: width,
         borderRight: '1px solid',
         borderColor: 'divider',
         display: 'flex',
