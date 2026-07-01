@@ -9,6 +9,7 @@ import {
   importServiceInfoBackupData,
   readServiceInfoBackupData,
 } from './serviceInfoBackup'
+import { readPreferences, resetPreferences, updatePreferences } from './preferencesStore'
 import { registerServiceInfoIpc } from './serviceInfoRepository'
 import fs from 'fs'
 import Papa from 'papaparse'
@@ -107,6 +108,12 @@ app.on('window-all-closed', () => {
 function registerIpcHandlers() {
   let db = getDatabase()
   registerServiceInfoIpc(db)
+
+  ipcMain.handle('preferences:get', () => readPreferences(app.getPath('userData')))
+  ipcMain.handle('preferences:update', (_event, patch: Record<string, unknown>) =>
+    updatePreferences(app.getPath('userData'), patch)
+  )
+  ipcMain.handle('preferences:reset', () => resetPreferences(app.getPath('userData')))
 
   const getTagsForAccount = (accountId: string) => {
     return db.prepare(`

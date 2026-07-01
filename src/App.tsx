@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { ThemeProvider, CssBaseline, Box } from '@mui/material'
 import { darkTheme, lightTheme } from './theme'
 import { useStore } from './stores/useStore'
@@ -8,41 +8,40 @@ import TwoFactorPanel from './components/TwoFactorPanel'
 import AccountManager from './components/AccountManager'
 import TrashManager from './components/TrashManager'
 import ServiceInfoManager from './components/service-info/ServiceInfoManager'
+import ResizableSidebar from './components/common/ResizableSidebar'
 
 export default function App() {
   const themeMode = useStore((s) => s.themeMode)
   const activeView = useStore((s) => s.activeView)
 
-  // Sidebar custom width states
-  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('app_sidebar_width')
-      return saved ? parseInt(saved, 10) : 260
-    } catch {
-      return 260
+  const [sidebarWidth, setSidebarWidth] = useState(260)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+
+    window.electronAPI.getAppPreferences().then((preferences) => {
+      if (!mounted) return
+      const savedWidth = typeof preferences.sidebarWidth === 'number' ? preferences.sidebarWidth : 260
+      setSidebarWidth(Math.max(180, Math.min(420, savedWidth)))
+      setSidebarCollapsed(preferences.sidebarCollapsed === true)
+    }).catch((error) => {
+      console.error('Failed to load app preferences:', error)
+    })
+
+    return () => {
+      mounted = false
     }
-  })
+  }, [])
 
-  const handleSidebarResizeStart = (e: React.MouseEvent) => {
-    e.preventDefault()
-    const startX = e.clientX
-    const startWidth = sidebarWidth
+  const persistSidebarWidth = (width: number) => {
+    setSidebarWidth(width)
+    void window.electronAPI.updateAppPreferences({ sidebarWidth: width })
+  }
 
-    const doDrag = (moveEvent: MouseEvent) => {
-      const newWidth = Math.max(180, Math.min(400, startWidth + (moveEvent.clientX - startX)))
-      setSidebarWidth(newWidth)
-      try {
-        localStorage.setItem('app_sidebar_width', newWidth.toString())
-      } catch {}
-    }
-
-    const stopDrag = () => {
-      window.removeEventListener('mousemove', doDrag)
-      window.removeEventListener('mouseup', stopDrag)
-    }
-
-    window.addEventListener('mousemove', doDrag)
-    window.addEventListener('mouseup', stopDrag)
+  const persistSidebarCollapsed = (collapsed: boolean) => {
+    setSidebarCollapsed(collapsed)
+    void window.electronAPI.updateAppPreferences({ sidebarCollapsed: collapsed })
   }
 
   return (
@@ -59,30 +58,14 @@ export default function App() {
       >
         <TitleBar />
         <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <Sidebar width={sidebarWidth} />
-          {/* 侧边栏垂直拖动分割条 */}
-          <Box
-            onMouseDown={handleSidebarResizeStart}
-            sx={{
-              width: '4px',
-              cursor: 'col-resize',
-              bgcolor: 'divider',
-              transition: 'background-color 0.2s',
-              position: 'relative',
-              zIndex: 10,
-              '&:hover': {
-                bgcolor: 'primary.main',
-              },
-              '&::after': {
-                content: '""',
-                position: 'absolute',
-                top: 0,
-                left: '-4px',
-                right: '-4px',
-                bottom: 0,
-              }
-            }}
-          />
+          <ResizableSidebar
+            width={sidebarWidth}
+            collapsed={sidebarCollapsed}
+            onWidthChange={persistSidebarWidth}
+            onCollapsedChange={persistSidebarCollapsed}
+          >
+            <Sidebar collapsed={sidebarCollapsed} />
+          </ResizableSidebar>
           <Box 
             key={activeView} 
             className="fade-in-up" 

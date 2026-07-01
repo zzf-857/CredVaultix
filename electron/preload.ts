@@ -52,6 +52,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   reorderSecretFields: (data: any) => ipcRenderer.invoke('serviceInfo:reorderFields', data),
   openDataDirectory: () => ipcRenderer.invoke('app:openDataDirectory'),
 
+  // Preferences
+  getAppPreferences: () => ipcRenderer.invoke('preferences:get'),
+  updateAppPreferences: (patch: any) => ipcRenderer.invoke('preferences:update', patch),
+  resetAppPreferences: () => ipcRenderer.invoke('preferences:reset'),
+
   // Database
   exportDatabase: () => ipcRenderer.invoke('db:export'),
   importDatabase: () => ipcRenderer.invoke('db:import'),

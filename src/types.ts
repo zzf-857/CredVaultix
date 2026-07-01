@@ -46,6 +46,9 @@ export interface ElectronAPI {
   moveSecretFields: (data: { ids: string[]; groupId: string | null }) => Promise<{ success: boolean }>
   reorderSecretFields: (data: { orderedIds: string[]; groupId: string | null }) => Promise<{ success: boolean }>
   openDataDirectory: () => Promise<{ success: boolean }>
+  getAppPreferences: () => Promise<Record<string, unknown>>
+  updateAppPreferences: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>
+  resetAppPreferences: () => Promise<Record<string, unknown>>
 
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
   importDatabase: () => Promise<{ success: boolean }>
