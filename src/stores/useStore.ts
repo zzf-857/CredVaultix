@@ -1,14 +1,39 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
-import { AccountRow, TotpAccountRow } from '../types'
+import type {
+  AccountRow,
+  SecretFieldGroupRow,
+  SecretFieldRow,
+  SecretGroupRow,
+  SecretServiceRow,
+  ServiceInfoSortMode,
+  TotpAccountRow,
+} from '../types'
 import type { AccountPlatform } from '../utils/accountPlatform'
+
+type ActiveView = 'accounts' | '2fa' | 'trash' | 'service-info'
+
+interface SelectedServiceDetail {
+  service: SecretServiceRow
+  fieldGroups: SecretFieldGroupRow[]
+  fields: SecretFieldRow[]
+}
 
 interface AppState {
   totpAccounts: TotpAccountRow[]
   accounts: AccountRow[]
   trashAccounts: AccountRow[]
 
-  activeView: 'accounts' | '2fa' | 'trash'
+  serviceGroups: SecretGroupRow[]
+  secretServices: SecretServiceRow[]
+  selectedServiceId: string | null
+  selectedServiceDetail: SelectedServiceDetail | null
+  serviceSearchQuery: string
+  serviceSortMode: ServiceInfoSortMode
+  selectedServiceIds: string[]
+  selectedFieldIds: string[]
+
+  activeView: ActiveView
   selectedAccountId: string | null
   accountSearchQuery: string
   accountPlatformFilter: AccountPlatform | 'all'
@@ -17,11 +42,21 @@ interface AppState {
   accountsPinnedIds: string[]
   accountsCustomOrder: string[]
 
-  setActiveView: (view: 'accounts' | '2fa' | 'trash') => void
+  setActiveView: (view: ActiveView) => void
   setSelectedAccount: (id: string | null) => void
   setAccountSearchQuery: (query: string) => void
   setAccountPlatformFilter: (platform: AccountPlatform | 'all') => void
   toggleTheme: () => void
+
+  loadServiceInfo: () => Promise<void>
+  loadServiceDetail: (serviceId: string) => Promise<void>
+  setSelectedService: (id: string | null) => void
+  setServiceSearchQuery: (query: string) => void
+  setServiceSortMode: (mode: ServiceInfoSortMode) => void
+  toggleSelectedServiceId: (id: string) => void
+  clearSelectedServiceIds: () => void
+  toggleSelectedFieldId: (id: string) => void
+  clearSelectedFieldIds: () => void
 
   togglePinAccount: (id: string) => void
   updateAccountsCustomOrder: (order: string[]) => void
@@ -52,6 +87,14 @@ export const useStore = create<AppState>((set, get) => ({
   totpAccounts: [],
   accounts: [],
   trashAccounts: [],
+  serviceGroups: [],
+  secretServices: [],
+  selectedServiceId: null,
+  selectedServiceDetail: null,
+  serviceSearchQuery: '',
+  serviceSortMode: 'manual',
+  selectedServiceIds: [],
+  selectedFieldIds: [],
   activeView: 'accounts',
   selectedAccountId: null,
   accountSearchQuery: '',
@@ -80,6 +123,66 @@ export const useStore = create<AppState>((set, get) => ({
   setAccountSearchQuery: (accountSearchQuery) => set({ accountSearchQuery }),
   setAccountPlatformFilter: (accountPlatformFilter) => set({ accountPlatformFilter }),
   toggleTheme: () => set((state) => ({ themeMode: state.themeMode === 'dark' ? 'light' : 'dark' })),
+
+  loadServiceInfo: async () => {
+    const { groups, services } = await window.electronAPI.getServiceInfo()
+    const state = get()
+    const selectedServiceExists = state.selectedServiceId
+      ? services.some((service) => service.id === state.selectedServiceId)
+      : false
+    const serviceIds = new Set(services.map((service) => service.id))
+
+    set({
+      serviceGroups: groups,
+      secretServices: services,
+      selectedServiceId: selectedServiceExists ? state.selectedServiceId : null,
+      selectedServiceDetail: selectedServiceExists ? state.selectedServiceDetail : null,
+      selectedServiceIds: state.selectedServiceIds.filter((id) => serviceIds.has(id)),
+    })
+  },
+
+  loadServiceDetail: async (serviceId) => {
+    const detail = await window.electronAPI.getServiceDetail(serviceId)
+
+    set((state) => {
+      if (state.selectedServiceId && state.selectedServiceId !== serviceId) {
+        return {}
+      }
+
+      const fieldIds = new Set((detail?.fields || []).map((field) => field.id))
+      return {
+        selectedServiceId: detail ? serviceId : null,
+        selectedServiceDetail: detail,
+        selectedFieldIds: state.selectedFieldIds.filter((id) => fieldIds.has(id)),
+      }
+    })
+  },
+
+  setSelectedService: (id) => {
+    set({ selectedServiceId: id, selectedServiceDetail: null, selectedFieldIds: [] })
+    if (id) {
+      void get().loadServiceDetail(id)
+    }
+  },
+
+  setServiceSearchQuery: (serviceSearchQuery) => set({ serviceSearchQuery }),
+  setServiceSortMode: (serviceSortMode) => set({ serviceSortMode }),
+  toggleSelectedServiceId: (id) => {
+    set((state) => ({
+      selectedServiceIds: state.selectedServiceIds.includes(id)
+        ? state.selectedServiceIds.filter((selectedId) => selectedId !== id)
+        : [...state.selectedServiceIds, id],
+    }))
+  },
+  clearSelectedServiceIds: () => set({ selectedServiceIds: [] }),
+  toggleSelectedFieldId: (id) => {
+    set((state) => ({
+      selectedFieldIds: state.selectedFieldIds.includes(id)
+        ? state.selectedFieldIds.filter((selectedId) => selectedId !== id)
+        : [...state.selectedFieldIds, id],
+    }))
+  },
+  clearSelectedFieldIds: () => set({ selectedFieldIds: [] }),
 
   togglePinAccount: (id) => {
     set((state) => {
@@ -218,6 +321,7 @@ export const useStore = create<AppState>((set, get) => ({
       await get().loadTotpAccounts()
       await get().loadAccounts()
       await get().loadTrashAccounts()
+      await get().loadServiceInfo()
     }
   },
 
