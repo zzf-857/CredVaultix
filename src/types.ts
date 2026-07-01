@@ -27,6 +27,26 @@ export interface ElectronAPI {
   updateAccountField: (id: string, data: { fieldName?: string; fieldValue?: string; isSecret?: boolean }) => Promise<{ success: boolean }>
   deleteAccountField: (id: string) => Promise<{ success: boolean }>
 
+  getServiceInfo: () => Promise<ServiceInfoPayload>
+  getServiceDetail: (serviceId: string) => Promise<ServiceDetailPayload | null>
+  createSecretGroup: (data: { id: string; name: string; color?: string }) => Promise<{ id: string }>
+  updateSecretGroup: (id: string, data: { name?: string; color?: string; isCollapsed?: number; sortOrder?: number }) => Promise<{ success: boolean }>
+  deleteSecretGroup: (id: string) => Promise<{ success: boolean }>
+  createSecretService: (data: CreateSecretServiceData) => Promise<{ id: string }>
+  updateSecretService: (id: string, data: UpdateSecretServiceData) => Promise<{ success: boolean }>
+  deleteSecretService: (id: string) => Promise<{ success: boolean }>
+  moveSecretServices: (data: { ids: string[]; groupId: string | null }) => Promise<{ success: boolean }>
+  reorderSecretServices: (data: { orderedIds: string[]; groupId: string | null }) => Promise<{ success: boolean }>
+  createSecretFieldGroup: (data: { id: string; serviceId: string; name: string; color?: string }) => Promise<{ id: string }>
+  updateSecretFieldGroup: (id: string, data: { name?: string; color?: string; isCollapsed?: number; sortOrder?: number }) => Promise<{ success: boolean }>
+  deleteSecretFieldGroup: (id: string) => Promise<{ success: boolean }>
+  createSecretField: (data: CreateSecretFieldData) => Promise<{ id: string }>
+  updateSecretField: (id: string, data: UpdateSecretFieldData) => Promise<{ success: boolean }>
+  deleteSecretField: (id: string) => Promise<{ success: boolean }>
+  moveSecretFields: (data: { ids: string[]; groupId: string | null }) => Promise<{ success: boolean }>
+  reorderSecretFields: (data: { orderedIds: string[]; groupId: string | null }) => Promise<{ success: boolean }>
+  openDataDirectory: () => Promise<{ success: boolean }>
+
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
   importDatabase: () => Promise<{ success: boolean }>
 }
@@ -59,6 +79,111 @@ export interface CustomFieldRow {
   field_value: string
   is_secret: number
   sort_order: number
+}
+
+export type ServiceInfoSortMode =
+  | 'manual'
+  | 'name-asc'
+  | 'name-desc'
+  | 'updated-desc'
+  | 'updated-asc'
+  | 'favorites-first'
+  | 'random'
+
+export interface SecretGroupRow {
+  id: string
+  name: string
+  color: string
+  sort_order: number
+  is_collapsed: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SecretServiceRow {
+  id: string
+  group_id: string | null
+  linked_account_id: string | null
+  name: string
+  description: string
+  url: string
+  notes: string
+  is_favorite: number
+  is_deleted: number
+  deleted_at: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SecretFieldGroupRow {
+  id: string
+  service_id: string
+  name: string
+  color: string
+  sort_order: number
+  is_collapsed: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SecretFieldRow {
+  id: string
+  service_id: string
+  group_id: string | null
+  field_name: string
+  field_value: string
+  is_secret: number
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ServiceInfoPayload {
+  groups: SecretGroupRow[]
+  services: SecretServiceRow[]
+}
+
+export interface ServiceDetailPayload {
+  service: SecretServiceRow
+  fieldGroups: SecretFieldGroupRow[]
+  fields: SecretFieldRow[]
+}
+
+export interface CreateSecretServiceData {
+  id: string
+  name: string
+  groupId?: string | null
+  description?: string
+  url?: string
+  notes?: string
+  linkedAccountId?: string | null
+}
+
+export interface UpdateSecretServiceData {
+  groupId?: string | null
+  linkedAccountId?: string | null
+  name?: string
+  description?: string
+  url?: string
+  notes?: string
+  isFavorite?: number
+}
+
+export interface CreateSecretFieldData {
+  id: string
+  serviceId: string
+  groupId?: string | null
+  fieldName: string
+  fieldValue?: string
+  isSecret?: boolean
+}
+
+export interface UpdateSecretFieldData {
+  groupId?: string | null
+  fieldName?: string
+  fieldValue?: string
+  isSecret?: boolean
 }
 
 export interface AccountRow {
