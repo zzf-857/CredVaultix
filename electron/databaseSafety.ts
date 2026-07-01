@@ -10,6 +10,13 @@ export const PROTECTED_TABLES = [
   'account_tags',
 ] as const
 
+export const SERVICE_INFO_TABLES = [
+  'secret_groups',
+  'secret_services',
+  'secret_field_groups',
+  'secret_fields',
+] as const
+
 export type CoreTableCounts = Record<string, number>
 
 export interface BackupResult {
@@ -84,6 +91,10 @@ export function getExistingTableCounts(
   }
 
   return counts
+}
+
+export function hasServiceInfoSchema(db: Database.Database) {
+  return SERVICE_INFO_TABLES.every((tableName) => hasTable(db, tableName))
 }
 
 export function assertCountsNotReduced(before: CoreTableCounts, after: CoreTableCounts) {

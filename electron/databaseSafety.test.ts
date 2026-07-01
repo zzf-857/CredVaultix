@@ -7,6 +7,7 @@ import {
   backupDatabaseIfExists,
   buildDatabaseBackupPath,
   getExistingTableCounts,
+  hasServiceInfoSchema,
 } from './databaseSafety'
 
 function createFakeDatabase(tableCounts: Record<string, number>) {
@@ -80,5 +81,24 @@ describe('databaseSafety', () => {
     expect(() =>
       assertCountsNotReduced({ accounts: 2, tags: 1 }, { accounts: 1, tags: 1 })
     ).toThrow('Migration reduced protected table accounts from 2 to 1')
+  })
+})
+
+describe('service info schema readiness', () => {
+  it('returns false when service information tables are missing', () => {
+    const db = createFakeDatabase({ accounts: 1 })
+
+    expect(hasServiceInfoSchema(db as any)).toBe(false)
+  })
+
+  it('returns true when all service information tables exist', () => {
+    const db = createFakeDatabase({
+      secret_groups: 0,
+      secret_services: 0,
+      secret_field_groups: 0,
+      secret_fields: 0,
+    })
+
+    expect(hasServiceInfoSchema(db as any)).toBe(true)
   })
 })
