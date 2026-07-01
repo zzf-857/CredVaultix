@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'path'
 import { initDatabase, getDatabase } from './database'
 import { encrypt, decrypt } from './crypto'
+import { registerServiceInfoIpc } from './serviceInfoRepository'
 import fs from 'fs'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
@@ -85,6 +86,7 @@ app.on('window-all-closed', () => {
 
 function registerIpcHandlers() {
   let db = getDatabase()
+  registerServiceInfoIpc(db)
 
   const getTagsForAccount = (accountId: string) => {
     return db.prepare(`
