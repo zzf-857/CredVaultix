@@ -15,13 +15,22 @@ html, body, #root {
 }
 
 body {
-  font-size: 15px;
+  font-size: 14px;
+  background: #131313;
 }
 
-/* Custom scrollbar optimized for Glassmorphism */
+button, input, textarea, select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(173, 198, 255, 0.28);
+}
+
+/* Desktop-style scrollbars */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -29,12 +38,16 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(150, 150, 150, 0.2);
-  border-radius: 4px;
+  background: rgba(194, 198, 214, 0.24);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(150, 150, 150, 0.4);
+  background: rgba(194, 198, 214, 0.42);
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 
 /* Drag region for custom titlebar */
@@ -59,7 +72,12 @@ body {
 }
 
 .fade-in-up {
-  animation: fadeInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeInUp 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.mono-data {
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Markdown editor overrides */

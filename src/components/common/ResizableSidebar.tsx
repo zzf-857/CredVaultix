@@ -6,9 +6,9 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 export default function ResizableSidebar({
   width,
   collapsed,
-  minWidth = 180,
+  minWidth = 200,
   maxWidth = 420,
-  collapseThreshold = 120,
+  collapseThreshold = 128,
   onWidthChange,
   onCollapsedChange,
   children,
@@ -64,7 +64,7 @@ export default function ResizableSidebar({
     window.addEventListener('mouseup', stop)
   }
 
-  const renderedWidth = collapsed ? 56 : draftWidth
+  const renderedWidth = collapsed ? 64 : draftWidth
 
   return (
     <Box sx={{ display: 'flex', height: '100%', position: 'relative' }}>
@@ -74,6 +74,7 @@ export default function ResizableSidebar({
           minWidth: renderedWidth,
           borderRight: '1px solid',
           borderColor: 'divider',
+          bgcolor: 'background.paper',
           overflow: 'hidden',
           transition: dragging ? 'none' : 'width 0.18s ease, min-width 0.18s ease',
         }}
@@ -87,12 +88,14 @@ export default function ResizableSidebar({
           onClick={() => onCollapsedChange(!collapsed)}
           sx={{
             position: 'absolute',
-            right: -15,
-            top: 12,
+            right: -16,
+            top: 14,
             zIndex: 20,
             bgcolor: 'background.paper',
             border: '1px solid',
             borderColor: 'divider',
+            width: 28,
+            height: 28,
             '&:hover': { bgcolor: 'action.hover' },
           }}
         >
@@ -111,6 +114,7 @@ export default function ResizableSidebar({
             bottom: 0,
             zIndex: 10,
             bgcolor: dragging ? 'primary.main' : 'transparent',
+            opacity: dragging ? 0.8 : 1,
             '&:hover': { bgcolor: 'action.hover' },
           }}
         />

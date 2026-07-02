@@ -14,7 +14,7 @@ export default function App() {
   const themeMode = useStore((s) => s.themeMode)
   const activeView = useStore((s) => s.activeView)
 
-  const [sidebarWidth, setSidebarWidth] = useState(260)
+  const [sidebarWidth, setSidebarWidth] = useState(240)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   useEffect(() => {
@@ -22,8 +22,8 @@ export default function App() {
 
     window.electronAPI.getAppPreferences().then((preferences) => {
       if (!mounted) return
-      const savedWidth = typeof preferences.sidebarWidth === 'number' ? preferences.sidebarWidth : 260
-      setSidebarWidth(Math.max(180, Math.min(420, savedWidth)))
+      const savedWidth = typeof preferences.sidebarWidth === 'number' ? preferences.sidebarWidth : 240
+      setSidebarWidth(Math.max(200, Math.min(420, savedWidth)))
       setSidebarCollapsed(preferences.sidebarCollapsed === true)
     }).catch((error) => {
       console.error('Failed to load app preferences:', error)

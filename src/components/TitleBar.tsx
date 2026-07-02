@@ -18,26 +18,55 @@ export default function TitleBar() {
       sx={{
         display: 'flex',
         alignItems: 'center',
-        height: 40,
-        px: 1.5,
-        backgroundColor: 'background.default',
+        height: 48,
+        px: 1.25,
+        backgroundColor: (theme) => theme.palette.mode === 'dark' ? '#0e0e0e' : '#ffffff',
         borderBottom: '1px solid',
         borderColor: 'divider',
         flexShrink: 0,
       }}
     >
-      <Typography
-        variant="subtitle2"
+      <Box
         sx={{
-          fontWeight: 700,
-          letterSpacing: 0,
-          fontSize: '0.8rem',
-          color: 'text.secondary',
-          ml: 1,
+          width: 28,
+          height: 28,
+          borderRadius: 2,
+          display: 'grid',
+          placeItems: 'center',
+          bgcolor: 'primary.main',
+          color: (theme) => theme.palette.mode === 'dark' ? '#001a42' : '#ffffff',
+          fontWeight: 900,
+          ml: 0.5,
+          mr: 1,
         }}
       >
-        ACCOUNT MANAGER
-      </Typography>
+        C
+      </Box>
+
+      <Box sx={{ minWidth: 0 }}>
+        <Typography
+          variant="subtitle2"
+          sx={{
+            fontWeight: 800,
+            letterSpacing: 0,
+            fontSize: '0.95rem',
+            lineHeight: 1.1,
+            color: 'text.primary',
+          }}
+        >
+          CredVaultix
+        </Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            color: 'text.secondary',
+            fontSize: '0.68rem',
+            lineHeight: 1,
+          }}
+        >
+          本地账号与服务信息库
+        </Typography>
+      </Box>
 
       <Box sx={{ flex: 1 }} />
 
@@ -46,7 +75,7 @@ export default function TitleBar() {
           size="small"
           onClick={importDatabase}
           title="导入数据库"
-          sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+          sx={{ color: 'text.secondary', width: 32, height: 32, '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}
         >
           <FileUploadIcon fontSize="small" />
         </IconButton>
@@ -54,7 +83,7 @@ export default function TitleBar() {
           size="small"
           onClick={exportDatabase}
           title="导出数据库"
-          sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+          sx={{ color: 'text.secondary', width: 32, height: 32, '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}
         >
           <FileDownloadIcon fontSize="small" />
         </IconButton>
@@ -62,7 +91,7 @@ export default function TitleBar() {
           size="small"
           onClick={toggleTheme}
           title="切换主题"
-          sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+          sx={{ color: 'text.secondary', width: 32, height: 32, '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}
         >
           {themeMode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
         </IconButton>
@@ -72,21 +101,21 @@ export default function TitleBar() {
         <IconButton
           size="small"
           onClick={() => window.electronAPI.minimize()}
-          sx={{ color: 'text.secondary', borderRadius: 1, '&:hover': { bgcolor: 'action.hover' } }}
+          sx={{ color: 'text.secondary', borderRadius: 1.25, width: 32, height: 32, '&:hover': { bgcolor: 'action.hover' } }}
         >
           <MinimizeIcon sx={{ fontSize: 18 }} />
         </IconButton>
         <IconButton
           size="small"
           onClick={() => window.electronAPI.maximize()}
-          sx={{ color: 'text.secondary', borderRadius: 1, '&:hover': { bgcolor: 'action.hover' } }}
+          sx={{ color: 'text.secondary', borderRadius: 1.25, width: 32, height: 32, '&:hover': { bgcolor: 'action.hover' } }}
         >
           <CropSquareIcon sx={{ fontSize: 16 }} />
         </IconButton>
         <IconButton
           size="small"
           onClick={() => window.electronAPI.close()}
-          sx={{ color: 'text.secondary', borderRadius: 1, '&:hover': { bgcolor: 'error.main', color: 'white' } }}
+          sx={{ color: 'error.main', borderRadius: 1.25, width: 32, height: 32, '&:hover': { bgcolor: 'error.main', color: (theme) => theme.palette.mode === 'dark' ? '#690005' : '#ffffff' } }}
         >
           <CloseIcon sx={{ fontSize: 18 }} />
         </IconButton>
