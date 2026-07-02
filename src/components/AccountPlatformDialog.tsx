@@ -45,9 +45,12 @@ export default function AccountPlatformDialog({
 }: AccountPlatformDialogProps) {
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>选择主账号类型</DialogTitle>
-      <DialogContent>
-        <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2, mt: 0.5 }}>
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <AccountCircleOutlinedIcon sx={{ color: 'primary.main' }} />
+        选择主账号类型
+      </DialogTitle>
+      <DialogContent sx={{ pt: 2.5 }}>
+        <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
           1.x 版本只聚焦管理 Google 和 Microsoft 主账号。第三方平台先通过标签记录。
         </Typography>
         <Box sx={{ display: 'grid', gap: 1.5 }}>
@@ -58,9 +61,10 @@ export default function AccountPlatformDialog({
               onClick={() => onSelect(option.platform)}
               sx={{
                 p: 2,
-                borderRadius: 2,
+                borderRadius: 3,
                 cursor: 'pointer',
                 borderColor: `${option.accent}66`,
+                bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
                 '&:hover': {
                   borderColor: option.accent,
                   bgcolor: 'action.hover',
@@ -72,7 +76,7 @@ export default function AccountPlatformDialog({
                   sx={{
                     width: 36,
                     height: 36,
-                    borderRadius: 2,
+                    borderRadius: 2.25,
                     bgcolor: `${option.accent}22`,
                     color: option.accent,
                     display: 'flex',

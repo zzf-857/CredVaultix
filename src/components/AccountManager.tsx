@@ -63,9 +63,41 @@ import {
 } from '../utils/accountManagerLayout'
 
 const PLATFORM_ACCENTS: Record<AccountPlatform, string> = {
-  google: '#81c995',
-  microsoft: '#a8c7fa',
-  other: '#f2b8b5',
+  google: '#8ddc9f',
+  microsoft: '#adc6ff',
+  other: '#ffb4ab',
+}
+
+const sectionLabelSx = {
+  fontWeight: 800,
+  color: 'text.secondary',
+  letterSpacing: 0,
+  mb: 1,
+  display: 'block',
+  textTransform: 'uppercase',
+}
+
+const panelSx = {
+  p: 1.25,
+  borderRadius: 2,
+  mb: 2,
+  bgcolor: (theme: any) => theme.palette.mode === 'dark' ? '#1c1b1b' : '#ffffff',
+  borderColor: 'divider',
+}
+
+const fieldBoxSx = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 1.25,
+  p: 1.25,
+  borderRadius: 2,
+  border: '1px solid',
+  borderColor: 'divider',
+  bgcolor: (theme: any) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+  '&:hover': {
+    borderColor: 'primary.main',
+    bgcolor: (theme: any) => theme.palette.mode === 'dark' ? '#2a2a2a' : '#ffffff',
+  },
 }
 
 function useCopy() {
@@ -149,21 +181,35 @@ function SensitiveField({
   if (!hasValue) return null
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', py: 0.75, '&:hover .field-actions': { opacity: 1 } }}>
-      <Box sx={{ mr: 1.5, color: 'text.secondary', display: 'flex' }}>{icon}</Box>
+    <Box sx={{ ...fieldBoxSx, mb: 1, '&:hover .field-actions': { opacity: 1 } }}>
+      <Box
+        sx={{
+          width: 34,
+          height: 34,
+          borderRadius: 2,
+          color: 'primary.main',
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(173, 198, 255, 0.10)' : 'rgba(11, 87, 208, 0.08)',
+          display: 'grid',
+          placeItems: 'center',
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem', display: 'block' }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.68rem', display: 'block', fontWeight: 800 }}>
           {label}
         </Typography>
         <Typography
           variant="body2"
-          sx={{ fontFamily: fieldKey === 'password' || fieldKey === 'totp_secret' ? 'monospace' : 'inherit', fontSize: '0.875rem' }}
+          className={fieldKey === 'password' || fieldKey === 'totp_secret' ? 'mono-data' : undefined}
+          sx={{ fontSize: '0.88rem', color: 'text.primary' }}
           noWrap
         >
           {(fieldKey === 'password' || fieldKey === 'totp_secret') && !visible ? '••••••••' : value}
         </Typography>
       </Box>
-      <Box className="field-actions" sx={{ display: 'flex', gap: 0.25, opacity: 0, transition: 'opacity 0.15s' }}>
+      <Box className="field-actions" sx={{ display: 'flex', gap: 0.25, opacity: 0.82, transition: 'opacity 0.15s' }}>
         {(fieldKey === 'password' || fieldKey === 'totp_secret') && (
           <IconButton size="small" onClick={() => setVisible(!visible)} sx={{ color: 'text.secondary' }}>
             {visible ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <VisibilityIcon sx={{ fontSize: 16 }} />}
@@ -345,10 +391,10 @@ function AccountDetail({
 
   const renderAccountInfoSection = () => (
     <React.Fragment key="account-info">
-      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, mb: 1, display: 'block' }}>
+      <Typography variant="caption" sx={sectionLabelSx}>
         账号信息
       </Typography>
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
+      <Paper variant="outlined" sx={panelSx}>
         {editing ? (
           <TextField
             select
@@ -373,12 +419,23 @@ function AccountDetail({
             <MenuItem value="other">其他</MenuItem>
           </TextField>
         ) : (
-          <Box sx={{ display: 'flex', alignItems: 'center', py: 0.75 }}>
-            <Box sx={{ mr: 1.5, color: 'text.secondary', display: 'flex' }}>
+          <Box sx={{ ...fieldBoxSx, mb: 1 }}>
+            <Box
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: 2,
+                color: 'primary.main',
+                bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(173, 198, 255, 0.10)' : 'rgba(11, 87, 208, 0.08)',
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+              }}
+            >
               <PublicOutlinedIcon sx={{ fontSize: 18 }} />
             </Box>
             <Box>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem', display: 'block' }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.68rem', display: 'block', fontWeight: 800 }}>
                 主账号类型
               </Typography>
               <PlatformChip platform={account.platform} />
@@ -418,7 +475,7 @@ function AccountDetail({
 
   const renderRealtimeCodeSection = () => (
     <React.Fragment key="realtime-code">
-      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, mb: 1, display: 'block' }}>
+      <Typography variant="caption" sx={sectionLabelSx}>
         实时验证码
       </Typography>
       <Box sx={{ mb: 2 }}>
@@ -429,10 +486,10 @@ function AccountDetail({
 
   const renderTagsSection = () => (
     <React.Fragment key="registered-platform-tags">
-      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, mb: 1, display: 'block' }}>
+      <Typography variant="caption" sx={sectionLabelSx}>
         注册平台标签
       </Typography>
-      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
+      <Paper variant="outlined" sx={panelSx}>
         {(account.tags || []).length > 0 ? (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.5 }}>
             {(account.tags || []).map((tag) => (
@@ -515,7 +572,7 @@ function AccountDetail({
   const renderCustomFieldsSection = () => (
     <React.Fragment key="custom-fields">
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-        <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, flex: 1 }}>
+        <Typography variant="caption" sx={{ ...sectionLabelSx, flex: 1, mb: 0 }}>
           自定义字段
         </Typography>
         {!editing && (
@@ -526,20 +583,25 @@ function AccountDetail({
       </Box>
 
       {customFields.length > 0 && (
-        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
+        <Paper variant="outlined" sx={panelSx}>
           {customFields.map((field, index) => (
             <Box key={field.id}>
-              {index > 0 && <Divider sx={{ my: 0.5 }} />}
-              <Box sx={{ display: 'flex', alignItems: 'center', py: 0.75, '&:hover .cf-actions': { opacity: 1 } }}>
+              {index > 0 && <Box sx={{ height: 8 }} />}
+              <Box sx={{ ...fieldBoxSx, '&:hover .cf-actions': { opacity: 1 } }}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.65rem', display: 'block' }}>
-                    {field.field_name} {field.is_secret ? '🔒' : ''}
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.68rem', display: 'block', fontWeight: 800 }}>
+                    {field.field_name} {field.is_secret ? '敏感' : ''}
                   </Typography>
-                  <Typography variant="body2" sx={{ fontSize: '0.875rem', fontFamily: field.is_secret ? 'monospace' : 'inherit' }} noWrap>
+                  <Typography
+                    variant="body2"
+                    className={field.is_secret ? 'mono-data' : undefined}
+                    sx={{ fontSize: '0.88rem', color: 'text.primary' }}
+                    noWrap
+                  >
                     {field.field_value || '(空)'}
                   </Typography>
                 </Box>
-                <Box className="cf-actions" sx={{ display: 'flex', gap: 0.25, opacity: 0, transition: 'opacity 0.15s' }}>
+                <Box className="cf-actions" sx={{ display: 'flex', gap: 0.25, opacity: 0.82, transition: 'opacity 0.15s' }}>
                   <IconButton size="small" onClick={() => copy(field.field_value, field.id)} sx={{ color: copiedField === field.id ? 'success.main' : 'text.secondary' }}>
                     {copiedField === field.id ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
                   </IconButton>
@@ -554,7 +616,7 @@ function AccountDetail({
       )}
 
       {showAddField && (
-        <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, mb: 2 }}>
+        <Paper variant="outlined" sx={panelSx}>
           <TextField
             fullWidth
             size="small"
@@ -592,7 +654,7 @@ function AccountDetail({
 
   const renderNotesSection = () => (
     <React.Fragment key="notes">
-      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', letterSpacing: 0, mb: 1, display: 'block' }}>
+      <Typography variant="caption" sx={sectionLabelSx}>
         备注
       </Typography>
       {editing ? (
@@ -613,13 +675,13 @@ function AccountDetail({
           }}
           sx={{
             '& .MuiInputBase-root': { fontSize: '0.85rem', lineHeight: 1.6 },
-            '& .MuiOutlinedInput-root': { borderRadius: 2 },
+            '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#ffffff' },
           }}
         />
       ) : account.notes ? (
         <Paper
           variant="outlined"
-          sx={{ p: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+          sx={{ ...panelSx, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
           onClick={() => setNotesExpanded(!notesExpanded)}
         >
           <Typography
@@ -650,9 +712,46 @@ function AccountDetail({
   )
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: '1px solid', borderColor: 'divider', height: '100%', overflow: 'hidden' }}>
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
-        <AccountBoxIcon sx={{ color: 'primary.main' }} />
+    <Box
+      sx={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        borderLeft: '1px solid',
+        borderColor: 'divider',
+        height: '100%',
+        overflow: 'hidden',
+        bgcolor: 'background.default',
+      }}
+    >
+      <Box
+        sx={{
+          p: 2.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          flexShrink: 0,
+          bgcolor: 'background.paper',
+        }}
+      >
+        <Box
+          sx={{
+            width: 52,
+            height: 52,
+            borderRadius: 3,
+            display: 'grid',
+            placeItems: 'center',
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+            border: '1px solid',
+            borderColor: 'divider',
+            color: 'primary.main',
+            flexShrink: 0,
+          }}
+        >
+          <AccountBoxIcon sx={{ fontSize: 28 }} />
+        </Box>
         {editing ? (
           <TextField
             size="small"
@@ -664,11 +763,17 @@ function AccountDetail({
           />
         ) : (
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1.1rem' }} noWrap>
+            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.2rem', lineHeight: 1.2 }} noWrap>
               {account.name}
             </Typography>
-            <Box sx={{ mt: 0.75 }}>
+            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }} noWrap>
+              {account.username || '未设置主邮箱 / 登录账号'}
+            </Typography>
+            <Box sx={{ mt: 1, display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
               <PlatformChip platform={account.platform} />
+              {account.totp_secret && account.totp_secret.trim() && (
+                <Chip size="small" label="已记录 2FA" variant="outlined" sx={{ color: 'success.main', borderColor: 'rgba(141, 220, 159, 0.45)' }} />
+              )}
             </Box>
           </Box>
         )}
@@ -705,7 +810,7 @@ function AccountDetail({
         </Box>
       </Box>
 
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5 }}>
         {sectionOrder.map((section) => {
           switch (section) {
             case 'realtime-code':
@@ -820,9 +925,9 @@ export default function AccountManager() {
   const [listWidth, setListWidth] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('accounts_list_width')
-      return saved ? parseInt(saved, 10) : 360
+      return saved ? parseInt(saved, 10) : 320
     } catch {
-      return 360
+      return 320
     }
   })
 
@@ -832,7 +937,7 @@ export default function AccountManager() {
     const startWidth = listWidth
 
     const doDrag = (moveEvent: MouseEvent) => {
-      const newWidth = Math.max(280, Math.min(600, startWidth + (moveEvent.clientX - startX)))
+      const newWidth = Math.max(300, Math.min(560, startWidth + (moveEvent.clientX - startX)))
       setListWidth(newWidth)
       try {
         localStorage.setItem('accounts_list_width', newWidth.toString())
@@ -938,13 +1043,24 @@ export default function AccountManager() {
   }
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden' }}>
-      <Box sx={{ width: listWidth, minWidth: listWidth, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <Box sx={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
+      <Box
+        sx={{
+          width: listWidth,
+          minWidth: listWidth,
+          borderRight: '1px solid',
+          borderColor: 'divider',
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0e0e0e' : '#ffffff',
+        }}
+      >
         <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 700 }}>
+          <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 800 }}>
             主账号仓库
           </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.82rem', mt: 0.75 }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.78rem', mt: 0.65, lineHeight: 1.45 }}>
             记录 Google / Microsoft 主账号，并用标签标记它们登录过的平台。
           </Typography>
 
@@ -982,21 +1098,21 @@ export default function AccountManager() {
             sx={{ flex: 1 }}
           />
           <Tooltip title="导入 CSV" arrow>
-            <IconButton onClick={importCsvAccounts} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
+            <IconButton onClick={importCsvAccounts} sx={{ color: 'text.secondary', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}>
               <FileUploadOutlinedIcon />
             </IconButton>
           </Tooltip>
           <Tooltip title="新建主账号" arrow>
-            <IconButton onClick={() => setPlatformDialogOpen(true)} sx={{ color: 'primary.main' }}>
+            <IconButton onClick={() => setPlatformDialogOpen(true)} sx={{ color: 'primary.main', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', '&:hover': { bgcolor: 'action.hover' } }}>
               <AddIcon />
             </IconButton>
           </Tooltip>
         </Box>
 
-        <Box sx={{ flex: 1, overflowY: 'auto' }}>
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
           {accounts.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 8, px: 3 }}>
-              <AccountBoxIcon sx={{ fontSize: 44, color: 'text.secondary', opacity: 0.35, mb: 1.5 }} />
+            <Box sx={{ textAlign: 'center', py: 8, px: 3, border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
+              <AccountBoxIcon sx={{ fontSize: 44, color: 'text.secondary', opacity: 0.42, mb: 1.5 }} />
               <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
                 当前筛选下还没有主账号
               </Typography>
@@ -1018,27 +1134,53 @@ export default function AccountManager() {
                 onMouseEnter={() => setHoveredId(account.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 sx={{
-                  px: 2,
-                  py: 1.5,
+                  px: 1.25,
+                  py: 1.25,
+                  mb: 0.75,
                   cursor: 'grab',
-                  borderBottom: '1px solid',
-                  borderColor: 'divider',
-                  bgcolor: selectedAccountId === account.id ? 'action.selected' : 'transparent',
+                  border: '1px solid',
+                  borderColor: selectedAccountId === account.id ? 'primary.main' : 'transparent',
+                  borderLeft: '2px solid',
+                  borderLeftColor: selectedAccountId === account.id
+                    ? 'primary.main'
+                    : accountsPinnedIds.includes(account.id)
+                      ? 'secondary.main'
+                      : 'transparent',
+                  borderRadius: 2,
+                  bgcolor: selectedAccountId === account.id
+                    ? 'action.selected'
+                    : (theme) => theme.palette.mode === 'dark' ? '#131313' : '#ffffff',
                   opacity: draggedId === account.id ? 0.35 : 1,
                   transform: draggedId === account.id ? 'scale(0.98)' : 'scale(1)',
-                  transition: 'all 0.15s ease',
-                  borderLeft: accountsPinnedIds.includes(account.id) ? '3px solid #a8c7fa' : '3px solid transparent',
+                  transition: 'background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease',
                   '&:active': { cursor: 'grabbing' },
                   '&:hover': {
                     bgcolor: selectedAccountId === account.id ? 'action.selected' : 'action.hover',
                     borderColor: draggedId && draggedId !== account.id ? 'primary.main' : 'divider',
+                    borderLeftColor: selectedAccountId === account.id ? 'primary.main' : accountsPinnedIds.includes(account.id) ? 'secondary.main' : 'divider',
                   },
                 }}
               >
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.1 }}>
+                  <Box
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: 2,
+                      display: 'grid',
+                      placeItems: 'center',
+                      flexShrink: 0,
+                      bgcolor: `${PLATFORM_ACCENTS[account.platform]}22`,
+                      color: PLATFORM_ACCENTS[account.platform],
+                      border: '1px solid',
+                      borderColor: `${PLATFORM_ACCENTS[account.platform]}55`,
+                    }}
+                  >
+                    <AccountBoxIcon sx={{ fontSize: 21 }} />
+                  </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75, flexWrap: 'wrap' }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 700, fontSize: '0.9rem' }} noWrap>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '0.9rem', flex: 1, minWidth: 0 }} noWrap>
                         {account.name}
                       </Typography>
                       <PlatformChip platform={account.platform} />
@@ -1069,7 +1211,6 @@ export default function AccountManager() {
                   </Box>
 
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
-                    {/* Pin 置顶按钮 */}
                     <Tooltip title={accountsPinnedIds.includes(account.id) ? "取消置顶" : "置顶主账号"} arrow TransitionComponent={Fade}>
                       <IconButton
                         size="small"
@@ -1116,9 +1257,9 @@ export default function AccountManager() {
       <Box
         onMouseDown={handleListResizeStart}
         sx={{
-          width: '4px',
+          width: 6,
           cursor: 'col-resize',
-          bgcolor: 'divider',
+          bgcolor: 'transparent',
           transition: 'background-color 0.2s',
           position: 'relative',
           zIndex: 10,
@@ -1145,16 +1286,27 @@ export default function AccountManager() {
           onTogglePin={(e) => { e.stopPropagation(); togglePinAccount(selectedAccountId) }}
         />
       ) : (
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Box sx={{ textAlign: 'center', px: 3, maxWidth: 420 }}>
-            <LockIcon sx={{ fontSize: 64, color: 'primary.main', opacity: 0.2, mb: 2 }} />
-            <Typography variant="h6" sx={{ color: 'text.secondary', mb: 1 }}>
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
+          <Box
+            sx={{
+              textAlign: 'center',
+              px: 4,
+              py: 5,
+              maxWidth: 420,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 3,
+              bgcolor: 'background.paper',
+            }}
+          >
+            <LockIcon sx={{ fontSize: 56, color: 'primary.main', opacity: 0.32, mb: 2 }} />
+            <Typography variant="h6" sx={{ color: 'text.primary', mb: 1, fontWeight: 800 }}>
               选择或创建一个主账号
             </Typography>
             <Typography variant="body2" sx={{ color: 'text.secondary', opacity: 0.8, mb: 3 }}>
               这里专门记录你的 Google / Microsoft 账号、2FA 密钥和它们登录过的平台标签。
             </Typography>
-            <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setPlatformDialogOpen(true)} sx={{ borderRadius: 2 }}>
+            <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setPlatformDialogOpen(true)}>
               立刻添加主账号
             </Button>
           </Box>
