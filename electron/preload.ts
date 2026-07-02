@@ -57,6 +57,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateAppPreferences: (patch: any) => ipcRenderer.invoke('preferences:update', patch),
   resetAppPreferences: () => ipcRenderer.invoke('preferences:reset'),
 
+  // Updates
+  getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  checkUpdates: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  quitAndInstall: () => ipcRenderer.invoke('update:quit-and-install'),
+  onUpdateMessage: (callback: (message: any) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, message: any) => callback(message)
+    ipcRenderer.on('update:message', listener)
+    return () => ipcRenderer.removeListener('update:message', listener)
+  },
+
   // Database
   exportDatabase: () => ipcRenderer.invoke('db:export'),
   importDatabase: () => ipcRenderer.invoke('db:import'),

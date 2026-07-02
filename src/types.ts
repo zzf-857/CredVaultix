@@ -49,9 +49,26 @@ export interface ElectronAPI {
   getAppPreferences: () => Promise<Record<string, unknown>>
   updateAppPreferences: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>
   resetAppPreferences: () => Promise<Record<string, unknown>>
+  getVersion: () => Promise<string>
+  checkUpdates: () => Promise<{ success: boolean; error?: string; isPortable?: boolean; status?: string; result?: unknown }>
+  downloadUpdate: () => Promise<{ success: boolean; error?: string; isPortable?: boolean; status?: string }>
+  quitAndInstall: () => Promise<boolean>
+  onUpdateMessage: (callback: (message: UpdateMessage) => void) => () => void
 
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
   importDatabase: () => Promise<{ success: boolean }>
+}
+
+export interface UpdateMessage {
+  status: 'checking' | 'available' | 'latest' | 'error' | 'downloading' | 'downloaded' | 'portable'
+  version?: string
+  error?: string
+  isPortable?: boolean
+  percent?: number
+  bytesPerSecond?: number
+  transferred?: number
+  total?: number
+  info?: unknown
 }
 
 export interface TagRow {

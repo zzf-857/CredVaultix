@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import type Database from 'better-sqlite3'
 import path from 'path'
-import { initDatabase, getDatabase } from './database'
+import { DATABASE_FILE_NAME, initDatabase, getDatabase } from './database'
 import { encrypt, decrypt } from './crypto'
 import { backupDatabaseIfExists } from './databaseSafety'
 import {
@@ -16,7 +17,16 @@ import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 
 let mainWindow: BrowserWindow | null = null
+const APP_NAME = 'CredVaultix'
+const LEGACY_DATABASE_FILE_NAME = 'account-manager.db'
 const TAG_COLOR_PALETTE = ['#a8c7fa', '#81c995', '#f2b8b5', '#fdd663', '#d7aefb', '#78d9ec', '#fcb68e']
+
+app.setName(APP_NAME)
+
+function configureAppIdentity() {
+  app.setName(APP_NAME)
+  app.setPath('userData', path.join(app.getPath('appData'), APP_NAME))
+}
 
 function normalizeAccountPlatform(value?: string | null) {
   if (value === 'google' || value === 'microsoft' || value === 'other') {
@@ -33,7 +43,7 @@ function pickTagColor(name: string) {
 
 function backupCurrentDatabaseBeforeImport(currentDb: Database.Database) {
   const userDataPath = app.getPath('userData')
-  const dbPath = path.join(userDataPath, 'account-manager.db')
+  const dbPath = path.join(userDataPath, DATABASE_FILE_NAME)
 
   try {
     currentDb.pragma('wal_checkpoint(FULL)')
@@ -44,12 +54,185 @@ function backupCurrentDatabaseBeforeImport(currentDb: Database.Database) {
   backupDatabaseIfExists(dbPath, userDataPath)
 }
 
+function copyFileIfMissing(sourcePath: string, targetPath: string) {
+  if (!fs.existsSync(sourcePath) || fs.existsSync(targetPath)) return false
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+  fs.copyFileSync(sourcePath, targetPath)
+  return true
+}
+
+function copyDirectoryIfMissing(sourcePath: string, targetPath: string) {
+  if (!fs.existsSync(sourcePath) || fs.existsSync(targetPath)) return false
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+  fs.cpSync(sourcePath, targetPath, { recursive: true })
+  return true
+}
+
+function migrateLegacyUserDataToCredVaultix() {
+  const appDataPath = app.getPath('appData')
+  const targetUserDataPath = app.getPath('userData')
+  const targetDbPath = path.join(targetUserDataPath, DATABASE_FILE_NAME)
+  const legacySources = [
+    {
+      name: 'account-manager',
+      directory: path.join(appDataPath, 'account-manager'),
+      databaseFileName: LEGACY_DATABASE_FILE_NAME,
+    },
+    {
+      name: 'AccountManager',
+      directory: path.join(appDataPath, 'AccountManager'),
+      databaseFileName: LEGACY_DATABASE_FILE_NAME,
+    },
+    {
+      name: 'prompt-manager',
+      directory: path.join(appDataPath, 'prompt-manager'),
+      databaseFileName: 'prompt-manager.db',
+    },
+  ]
+
+  try {
+    for (const source of legacySources) {
+      if (path.resolve(source.directory) === path.resolve(targetUserDataPath)) {
+        continue
+      }
+
+      const sourceDbPath = path.join(source.directory, source.databaseFileName)
+      if (copyFileIfMissing(sourceDbPath, targetDbPath)) {
+        console.log(`Migrated legacy ${source.name} database into ${APP_NAME}`)
+      }
+
+      copyFileIfMissing(
+        path.join(source.directory, 'preferences.json'),
+        path.join(targetUserDataPath, 'preferences.json')
+      )
+      copyDirectoryIfMissing(
+        path.join(source.directory, 'Local Storage'),
+        path.join(targetUserDataPath, 'Local Storage')
+      )
+
+      if (fs.existsSync(source.directory)) {
+        for (const entry of fs.readdirSync(source.directory)) {
+          if (
+            entry.endsWith('.db') &&
+            entry !== source.databaseFileName &&
+            !entry.includes('SharedStorage') &&
+            !entry.includes('LOCK')
+          ) {
+            copyFileIfMissing(
+              path.join(source.directory, entry),
+              path.join(targetUserDataPath, entry)
+            )
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Error migrating legacy user data:', err)
+  }
+}
+
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+
+  const isPortable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR || process.env.PORTABLE_EXECUTABLE_FILE)
+
+  const sendUpdateMessage = (status: string, payload: Record<string, unknown> = {}) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update:message', { status, isPortable, ...payload })
+    }
+  }
+
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateMessage('checking')
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    sendUpdateMessage('available', { version: info.version, info })
+  })
+
+  autoUpdater.on('update-not-available', (info) => {
+    sendUpdateMessage('latest', { version: info.version, info })
+  })
+
+  autoUpdater.on('error', (err) => {
+    sendUpdateMessage('error', { error: err.message || String(err) })
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdateMessage('downloading', {
+      percent: progress.percent,
+      bytesPerSecond: progress.bytesPerSecond,
+      transferred: progress.transferred,
+      total: progress.total,
+    })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateMessage('downloaded', { version: info.version, info })
+  })
+
+  ipcMain.handle('app:getVersion', () => app.getVersion())
+
+  ipcMain.handle('update:check', async () => {
+    if (isPortable) {
+      sendUpdateMessage('portable')
+      return { success: false, isPortable: true, status: 'portable' }
+    }
+    if (!app.isPackaged) {
+      return { success: false, error: '开发环境跳过更新检查' }
+    }
+
+    try {
+      const result = await autoUpdater.checkForUpdates()
+      return { success: true, result }
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) }
+    }
+  })
+
+  ipcMain.handle('update:download', async () => {
+    if (isPortable) {
+      sendUpdateMessage('portable')
+      return { success: false, isPortable: true, status: 'portable' }
+    }
+    if (!app.isPackaged) {
+      return { success: false, error: '开发环境跳过更新下载' }
+    }
+
+    try {
+      await autoUpdater.downloadUpdate()
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: err.message || String(err) }
+    }
+  })
+
+  ipcMain.handle('update:quit-and-install', async () => {
+    if (isPortable || !app.isPackaged) {
+      return false
+    }
+
+    autoUpdater.quitAndInstall()
+    return true
+  })
+
+  if (app.isPackaged && !isPortable) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((err) => {
+        console.error('[AutoUpdate] Startup check failed:', err)
+      })
+    }, 5000)
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    title: APP_NAME,
     frame: false,
     titleBarStyle: 'hidden',
     webPreferences: {
@@ -73,32 +256,13 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  app.name = 'AccountManager'
-
-  // Auto-migrate the legacy database location into the current AccountManager app data folder
-  try {
-    const oldUserDataPath = path.join(app.getPath('appData'), 'prompt-manager')
-    const newUserDataPath = app.getPath('userData') // Resolves to AccountManager now
-    
-    if (fs.existsSync(oldUserDataPath) && oldUserDataPath !== newUserDataPath) {
-      const oldDbPath = path.join(oldUserDataPath, 'prompt-manager.db')
-      const newDbPath = path.join(newUserDataPath, 'account-manager.db')
-      
-      if (fs.existsSync(oldDbPath) && !fs.existsSync(newDbPath)) {
-        if (!fs.existsSync(newUserDataPath)) {
-          fs.mkdirSync(newUserDataPath, { recursive: true })
-        }
-        fs.copyFileSync(oldDbPath, newDbPath)
-        console.log('Successfully migrated legacy database into AccountManager')
-      }
-    }
-  } catch (e) {
-    console.error('Error migrating old database:', e)
-  }
+  configureAppIdentity()
+  migrateLegacyUserDataToCredVaultix()
 
   initDatabase()
   registerIpcHandlers()
   createWindow()
+  setupAutoUpdater()
 })
 
 app.on('window-all-closed', () => {
@@ -408,7 +572,7 @@ function registerIpcHandlers() {
   ipcMain.handle('db:export', async () => {
     const result = await dialog.showSaveDialog(mainWindow!, {
       title: '导出数据库',
-      defaultPath: `AccountManager_backup_${new Date().toISOString().slice(0, 10)}.json`,
+      defaultPath: `CredVaultix_backup_${new Date().toISOString().slice(0, 10)}.json`,
       filters: [
         { name: 'JSON 备份', extensions: ['json'] },
         { name: 'SQLite 数据库', extensions: ['db'] }
@@ -418,7 +582,7 @@ function registerIpcHandlers() {
     if (result.canceled || !result.filePath) return { success: false }
 
     if (result.filePath.endsWith('.db')) {
-      const dbPath = path.join(app.getPath('userData'), 'account-manager.db')
+      const dbPath = path.join(app.getPath('userData'), DATABASE_FILE_NAME)
       fs.copyFileSync(dbPath, result.filePath)
     } else {
       const data = {
@@ -451,7 +615,7 @@ function registerIpcHandlers() {
     const filePath = result.filePaths[0]
 
     if (filePath.endsWith('.db')) {
-      const dbPath = path.join(app.getPath('userData'), 'account-manager.db')
+      const dbPath = path.join(app.getPath('userData'), DATABASE_FILE_NAME)
       backupCurrentDatabaseBeforeImport(db)
       db.close()
       fs.copyFileSync(filePath, dbPath)

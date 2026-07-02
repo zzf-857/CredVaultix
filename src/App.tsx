@@ -5,7 +5,7 @@ import { useStore } from './stores/useStore'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
 import TwoFactorPanel from './components/TwoFactorPanel'
-import AccountManager from './components/AccountManager'
+import AccountsView from './components/AccountsView'
 import TrashManager from './components/TrashManager'
 import ServiceInfoManager from './components/service-info/ServiceInfoManager'
 import ResizableSidebar from './components/common/ResizableSidebar'
@@ -71,7 +71,7 @@ export default function App() {
             className="fade-in-up" 
             sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}
           >
-            {activeView === 'accounts' && <AccountManager />}
+            {activeView === 'accounts' && <AccountsView />}
             {activeView === 'service-info' && <ServiceInfoManager />}
             {activeView === '2fa' && <TwoFactorPanel />}
             {activeView === 'trash' && <TrashManager />}

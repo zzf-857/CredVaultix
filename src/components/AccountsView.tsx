@@ -892,7 +892,7 @@ function AccountDetail({
   )
 }
 
-export default function AccountManager() {
+export default function AccountsView() {
   const {
     accountPlatformFilter,
     accountSearchQuery,

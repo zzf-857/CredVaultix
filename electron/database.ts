@@ -10,10 +10,11 @@ import {
 } from './databaseSafety'
 
 let db: Database.Database
+export const DATABASE_FILE_NAME = 'credvaultix.db'
 
 export function initDatabase() {
   const userDataPath = app.getPath('userData')
-  const dbPath = path.join(userDataPath, 'account-manager.db')
+  const dbPath = path.join(userDataPath, DATABASE_FILE_NAME)
   let needsServiceInfoMigration = false
 
   if (fs.existsSync(dbPath)) {

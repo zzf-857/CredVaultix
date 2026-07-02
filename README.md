@@ -1,4 +1,4 @@
-# AccountManager / 本地账号管家
+# CredVaultix / 本地账号与服务信息库
 
 一个基于 **Electron + React + Vite** 的本地桌面账号管家，聚焦本地账号、2FA 与服务密钥资料管理：
 
@@ -66,7 +66,7 @@
 
 ### 依赖环境
 
-- Node.js 18+
+- Node.js 20+
 - 由于使用了 SQLite 原生依赖，开发机需要可用的 node-gyp 编译环境
 
 ### 开发
@@ -95,7 +95,7 @@ npm run build
 ## 目录结构
 
 ```text
-AccountManager/
+CredVaultix/
 ├── electron/                 # Electron 主线程与 SQLite / IPC
 ├── src/
 │   ├── components/           # 账号、2FA、回收站等界面
@@ -112,4 +112,4 @@ AccountManager/
 
 ## 隐私说明
 
-应用不包含自建云同步或分析埋点。账号记录、标签、2FA 种子、服务信息与数据库备份均由本机 `account-manager.db` 管理，你可以在应用内打开数据目录并自行备份和迁移。
+应用不包含自建云同步或分析埋点。账号记录、标签、2FA 种子、服务信息与数据库备份均由本机 `credvaultix.db` 管理，你可以在应用内打开数据目录并自行备份和迁移。

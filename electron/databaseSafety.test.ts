@@ -36,20 +36,20 @@ describe('databaseSafety', () => {
     const backupPath = buildDatabaseBackupPath('C:/AppData/CredVaultix', new Date('2026-07-01T10:11:12.000Z'))
 
     expect(backupPath.replace(/\\/g, '/')).toBe(
-      'C:/AppData/CredVaultix/account-manager-before-service-vault-2026-07-01-101112.db'
+      'C:/AppData/CredVaultix/credvaultix-before-service-vault-2026-07-01-101112.db'
     )
   })
 
   it('copies an existing database before migration', () => {
     const dir = mkdtempSync(join(tmpdir(), 'credvaultix-backup-'))
     try {
-      const dbPath = join(dir, 'account-manager.db')
+      const dbPath = join(dir, 'credvaultix.db')
       writeFileSync(dbPath, 'current-data')
 
       const result = backupDatabaseIfExists(dbPath, dir, new Date('2026-07-01T10:11:12.000Z'))
 
       expect(result.created).toBe(true)
-      expect(result.filePath?.endsWith('account-manager-before-service-vault-2026-07-01-101112.db')).toBe(true)
+      expect(result.filePath?.endsWith('credvaultix-before-service-vault-2026-07-01-101112.db')).toBe(true)
       expect(readFileSync(result.filePath!, 'utf-8')).toBe('current-data')
     } finally {
       rmSync(dir, { recursive: true, force: true })

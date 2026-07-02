@@ -583,7 +583,7 @@ export default function TwoFactorPanel() {
   const listContainerRef = useRef<HTMLDivElement>(null)
 
   const sortAccounts = (accList: TotpAccountRow[]) => {
-    // 1. 获取主账号的最权威渲染排序列表（与 AccountManager 完全一致，直接使用响应式全局 store 状态）
+    // 1. 获取主账号的最权威渲染排序列表（与 AccountsView 完全一致，直接使用响应式全局 store 状态）
     const sortedMainAccounts = [...accounts].sort((a, b) => {
       const aPinned = accountsPinnedIds.includes(a.id)
       const bPinned = accountsPinnedIds.includes(b.id)

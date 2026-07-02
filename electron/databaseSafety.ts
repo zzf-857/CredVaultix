@@ -43,7 +43,7 @@ function assertSafeTableName(tableName: string) {
 export function buildDatabaseBackupPath(userDataPath: string, now = new Date()) {
   return path.join(
     userDataPath,
-    `account-manager-before-service-vault-${formatBackupTimestamp(now)}.db`
+    `credvaultix-before-service-vault-${formatBackupTimestamp(now)}.db`
   )
 }
 
