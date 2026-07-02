@@ -56,11 +56,23 @@ export default function ServiceFieldGroup({
         mb: 2,
         border: '1px solid',
         borderColor: draggingFieldId ? 'primary.main' : 'divider',
-        borderRadius: 1,
+        borderRadius: 2,
         overflow: 'hidden',
+        bgcolor: 'background.paper',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1, minHeight: 38, bgcolor: 'action.hover' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          px: 1,
+          minHeight: 40,
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+          borderBottom: collapsed || fields.length === 0 ? 0 : '1px solid',
+          borderColor: 'divider',
+        }}
+      >
         {group ? (
           <Tooltip title={collapsed ? '展开分组' : '折叠分组'}>
             <IconButton size="small" onClick={() => onToggleCollapsed(group)}>
@@ -70,8 +82,8 @@ export default function ServiceFieldGroup({
         ) : (
           <Box sx={{ width: 30 }} />
         )}
-        <Box sx={{ width: 8, height: 18, borderRadius: 0.75, bgcolor: color || 'divider' }} />
-        <Typography variant="caption" noWrap sx={{ flex: 1, minWidth: 0, color: 'text.secondary', fontWeight: 800 }}>
+        <Box sx={{ width: 8, height: 18, borderRadius: 99, bgcolor: color || 'divider' }} />
+        <Typography variant="caption" noWrap sx={{ flex: 1, minWidth: 0, color: 'text.secondary', fontWeight: 800, textTransform: 'uppercase' }}>
           {title} ({fields.length})
         </Typography>
         {group && (

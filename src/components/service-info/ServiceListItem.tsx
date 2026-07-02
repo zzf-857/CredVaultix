@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box, Checkbox, IconButton, ListItemButton, Tooltip, Typography } from '@mui/material'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
+import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import type { SecretServiceRow } from '../../types'
@@ -34,13 +35,23 @@ export default function ServiceListItem({
       }}
       sx={{
         display: 'grid',
-        gridTemplateColumns: '28px 24px minmax(0, 1fr) 32px',
+        gridTemplateColumns: '28px 20px 36px minmax(0, 1fr) 32px',
         alignItems: 'center',
         gap: 0.75,
-        borderRadius: 1,
-        mb: 0.5,
+        borderRadius: 2,
+        mb: 0.75,
         px: 1,
-        py: 0.85,
+        py: 1,
+        border: '1px solid',
+        borderColor: selected ? 'primary.main' : 'transparent',
+        borderLeft: '2px solid',
+        borderLeftColor: selected ? 'primary.main' : 'transparent',
+        bgcolor: selected ? 'action.selected' : (theme) => theme.palette.mode === 'dark' ? '#131313' : '#ffffff',
+        '&:hover': {
+          bgcolor: selected ? 'action.selected' : 'action.hover',
+          borderColor: 'divider',
+          borderLeftColor: selected ? 'primary.main' : 'divider',
+        },
       }}
     >
       <Checkbox
@@ -52,8 +63,23 @@ export default function ServiceListItem({
         sx={{ p: 0.25 }}
       />
       <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
+      <Box
+        sx={{
+          width: 34,
+          height: 34,
+          borderRadius: 2,
+          display: 'grid',
+          placeItems: 'center',
+          bgcolor: service.is_favorite ? 'rgba(255, 183, 134, 0.16)' : 'rgba(173, 198, 255, 0.10)',
+          color: service.is_favorite ? 'warning.main' : 'primary.main',
+          border: '1px solid',
+          borderColor: service.is_favorite ? 'rgba(255, 183, 134, 0.42)' : 'rgba(173, 198, 255, 0.28)',
+        }}
+      >
+        <VpnKeyOutlinedIcon sx={{ fontSize: 18 }} />
+      </Box>
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
+        <Typography variant="body2" noWrap sx={{ fontWeight: 800, color: 'text.primary' }}>
           {service.name}
         </Typography>
         <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary' }}>

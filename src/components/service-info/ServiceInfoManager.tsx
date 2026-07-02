@@ -21,6 +21,7 @@ import ClearIcon from '@mui/icons-material/Clear'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
 import SearchIcon from '@mui/icons-material/Search'
 import SortIcon from '@mui/icons-material/Sort'
+import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
 import { v4 as uuidv4 } from 'uuid'
 import { useStore } from '../../stores/useStore'
 import type { SecretGroupRow, SecretServiceRow, ServiceInfoSortMode } from '../../types'
@@ -29,7 +30,7 @@ import BatchActionBar from './BatchActionBar'
 import ServiceGroupList from './ServiceGroupList'
 import ServiceDetail from './ServiceDetail'
 
-const GROUP_COLORS = ['#a8c7fa', '#78d9ec', '#f6c177', '#b8e986', '#f4a6a6', '#c4b5fd']
+const GROUP_COLORS = ['#adc6ff', '#b7c8e1', '#ffb786', '#8ddc9f', '#ffb4ab', '#c4b5fd']
 
 const sortOptions: { value: ServiceInfoSortMode; label: string }[] = [
   { value: 'manual', label: '手动排序' },
@@ -189,9 +190,19 @@ export default function ServiceInfoManager() {
   }
 
   return (
-    <Box sx={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden' }}>
-      <Box sx={{ width: 380, minWidth: 320, borderRight: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column' }}>
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
+    <Box sx={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
+      <Box
+        sx={{
+          width: 340,
+          minWidth: 320,
+          borderRight: '1px solid',
+          borderColor: 'divider',
+          display: 'flex',
+          flexDirection: 'column',
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0e0e0e' : '#ffffff',
+        }}
+      >
+        <Box sx={{ px: 2, py: 1.75, borderBottom: '1px solid', borderColor: 'divider' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.25 }}>
             <Box sx={{ minWidth: 0 }}>
               <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.05rem' }}>
@@ -203,7 +214,7 @@ export default function ServiceInfoManager() {
             </Box>
             <Box sx={{ display: 'flex', gap: 0.75 }}>
               <Tooltip title="新建分组">
-                <IconButton size="small" onClick={openCreateGroupDialog}>
+                <IconButton size="small" onClick={openCreateGroupDialog} sx={{ border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
                   <CreateNewFolderIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
@@ -261,9 +272,10 @@ export default function ServiceInfoManager() {
           onUngroup={ungroupSelected}
         />
 
-        <Box sx={{ flex: 1, overflowY: 'auto' }}>
+        <Box sx={{ flex: 1, overflowY: 'auto', py: 0.25 }}>
           {visibleServices.length === 0 ? (
-            <Box sx={{ px: 2, py: 4, textAlign: 'center' }}>
+            <Box sx={{ mx: 2, my: 3, px: 2, py: 4, textAlign: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
+              <VpnKeyOutlinedIcon sx={{ fontSize: 40, color: 'text.secondary', opacity: 0.45, mb: 1 }} />
               <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 700 }}>
                 暂无符合条件的内容
               </Typography>
@@ -310,15 +322,17 @@ export default function ServiceInfoManager() {
       <ServiceDetail />
 
       <Dialog open={serviceDialogOpen} onClose={() => setServiceDialogOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>新建服务</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <VpnKeyOutlinedIcon sx={{ color: 'primary.main' }} />
+          新建服务
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2.5 }}>
           <TextField
             autoFocus
             fullWidth
             label="服务名称"
             value={serviceName}
             onChange={(event) => setServiceName(event.target.value)}
-            sx={{ mt: 1.5 }}
           />
           <TextField
             fullWidth
@@ -337,15 +351,17 @@ export default function ServiceInfoManager() {
       </Dialog>
 
       <Dialog open={groupDialogOpen} onClose={() => setGroupDialogOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>{editingGroup ? '重命名分组' : '新建分组'}</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CreateNewFolderIcon sx={{ color: 'primary.main' }} />
+          {editingGroup ? '重命名分组' : '新建分组'}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2.5 }}>
           <TextField
             autoFocus
             fullWidth
             label="分组名称"
             value={groupName}
             onChange={(event) => setGroupName(event.target.value)}
-            sx={{ mt: 1.5 }}
           />
           <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
             {GROUP_COLORS.map((color) => (
@@ -356,6 +372,7 @@ export default function ServiceInfoManager() {
                 sx={{
                   width: 30,
                   height: 30,
+                  borderRadius: 2,
                   bgcolor: color,
                   border: '2px solid',
                   borderColor: groupColor === color ? 'text.primary' : 'transparent',
@@ -376,8 +393,8 @@ export default function ServiceInfoManager() {
 
       <Dialog open={moveDialogOpen} onClose={() => setMoveDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>移入分组</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          <FormControl fullWidth sx={{ mt: 1.5 }}>
+        <DialogContent sx={{ pt: 2.5 }}>
+          <FormControl fullWidth>
             <InputLabel id="service-info-move-label">目标分组</InputLabel>
             <Select
               labelId="service-info-move-label"

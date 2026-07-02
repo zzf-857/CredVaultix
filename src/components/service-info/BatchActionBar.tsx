@@ -28,9 +28,11 @@ export default function BatchActionBar({
         gap: 1,
         px: 1.5,
         py: 1,
-        borderBottom: '1px solid',
+        m: 1,
+        border: '1px solid',
         borderColor: 'divider',
-        bgcolor: 'action.hover',
+        borderRadius: 2,
+        bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
         flexWrap: 'wrap',
       }}
     >

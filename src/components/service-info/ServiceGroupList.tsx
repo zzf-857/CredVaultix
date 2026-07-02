@@ -67,13 +67,18 @@ export default function ServiceGroupList({
       onDrop={handleDrop}
       sx={{
         px: 1,
-        py: 0.5,
-        borderBottom: '1px solid',
-        borderColor: 'divider',
-        bgcolor: draggingServiceId ? 'action.hover' : 'transparent',
+        py: 0.75,
+        mx: 1,
+        my: 0.75,
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: draggingServiceId ? 'primary.main' : 'transparent',
+        bgcolor: draggingServiceId
+          ? 'action.hover'
+          : (theme) => theme.palette.mode === 'dark' ? '#131313' : '#ffffff',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minHeight: 34 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minHeight: 34, px: 0.25 }}>
         {group ? (
           <Tooltip title={collapsed ? '展开分组' : '折叠分组'}>
             <IconButton size="small" onClick={() => onToggleCollapsed?.(group)}>
@@ -83,8 +88,8 @@ export default function ServiceGroupList({
         ) : (
           <Box sx={{ width: 30 }} />
         )}
-        <Box sx={{ width: 8, height: 18, borderRadius: 0.75, bgcolor: color || 'divider' }} />
-        <Typography variant="caption" sx={{ flex: 1, minWidth: 0, fontWeight: 800, color: 'text.secondary' }} noWrap>
+        <Box sx={{ width: 8, height: 18, borderRadius: 99, bgcolor: color || 'divider' }} />
+        <Typography variant="caption" sx={{ flex: 1, minWidth: 0, fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase' }} noWrap>
           {groupTitle(title, services.length)}
         </Typography>
         {group && (
@@ -119,7 +124,7 @@ export default function ServiceGroupList({
       {!collapsed && (
         <Box sx={{ pt: 0.5, minHeight: services.length ? 0 : 28 }}>
           {services.length === 0 ? (
-            <Typography variant="caption" sx={{ display: 'block', px: 4.75, py: 0.75, color: 'text.disabled' }}>
+            <Typography variant="caption" sx={{ display: 'block', px: 4.75, py: 1, color: 'text.disabled' }}>
               暂无服务
             </Typography>
           ) : (

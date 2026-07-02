@@ -21,6 +21,7 @@ import AddIcon from '@mui/icons-material/Add'
 import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
 import { v4 as uuidv4 } from 'uuid'
 import { useStore } from '../../stores/useStore'
 import type { SecretFieldGroupRow, SecretFieldRow } from '../../types'
@@ -28,7 +29,7 @@ import { getGroupedItems, sortServiceInfoItems } from '../../utils/serviceInfoGr
 import BatchActionBar from './BatchActionBar'
 import ServiceFieldGroup from './ServiceFieldGroup'
 
-const GROUP_COLORS = ['#a8c7fa', '#78d9ec', '#f6c177', '#b8e986', '#f4a6a6', '#c4b5fd']
+const GROUP_COLORS = ['#adc6ff', '#b7c8e1', '#ffb786', '#8ddc9f', '#ffb4ab', '#c4b5fd']
 
 export default function ServiceDetail() {
   const {
@@ -60,10 +61,16 @@ export default function ServiceDetail() {
 
   if (!selectedServiceDetail) {
     return (
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', px: 3 }}>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          选择一个服务信息
-        </Typography>
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3, bgcolor: 'background.default' }}>
+        <Box sx={{ textAlign: 'center', px: 4, py: 5, maxWidth: 420, border: '1px solid', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
+          <VpnKeyOutlinedIcon sx={{ fontSize: 56, color: 'primary.main', opacity: 0.32, mb: 2 }} />
+          <Typography variant="h6" sx={{ color: 'text.primary', mb: 1, fontWeight: 800 }}>
+            选择一个服务信息
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+            在左侧选择服务后，可以查看和整理它的自定义字段与字段组。
+          </Typography>
+        </Box>
       </Box>
     )
   }
@@ -204,21 +211,39 @@ export default function ServiceDetail() {
   }
 
   return (
-    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      <Box sx={{ px: 2.5, py: 1.75, borderBottom: '1px solid', borderColor: 'divider' }}>
+    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
+      <Box sx={{ px: 2.5, py: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
         <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="h6" noWrap sx={{ fontWeight: 800 }}>
-              {service.name}
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.25 }}>
-              {service.description || '未填写用途说明'}
-            </Typography>
-            {service.url && (
-              <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', mt: 0.5 }}>
-                {service.url}
+          <Box sx={{ minWidth: 0, display: 'flex', gap: 1.5 }}>
+            <Box
+              sx={{
+                width: 52,
+                height: 52,
+                borderRadius: 3,
+                display: 'grid',
+                placeItems: 'center',
+                bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+                border: '1px solid',
+                borderColor: 'divider',
+                color: 'primary.main',
+                flexShrink: 0,
+              }}
+            >
+              <VpnKeyOutlinedIcon sx={{ fontSize: 28 }} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h6" noWrap sx={{ fontWeight: 800, fontSize: '1.2rem', lineHeight: 1.2 }}>
+                {service.name}
               </Typography>
-            )}
+              <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.35 }}>
+                {service.description || '未填写用途说明'}
+              </Typography>
+              {service.url && (
+                <Typography variant="caption" noWrap sx={{ display: 'block', color: 'primary.main', mt: 0.6 }}>
+                  {service.url}
+                </Typography>
+              )}
+            </Box>
           </Box>
           <Box sx={{ display: 'flex', gap: 0.75 }}>
             <Tooltip title="编辑服务">
@@ -237,7 +262,7 @@ export default function ServiceDetail() {
         </Box>
       </Box>
 
-      <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+      <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', bgcolor: 'background.paper' }}>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateFieldDialog}>
             新建字段
@@ -259,7 +284,7 @@ export default function ServiceDetail() {
         onUngroup={ungroupSelected}
       />
 
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 2 }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5 }}>
         <ServiceFieldGroup
           title="未分组"
           fields={groupedFields.ungrouped}
@@ -300,14 +325,13 @@ export default function ServiceDetail() {
 
       <Dialog open={fieldDialogOpen} onClose={() => setFieldDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{editingField ? '编辑字段' : '新建字段'}</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
+        <DialogContent sx={{ pt: 2.5 }}>
           <TextField
             autoFocus
             fullWidth
             label="字段名称"
             value={fieldName}
             onChange={(event) => setFieldName(event.target.value)}
-            sx={{ mt: 1.5 }}
           />
           <TextField
             fullWidth
@@ -334,14 +358,13 @@ export default function ServiceDetail() {
 
       <Dialog open={groupDialogOpen} onClose={() => setGroupDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>{editingGroup ? '重命名字段组' : '新建字段组'}</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
+        <DialogContent sx={{ pt: 2.5 }}>
           <TextField
             autoFocus
             fullWidth
             label="字段组名称"
             value={groupName}
             onChange={(event) => setGroupName(event.target.value)}
-            sx={{ mt: 1.5 }}
           />
           <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
             {GROUP_COLORS.map((color) => (
@@ -352,6 +375,7 @@ export default function ServiceDetail() {
                 sx={{
                   width: 30,
                   height: 30,
+                  borderRadius: 2,
                   bgcolor: color,
                   border: '2px solid',
                   borderColor: groupColor === color ? 'text.primary' : 'transparent',
@@ -372,8 +396,8 @@ export default function ServiceDetail() {
 
       <Dialog open={moveDialogOpen} onClose={() => setMoveDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>移入字段组</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          <FormControl fullWidth sx={{ mt: 1.5 }}>
+        <DialogContent sx={{ pt: 2.5 }}>
+          <FormControl fullWidth>
             <InputLabel id="service-field-move-label">目标字段组</InputLabel>
             <Select
               labelId="service-field-move-label"

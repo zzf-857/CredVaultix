@@ -48,11 +48,17 @@ export default function ServiceFieldRow({
         gridTemplateColumns: '28px 22px minmax(0, 1fr) auto',
         alignItems: 'center',
         gap: 0.75,
-        px: 1,
-        py: 0.85,
-        borderBottom: '1px solid',
+        px: 1.25,
+        py: 1,
+        m: 0.75,
+        border: '1px solid',
         borderColor: 'divider',
-        '&:last-of-type': { borderBottom: 0 },
+        borderRadius: 2,
+        bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#ffffff',
+        '&:hover': {
+          borderColor: 'primary.main',
+          bgcolor: 'action.hover',
+        },
       }}
     >
       <Checkbox
@@ -64,10 +70,10 @@ export default function ServiceFieldRow({
       />
       <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', fontWeight: 700 }}>
+        <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', fontWeight: 800 }}>
           {field.field_name}
         </Typography>
-        <Typography variant="body2" noWrap sx={{ fontFamily: isSecret ? 'monospace' : 'inherit' }}>
+        <Typography variant="body2" noWrap className={isSecret ? 'mono-data' : undefined} sx={{ color: 'text.primary' }}>
           {displayedValue || '(空)'}
         </Typography>
       </Box>
