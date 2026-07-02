@@ -106,10 +106,10 @@ function OtpTypeBadge({ type }: { type: string }) {
         height: 22,
         fontSize: '0.65rem',
         fontWeight: 600,
-        bgcolor: isTotp ? 'rgba(129,201,149,0.12)' : 'rgba(168,199,250,0.12)',
-        color: isTotp ? '#81c995' : '#a8c7fa',
+        bgcolor: isTotp ? 'rgba(141,220,159,0.12)' : 'rgba(173,198,255,0.12)',
+        color: isTotp ? '#8ddc9f' : '#adc6ff',
         border: '1px solid',
-        borderColor: isTotp ? 'rgba(129,201,149,0.3)' : 'rgba(168,199,250,0.3)',
+        borderColor: isTotp ? 'rgba(141,220,159,0.3)' : 'rgba(173,198,255,0.3)',
         '& .MuiChip-icon': {
           color: 'inherit',
         },
@@ -175,14 +175,13 @@ function TotpCard({
         mb: 0,
         borderRadius: 3,
         border: '1px solid',
-        borderColor: isPinned ? 'rgba(168, 199, 250, 0.45)' : 'divider',
-        bgcolor: isPinned ? 'rgba(168, 199, 250, 0.03)' : 'background.paper',
-        boxShadow: isPinned ? '0 0 16px rgba(168, 199, 250, 0.05)' : 'none',
-        transition: 'all 0.2s ease',
+        borderColor: isPinned ? 'rgba(173, 198, 255, 0.45)' : 'divider',
+        bgcolor: 'background.paper',
+        boxShadow: 'none',
+        transition: 'background-color 0.2s ease, border-color 0.2s ease',
         '&:hover': {
-          borderColor: isPinned ? 'primary.main' : 'primary.dark',
-          bgcolor: isPinned ? 'rgba(168, 199, 250, 0.06)' : 'action.hover',
-          boxShadow: isPinned ? '0 0 20px rgba(168, 199, 250, 0.12)' : 'none',
+          borderColor: isPinned ? 'primary.main' : 'divider',
+          bgcolor: 'action.hover',
         },
       }}
     >
@@ -196,18 +195,18 @@ function TotpCard({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: isHotp
-              ? 'linear-gradient(135deg, rgba(168,199,250,0.2) 0%, rgba(168,199,250,0.1) 100%)'
-              : 'linear-gradient(135deg, rgba(129,201,149,0.2) 0%, rgba(129,201,149,0.1) 100%)',
+            bgcolor: isHotp ? 'rgba(173,198,255,0.12)' : 'rgba(141,220,159,0.12)',
+            border: '1px solid',
+            borderColor: isHotp ? 'rgba(173,198,255,0.28)' : 'rgba(141,220,159,0.28)',
             mr: 1.5,
             flexShrink: 0,
           }}
         >
-          <SecurityIcon sx={{ fontSize: 20, color: isHotp ? '#a8c7fa' : '#81c995' }} />
+          <SecurityIcon sx={{ fontSize: 20, color: isHotp ? '#adc6ff' : '#8ddc9f' }} />
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 600, fontSize: '0.875rem', color: isOrphaned ? 'text.secondary' : 'text.primary', textDecoration: isOrphaned ? 'line-through' : 'none' }} noWrap>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '0.9rem', color: isOrphaned ? 'text.secondary' : 'text.primary', textDecoration: isOrphaned ? 'line-through' : 'none' }} noWrap>
               {account.issuer || account.label}
             </Typography>
             <OtpTypeBadge type={account.otp_type} />
@@ -270,15 +269,17 @@ function TotpCard({
           py: 1,
           px: 1.5,
           borderRadius: 2,
-          bgcolor: 'background.default',
+          bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+          border: '1px solid',
+          borderColor: 'divider',
           '&:hover': { bgcolor: 'action.selected' },
           transition: 'background-color 0.15s',
         }}
       >
         <Typography
           variant="h4"
+          className="mono-data"
           sx={{
-            fontFamily: "'Inter', monospace",
             fontWeight: 700,
             letterSpacing: 0,
             fontSize: '1.75rem',
@@ -350,10 +351,10 @@ function TotpCard({
             mt: 1,
             display: 'block',
             color: 'text.secondary',
-            fontFamily: 'monospace',
             fontSize: '0.65rem',
             wordBreak: 'break-all',
           }}
+          className="mono-data"
         >
           密钥: {account.secret}
         </Typography>
@@ -477,8 +478,8 @@ function TempTotpDisplay({
       >
         <Typography
           variant="h4"
+          className="mono-data"
           sx={{
-            fontFamily: "'Inter', monospace",
             fontWeight: 700,
             letterSpacing: 0,
             fontSize: '1.75rem',
@@ -821,7 +822,7 @@ export default function TwoFactorPanel() {
             sx={{
               width: 28,
               height: 28,
-              borderRadius: '6px',
+              borderRadius: 2,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -831,7 +832,7 @@ export default function TwoFactorPanel() {
           >
             {icon}
           </Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, fontSize: '0.95rem' }}>
             {title}
           </Typography>
           <Chip
@@ -930,13 +931,32 @@ export default function TwoFactorPanel() {
   }
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
       {/* Header */}
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
-        <SecurityIcon sx={{ color: 'primary.main' }} />
-        <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1.1rem', flex: 1 }}>
-          2FA 验证器
-        </Typography>
+      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, bgcolor: 'background.paper' }}>
+        <Box
+          sx={{
+            width: 42,
+            height: 42,
+            borderRadius: 2.5,
+            display: 'grid',
+            placeItems: 'center',
+            bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+            border: '1px solid',
+            borderColor: 'divider',
+            color: 'primary.main',
+          }}
+        >
+          <SecurityIcon />
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1.2 }}>
+            2FA 验证器
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            {totpAccounts.length} 个验证账户
+          </Typography>
+        </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <ToggleButtonGroup
             value={alignment}
@@ -979,7 +999,7 @@ export default function TwoFactorPanel() {
             size="small"
             startIcon={<FlashOnIcon />}
             onClick={() => setTempDialogOpen(true)}
-            sx={{ height: 30 }}
+            sx={{ height: 32 }}
           >
             临时验证器
           </Button>
@@ -988,7 +1008,7 @@ export default function TwoFactorPanel() {
             size="small"
             startIcon={<AddIcon />}
             onClick={() => setDialogOpen(true)}
-            sx={{ height: 30 }}
+            sx={{ height: 32 }}
           >
             添加账户
           </Button>
@@ -1004,15 +1024,15 @@ export default function TwoFactorPanel() {
           sx={{
             flex: 1,
             overflowY: 'auto',
-            p: 2,
+            p: 2.5,
             pr: totpAccounts.length > 0 ? { xs: 2, md: 10 } : 2, // 预留右侧空间给侧边栏，防止卡片被遮挡
             transition: 'padding-right 0.2s ease',
           }}
         >
           {totpAccounts.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 8, px: 3 }}>
-              <SecurityIcon sx={{ fontSize: 48, color: 'text.secondary', opacity: 0.4, mb: 2 }} />
-              <Typography variant="body1" sx={{ color: 'text.secondary', mb: 1 }}>
+            <Box sx={{ textAlign: 'center', py: 8, px: 4, maxWidth: 460, mx: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
+              <SecurityIcon sx={{ fontSize: 52, color: 'primary.main', opacity: 0.32, mb: 2 }} />
+              <Typography variant="h6" sx={{ color: 'text.primary', mb: 1, fontWeight: 800 }}>
                 暂无 2FA 账户
               </Typography>
               <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3, fontSize: '0.8rem' }}>
@@ -1032,24 +1052,24 @@ export default function TwoFactorPanel() {
               {renderAccountGroup(
                 'Google / Gmail 账户',
                 <GoogleIcon sx={{ fontSize: 16 }} />,
-                '#81c995',
-                'rgba(129,201,149,0.15)',
+              '#8ddc9f',
+              'rgba(141,220,159,0.15)',
                 googleAccounts,
                 'group-google'
               )}
               {renderAccountGroup(
                 'Microsoft / Outlook 账户',
                 <MicrosoftIcon sx={{ fontSize: 16 }} />,
-                '#a8c7fa',
-                'rgba(168,199,250,0.15)',
+              '#adc6ff',
+              'rgba(173,198,255,0.15)',
                 outlookAccounts,
                 'group-microsoft'
               )}
               {renderAccountGroup(
                 '其他应用账户',
                 <AppsIcon sx={{ fontSize: 16 }} />,
-                '#e8eaed',
-                'rgba(232,234,237,0.1)',
+              '#c2c6d6',
+              'rgba(194,198,214,0.12)',
                 otherAccounts,
                 'group-other'
               )}
@@ -1060,7 +1080,7 @@ export default function TwoFactorPanel() {
         {/* Quick Navigation Floating Sidebar */}
         {totpAccounts.length > 0 && (
           <Paper
-            elevation={6}
+            elevation={0}
             sx={{
               position: 'absolute',
               right: 24,
@@ -1069,18 +1089,16 @@ export default function TwoFactorPanel() {
               zIndex: 10,
               display: 'flex',
               flexDirection: 'column',
-              gap: 3, // 拉大图标之间的间距，提供修长且呼吸感极佳的现代胶囊布局
-              p: 2,   // 扩充内边距，使磨砂玻璃面板更宽阔大气
-              borderRadius: 6, // 极致圆滑的高级胶囊轮廓
+              gap: 1,
+              p: 1,
+              borderRadius: 3,
               border: '1px solid',
-              borderColor: 'rgba(255, 255, 255, 0.08)',
-              background: 'rgba(30, 30, 30, 0.75)',
-              backdropFilter: 'blur(16px)', // 增强毛玻璃背景模糊感
-              boxShadow: '0 12px 40px 0 rgba(0, 0, 0, 0.5)',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              borderColor: 'divider',
+              bgcolor: 'background.paper',
+              boxShadow: '0 12px 32px rgba(0, 0, 0, 0.18)',
+              transition: 'border-color 0.2s ease, background-color 0.2s ease',
               '&:hover': {
-                background: 'rgba(30, 30, 30, 0.85)',
-                boxShadow: '0 16px 48px 0 rgba(0, 0, 0, 0.65)',
+                borderColor: 'primary.main',
               }
             }}
           >
@@ -1091,16 +1109,14 @@ export default function TwoFactorPanel() {
                   sx={{
                     width: 44,
                     height: 44,
-                    color: activeGroup === 'group-google' ? '#81c995' : 'text.secondary',
-                    bgcolor: activeGroup === 'group-google' ? 'rgba(129,201,149,0.15)' : 'transparent',
+                    color: activeGroup === 'group-google' ? '#8ddc9f' : 'text.secondary',
+                    bgcolor: activeGroup === 'group-google' ? 'rgba(141,220,159,0.15)' : 'transparent',
                     border: '1px solid',
-                    borderColor: activeGroup === 'group-google' ? 'rgba(129,201,149,0.4)' : 'transparent',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    transform: activeGroup === 'group-google' ? 'scale(1.15)' : 'scale(1)',
+                    borderColor: activeGroup === 'group-google' ? 'rgba(141,220,159,0.4)' : 'transparent',
+                    transition: 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease',
                     '&:hover': {
-                      color: '#81c995',
-                      bgcolor: 'rgba(129,201,149,0.1)',
-                      transform: 'scale(1.15)',
+                      color: '#8ddc9f',
+                      bgcolor: 'rgba(141,220,159,0.1)',
                     }
                   }}
                 >
@@ -1116,16 +1132,14 @@ export default function TwoFactorPanel() {
                   sx={{
                     width: 44,
                     height: 44,
-                    color: activeGroup === 'group-microsoft' ? '#a8c7fa' : 'text.secondary',
-                    bgcolor: activeGroup === 'group-microsoft' ? 'rgba(168,199,250,0.15)' : 'transparent',
+                    color: activeGroup === 'group-microsoft' ? '#adc6ff' : 'text.secondary',
+                    bgcolor: activeGroup === 'group-microsoft' ? 'rgba(173,198,255,0.15)' : 'transparent',
                     border: '1px solid',
-                    borderColor: activeGroup === 'group-microsoft' ? 'rgba(168,199,250,0.4)' : 'transparent',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    transform: activeGroup === 'group-microsoft' ? 'scale(1.15)' : 'scale(1)',
+                    borderColor: activeGroup === 'group-microsoft' ? 'rgba(173,198,255,0.4)' : 'transparent',
+                    transition: 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease',
                     '&:hover': {
-                      color: '#a8c7fa',
-                      bgcolor: 'rgba(168,199,250,0.1)',
-                      transform: 'scale(1.15)',
+                      color: '#adc6ff',
+                      bgcolor: 'rgba(173,198,255,0.1)',
                     }
                   }}
                 >
@@ -1141,16 +1155,14 @@ export default function TwoFactorPanel() {
                   sx={{
                     width: 44,
                     height: 44,
-                    color: activeGroup === 'group-other' ? '#e8eaed' : 'text.secondary',
-                    bgcolor: activeGroup === 'group-other' ? 'rgba(232,234,237,0.1)' : 'transparent',
+                    color: activeGroup === 'group-other' ? '#c2c6d6' : 'text.secondary',
+                    bgcolor: activeGroup === 'group-other' ? 'rgba(194,198,214,0.12)' : 'transparent',
                     border: '1px solid',
-                    borderColor: activeGroup === 'group-other' ? 'rgba(232,234,237,0.2)' : 'transparent',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    transform: activeGroup === 'group-other' ? 'scale(1.15)' : 'scale(1)',
+                    borderColor: activeGroup === 'group-other' ? 'rgba(194,198,214,0.28)' : 'transparent',
+                    transition: 'background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease',
                     '&:hover': {
-                      color: '#e8eaed',
-                      bgcolor: 'rgba(232,234,237,0.05)',
-                      transform: 'scale(1.15)',
+                      color: '#c2c6d6',
+                      bgcolor: 'rgba(194,198,214,0.08)',
                     }
                   }}
                 >
@@ -1168,7 +1180,7 @@ export default function TwoFactorPanel() {
           <FlashOnIcon sx={{ color: 'primary.main' }} />
           临时验证器 (内存计算，不保存)
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ pt: 2.5 }}>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
             在这里，你可以快速生成一次性的 2FA 验证码。数据完全保留在内存中，关闭弹窗或重启软件后即被销毁，绝不写入数据库。
           </Typography>
@@ -1292,9 +1304,12 @@ export default function TwoFactorPanel() {
 
       {/* ========== Add Account Dialog ========== */}
       <Dialog open={dialogOpen} onClose={resetDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加 2FA 账户</DialogTitle>
-        <DialogContent>
-          <Box sx={{ mb: 2, mt: 1, display: 'flex', gap: 1 }}>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SecurityIcon sx={{ color: 'primary.main' }} />
+          添加 2FA 账户
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2.5 }}>
+          <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
             <Chip
               label="手动输入"
               variant={inputMode === 'manual' ? 'filled' : 'outlined'}
@@ -1397,7 +1412,7 @@ export default function TwoFactorPanel() {
             确定要删除以下 2FA 账户吗？
           </Typography>
           {deleteTarget && (
-            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'action.hover' }}>
+            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'background.paper', borderColor: 'divider' }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                 {deleteTarget.issuer || deleteTarget.label}
               </Typography>

@@ -27,36 +27,72 @@ export default function TrashManager() {
   }
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 4, overflowY: 'auto' }}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h5" sx={{ mb: 1, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-          <DeleteOutlineIcon sx={{ color: 'primary.main', fontSize: 28 }} /> 
-          回收站
-        </Typography>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          已经被删除的账号会被暂时存放在此处。由于目前系统未启用自动清理策略，它们会一直保留，直到您主观选择“彻底删除”为止。彻底删除后所有对应的自定义字段也会一并抹除。
-        </Typography>
+    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', p: 3, overflowY: 'auto', bgcolor: 'background.default' }}>
+      <Box sx={{ mb: 3, p: 2.5, border: '1px solid', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box
+            sx={{
+              width: 46,
+              height: 46,
+              borderRadius: 2.5,
+              display: 'grid',
+              placeItems: 'center',
+              bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+              border: '1px solid',
+              borderColor: 'divider',
+              color: 'primary.main',
+            }}
+          >
+            <DeleteOutlineIcon sx={{ fontSize: 26 }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h5" sx={{ fontWeight: 800, fontSize: '1.25rem', lineHeight: 1.2 }}>
+              回收站
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.5 }}>
+              已删除账号会保留在本地，直到你选择恢复或彻底删除。
+            </Typography>
+          </Box>
+        </Box>
       </Box>
 
       {trashAccounts.length === 0 ? (
-        <Box sx={{ textAlign: 'center', py: 8 }}>
-          <DeleteOutlineIcon sx={{ fontSize: 64, color: 'text.secondary', opacity: 0.2, mb: 2 }} />
-          <Typography variant="body1" sx={{ color: 'text.secondary' }}>
+        <Box sx={{ textAlign: 'center', py: 8, px: 4, border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
+          <DeleteOutlineIcon sx={{ fontSize: 56, color: 'text.secondary', opacity: 0.35, mb: 2 }} />
+          <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 800 }}>
             回收站空空如也
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 1 }}>
+            被移入回收站的账号会显示在这里。
           </Typography>
         </Box>
       ) : (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
           {trashAccounts.map(acc => (
             <Box key={acc.id} sx={{ 
-              display: 'flex', alignItems: 'center', p: 2.5, 
+              display: 'flex', alignItems: 'center', gap: 2, p: 2, 
               bgcolor: 'background.paper',
-              border: '1px solid', borderColor: 'divider', borderRadius: 2,
-              '&:hover': { borderColor: 'primary.main', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' },
-              transition: 'all 0.2s ease-in-out'
+              border: '1px solid', borderColor: 'divider', borderRadius: 3,
+              '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' },
+              transition: 'background-color 0.2s ease, border-color 0.2s ease'
             }}>
+              <Box
+                sx={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 2,
+                  display: 'grid',
+                  placeItems: 'center',
+                  bgcolor: 'rgba(255,180,171,0.12)',
+                  color: 'error.main',
+                  border: '1px solid rgba(255,180,171,0.28)',
+                  flexShrink: 0,
+                }}
+              >
+                <DeleteOutlineIcon />
+              </Box>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{acc.name}</Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{acc.name}</Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
                   账号: {acc.username || '未设置'} • 删除时间: {acc.deleted_at ? new Date(acc.deleted_at).toLocaleString() : '未知'}
                 </Typography>
@@ -92,10 +128,10 @@ export default function TrashManager() {
           <WarningAmberIcon sx={{ color: 'warning.main' }} />
           确认彻底删除
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ pt: 2.5 }}>
           <Typography variant="body2">确定要彻底从设备中清除该账号的所有数据吗？</Typography>
           <Typography variant="body2" sx={{ mt: 1, color: 'error.main', fontSize: '0.8rem' }}>
-            ⚠️ 此操作不可逆！彻底删除后，关联的 2FA 实时验证码将失去账号关联变孤立状态。
+            此操作不可逆。彻底删除后，关联的 2FA 实时验证码将失去账号关联变孤立状态。
           </Typography>
         </DialogContent>
         <DialogActions>
