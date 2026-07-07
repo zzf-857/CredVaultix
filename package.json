@@ -1,13 +1,13 @@
 {
   "name": "credvaultix",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A sleek Windows desktop CredVaultix account, 2FA, and service information vault with Material Design 3",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build && electron-builder",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "vite --host 127.0.0.1",
     "electron:build": "vite build && electron-builder --win",
     "postinstall": "electron-rebuild",
     "rebuild": "electron-rebuild",
@@ -59,12 +59,22 @@
       "dist",
       "dist-electron"
     ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**/*"
     ],
     "npmRebuild": false,
     "buildDependenciesFromSource": false,
     "win": {
+      "icon": "assets/app.ico",
       "artifactName": "CredVaultix-${version}.${ext}",
       "target": [
         "nsis"
@@ -72,6 +82,9 @@
     },
     "nsis": {
       "artifactName": "CredVaultix-Setup-${version}.${ext}",
+      "installerIcon": "assets/app.ico",
+      "uninstallerIcon": "assets/app.ico",
+      "installerHeaderIcon": "assets/app.ico",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,

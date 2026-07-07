@@ -4,7 +4,10 @@ import cryptoSource from '../../electron/crypto.ts?raw'
 import databaseSource from '../../electron/database.ts?raw'
 import preloadSource from '../../electron/preload.ts?raw'
 import indexHtmlSource from '../../index.html?raw'
+import packageSource from '../../package.json?raw'
 import appSource from '../App.tsx?raw'
+import accountsViewSource from '../components/AccountsView.tsx?raw'
+import settingsPanelSource from '../components/SettingsPanel.tsx?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
 import titleBarSource from '../components/TitleBar.tsx?raw'
 import typesSource from '../types.ts?raw'
@@ -65,24 +68,58 @@ describe('CredVaultix update flow wiring', () => {
     expect(typesSource).toContain('UpdateMessage')
   })
 
-  it('adds a compact TitleBar dialog for manual update checks and installs', () => {
-    expect(titleBarSource).toContain('SystemUpdateAltIcon')
-    expect(titleBarSource).toContain('Dialog')
-    expect(titleBarSource).toContain('版本与更新')
-    expect(titleBarSource).toContain('当前版本')
-    expect(titleBarSource).toContain('检查更新')
-    expect(titleBarSource).toContain('下载更新包')
-    expect(titleBarSource).toContain('重启安装')
-    expect(titleBarSource).toContain('升级不会删除本地数据库')
-    expect(titleBarSource).toContain('checkUpdates')
-    expect(titleBarSource).toContain('downloadUpdate')
-    expect(titleBarSource).toContain('quitAndInstall')
-    expect(titleBarSource).toContain('onUpdateMessage')
+  it('adds a settings panel for manual update checks, installs, data actions, and appearance', () => {
+    expect(sidebarSource).toContain('SettingsPanel')
+    expect(sidebarSource).toContain('设置')
+    expect(settingsPanelSource).toContain('SystemUpdateAltIcon')
+    expect(settingsPanelSource).toContain('Dialog')
+    expect(settingsPanelSource).toContain('版本与更新')
+    expect(settingsPanelSource).toContain('检查更新')
+    expect(settingsPanelSource).toContain('下载更新包')
+    expect(settingsPanelSource).toContain('重启安装')
+    expect(settingsPanelSource).toContain('升级不会删除本地数据库')
+    expect(settingsPanelSource).toContain('导入数据库')
+    expect(settingsPanelSource).toContain('导出数据库')
+    expect(settingsPanelSource).toContain('打开数据目录')
+    expect(settingsPanelSource).toContain('切换到浅色模式')
+    expect(settingsPanelSource).toContain('checkUpdates')
+    expect(settingsPanelSource).toContain('downloadUpdate')
+    expect(settingsPanelSource).toContain('quitAndInstall')
+    expect(settingsPanelSource).toContain('onUpdateMessage')
+    expect(titleBarSource).not.toContain('SystemUpdateAltIcon')
+    expect(titleBarSource).not.toContain('FileUploadIcon')
+    expect(titleBarSource).not.toContain('FileDownloadIcon')
+    expect(titleBarSource).not.toContain('DarkModeIcon')
+  })
+
+  it('uses user-created tag suggestions and full-row account field copying', () => {
+    expect(accountsViewSource).toContain('function getCreatedTagSuggestions')
+    expect(accountsViewSource).toContain("getAccounts({ isDeleted: false, platform: 'all' })")
+    expect(accountsViewSource).toContain('已创建标签')
+    expect(accountsViewSource).not.toContain('常用建议')
+    expect(accountsViewSource).not.toContain('getSuggestedPlatformTags')
+    expect(accountsViewSource).not.toContain('YouTube')
+    expect(accountsViewSource).not.toContain('Figma')
+    expect(accountsViewSource).toContain("const requiresRevealBeforeCopy = fieldKey === 'totp_secret'")
+    expect(accountsViewSource).toContain('onClick={handleCopy}')
+    expect(accountsViewSource).toContain('先显示')
+    expect(accountsViewSource).toContain('已复制')
+  })
+
+  it('uses a single Vite-driven Electron dev launcher', () => {
+    expect(packageSource).toContain('"electron:dev": "vite --host 127.0.0.1"')
+    expect(packageSource).not.toContain('wait-on http://127.0.0.1:5173')
+    expect(packageSource).not.toContain('&& electron .')
   })
 
   it('uses CredVaultix identity while migrating legacy AccountManager data into the new database name', () => {
     expect(mainSource).toContain("const APP_NAME = 'CredVaultix'")
     expect(mainSource).toContain('app.setName(APP_NAME)')
+    expect(mainSource).toContain("const APP_ID = 'com.personal.credvaultix'")
+    expect(mainSource).toContain('app.setAppUserModelId(APP_ID)')
+    expect(mainSource).toContain('function getAppIconPath()')
+    expect(mainSource).toContain("path.join(process.resourcesPath, 'assets', 'app.ico')")
+    expect(mainSource).toContain('icon: getAppIconPath()')
     expect(mainSource).toContain("app.setPath('userData'")
     expect(mainSource).toContain("path.join(app.getPath('appData'), APP_NAME)")
     expect(databaseSource).toContain("'credvaultix.db'")
@@ -92,7 +129,14 @@ describe('CredVaultix update flow wiring', () => {
     expect(mainSource).toContain("'prompt-manager'")
     expect(mainSource).toContain('copyFileSync')
     expect(mainSource).not.toContain("app.name = 'AccountManager'")
-    expect(titleBarSource).toContain('CredVaultix')
+    expect(sidebarSource).toContain('CredVaultix')
+    expect(sidebarSource).toContain("import appIcon from '../../assets/app.png'")
+    expect(packageSource).toContain('"appId": "com.personal.credvaultix"')
+    expect(packageSource).toContain('"icon": "assets/app.ico"')
+    expect(packageSource).toContain('"installerIcon": "assets/app.ico"')
+    expect(packageSource).toContain('"uninstallerIcon": "assets/app.ico"')
+    expect(packageSource).toContain('"installerHeaderIcon": "assets/app.ico"')
+    expect(packageSource).toContain('"from": "assets"')
     expect(indexHtmlSource).toContain('<title>CredVaultix</title>')
     expect(indexHtmlSource).not.toContain('<title>AccountManager</title>')
   })

@@ -62,12 +62,12 @@ export default function ServiceDetail() {
   if (!selectedServiceDetail) {
     return (
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3, bgcolor: 'background.default' }}>
-        <Box sx={{ textAlign: 'center', px: 4, py: 5, maxWidth: 420, border: '1px solid', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
+        <Box sx={{ textAlign: 'center', px: 4.25, py: 5.25, maxWidth: 420, border: '1px solid', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
           <VpnKeyOutlinedIcon sx={{ fontSize: 56, color: 'primary.main', opacity: 0.32, mb: 2 }} />
           <Typography variant="h6" sx={{ color: 'text.primary', mb: 1, fontWeight: 800 }}>
             选择一个服务信息
           </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.55 }}>
             在左侧选择服务后，可以查看和整理它的自定义字段与字段组。
           </Typography>
         </Box>
@@ -212,13 +212,13 @@ export default function ServiceDetail() {
 
   return (
     <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
-      <Box sx={{ px: 2.5, py: 2, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
-          <Box sx={{ minWidth: 0, display: 'flex', gap: 1.5 }}>
+      <Box sx={{ px: 3.1, py: 2.55, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2.2 }}>
+          <Box sx={{ minWidth: 0, display: 'flex', gap: 1.95 }}>
             <Box
               sx={{
-                width: 52,
-                height: 52,
+                width: 58,
+                height: 58,
                 borderRadius: 3,
                 display: 'grid',
                 placeItems: 'center',
@@ -229,17 +229,17 @@ export default function ServiceDetail() {
                 flexShrink: 0,
               }}
             >
-              <VpnKeyOutlinedIcon sx={{ fontSize: 28 }} />
+              <VpnKeyOutlinedIcon sx={{ fontSize: 31 }} />
             </Box>
             <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h6" noWrap sx={{ fontWeight: 800, fontSize: '1.2rem', lineHeight: 1.2 }}>
+              <Typography variant="h6" noWrap sx={{ fontWeight: 800, fontSize: '1.3rem', lineHeight: 1.3 }}>
                 {service.name}
               </Typography>
-              <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.35 }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.55, fontSize: '0.92rem', lineHeight: 1.55 }}>
                 {service.description || '未填写用途说明'}
               </Typography>
               {service.url && (
-                <Typography variant="caption" noWrap sx={{ display: 'block', color: 'primary.main', mt: 0.6 }}>
+                <Typography variant="caption" noWrap sx={{ display: 'block', color: 'primary.main', mt: 0.75, lineHeight: 1.35 }}>
                   {service.url}
                 </Typography>
               )}
@@ -262,8 +262,8 @@ export default function ServiceDetail() {
         </Box>
       </Box>
 
-      <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', bgcolor: 'background.paper' }}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
+      <Box sx={{ px: 2.65, py: 1.65, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', gap: 1.35, flexWrap: 'wrap', bgcolor: 'background.paper' }}>
+        <Box sx={{ display: 'flex', gap: 1.2 }}>
           <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateFieldDialog}>
             新建字段
           </Button>
@@ -271,7 +271,7 @@ export default function ServiceDetail() {
             新建字段组
           </Button>
         </Box>
-        <Typography variant="caption" sx={{ color: 'text.secondary', alignSelf: 'center' }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', alignSelf: 'center', fontSize: '0.76rem', lineHeight: 1.45 }}>
           {fields.length} 个字段
         </Typography>
       </Box>
@@ -284,7 +284,7 @@ export default function ServiceDetail() {
         onUngroup={ungroupSelected}
       />
 
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5 }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', p: 3.1 }}>
         <ServiceFieldGroup
           title="未分组"
           fields={groupedFields.ungrouped}

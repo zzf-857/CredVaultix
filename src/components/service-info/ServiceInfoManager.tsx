@@ -193,8 +193,8 @@ export default function ServiceInfoManager() {
     <Box sx={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
       <Box
         sx={{
-          width: 340,
-          minWidth: 320,
+          width: 360,
+          minWidth: 340,
           borderRight: '1px solid',
           borderColor: 'divider',
           display: 'flex',
@@ -202,17 +202,17 @@ export default function ServiceInfoManager() {
           bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0e0e0e' : '#ffffff',
         }}
       >
-        <Box sx={{ px: 2, py: 1.75, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.25 }}>
+        <Box sx={{ px: 2.45, py: 2.2, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.35, mb: 1.65 }}>
             <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.05rem' }}>
+              <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.12rem', lineHeight: 1.35 }}>
                 服务信息
               </Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.3, lineHeight: 1.45, fontSize: '0.76rem' }}>
                 {secretServices.length} 项记录
               </Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 0.75 }}>
+            <Box sx={{ display: 'flex', gap: 0.9 }}>
               <Tooltip title="新建分组">
                 <IconButton size="small" onClick={openCreateGroupDialog} sx={{ border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
                   <CreateNewFolderIcon fontSize="small" />
@@ -272,11 +272,11 @@ export default function ServiceInfoManager() {
           onUngroup={ungroupSelected}
         />
 
-        <Box sx={{ flex: 1, overflowY: 'auto', py: 0.25 }}>
+        <Box sx={{ flex: 1, overflowY: 'auto', py: 0.75 }}>
           {visibleServices.length === 0 ? (
-            <Box sx={{ mx: 2, my: 3, px: 2, py: 4, textAlign: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
+            <Box sx={{ mx: 2, my: 3, px: 2.5, py: 4.25, textAlign: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
               <VpnKeyOutlinedIcon sx={{ fontSize: 40, color: 'text.secondary', opacity: 0.45, mb: 1 }} />
-              <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 700, lineHeight: 1.5 }}>
                 暂无符合条件的内容
               </Typography>
             </Box>

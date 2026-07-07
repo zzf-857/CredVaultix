@@ -35,13 +35,13 @@ export default function ServiceListItem({
       }}
       sx={{
         display: 'grid',
-        gridTemplateColumns: '28px 20px 36px minmax(0, 1fr) 32px',
+        gridTemplateColumns: '32px 24px 42px minmax(0, 1fr) 36px',
         alignItems: 'center',
-        gap: 0.75,
+        gap: 1.15,
         borderRadius: 2,
-        mb: 0.75,
-        px: 1,
-        py: 1,
+        mb: 1.05,
+        px: 1.6,
+        py: 1.45,
         border: '1px solid',
         borderColor: selected ? 'primary.main' : 'transparent',
         borderLeft: '2px solid',
@@ -60,13 +60,13 @@ export default function ServiceListItem({
         onClick={(event) => event.stopPropagation()}
         onChange={onToggleSelected}
         inputProps={{ 'aria-label': `选择 ${service.name}` }}
-        sx={{ p: 0.25 }}
+        sx={{ p: 0.35 }}
       />
       <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
       <Box
         sx={{
-          width: 34,
-          height: 34,
+          width: 40,
+          height: 40,
           borderRadius: 2,
           display: 'grid',
           placeItems: 'center',
@@ -76,13 +76,13 @@ export default function ServiceListItem({
           borderColor: service.is_favorite ? 'rgba(255, 183, 134, 0.42)' : 'rgba(173, 198, 255, 0.28)',
         }}
       >
-        <VpnKeyOutlinedIcon sx={{ fontSize: 18 }} />
+        <VpnKeyOutlinedIcon sx={{ fontSize: 20 }} />
       </Box>
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="body2" noWrap sx={{ fontWeight: 800, color: 'text.primary' }}>
+        <Typography variant="body2" noWrap sx={{ fontWeight: 800, color: 'text.primary', fontSize: '0.95rem', lineHeight: 1.42 }}>
           {service.name}
         </Typography>
-        <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary' }}>
+        <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', mt: 0.35, fontSize: '0.78rem', lineHeight: 1.42 }}>
           {service.description || service.url || '未填写用途说明'}
         </Typography>
       </Box>
@@ -93,6 +93,7 @@ export default function ServiceListItem({
             event.stopPropagation()
             onToggleFavorite()
           }}
+          sx={{ width: 30, height: 30 }}
         >
           {service.is_favorite ? (
             <StarIcon sx={{ fontSize: 18, color: 'warning.main' }} />

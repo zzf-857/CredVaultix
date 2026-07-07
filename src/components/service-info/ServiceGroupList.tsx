@@ -66,10 +66,10 @@ export default function ServiceGroupList({
       onDragOver={(event) => event.preventDefault()}
       onDrop={handleDrop}
       sx={{
-        px: 1,
-        py: 0.75,
-        mx: 1,
-        my: 0.75,
+        px: 1.35,
+        py: 1.15,
+        mx: 1.1,
+        my: 1,
         borderRadius: 2,
         border: '1px solid',
         borderColor: draggingServiceId ? 'primary.main' : 'transparent',
@@ -78,7 +78,7 @@ export default function ServiceGroupList({
           : (theme) => theme.palette.mode === 'dark' ? '#131313' : '#ffffff',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minHeight: 34, px: 0.25 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, minHeight: 42, px: 0.45 }}>
         {group ? (
           <Tooltip title={collapsed ? '展开分组' : '折叠分组'}>
             <IconButton size="small" onClick={() => onToggleCollapsed?.(group)}>
@@ -89,7 +89,7 @@ export default function ServiceGroupList({
           <Box sx={{ width: 30 }} />
         )}
         <Box sx={{ width: 8, height: 18, borderRadius: 99, bgcolor: color || 'divider' }} />
-        <Typography variant="caption" sx={{ flex: 1, minWidth: 0, fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase' }} noWrap>
+        <Typography variant="caption" sx={{ flex: 1, minWidth: 0, fontWeight: 800, color: 'text.secondary', fontSize: '0.76rem', lineHeight: 1.45, textTransform: 'uppercase' }} noWrap>
           {groupTitle(title, services.length)}
         </Typography>
         {group && (
@@ -122,9 +122,9 @@ export default function ServiceGroupList({
       </Box>
 
       {!collapsed && (
-        <Box sx={{ pt: 0.5, minHeight: services.length ? 0 : 28 }}>
+        <Box sx={{ pt: 0.65, minHeight: services.length ? 0 : 32 }}>
           {services.length === 0 ? (
-            <Typography variant="caption" sx={{ display: 'block', px: 4.75, py: 1, color: 'text.disabled' }}>
+            <Typography variant="caption" sx={{ display: 'block', px: 5.25, py: 1.45, color: 'text.disabled', fontSize: '0.76rem', lineHeight: 1.5 }}>
               暂无服务
             </Typography>
           ) : (

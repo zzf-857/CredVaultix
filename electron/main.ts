@@ -17,6 +17,7 @@ import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
 
 let mainWindow: BrowserWindow | null = null
+const APP_ID = 'com.personal.credvaultix'
 const APP_NAME = 'CredVaultix'
 const LEGACY_DATABASE_FILE_NAME = 'account-manager.db'
 const TAG_COLOR_PALETTE = ['#a8c7fa', '#81c995', '#f2b8b5', '#fdd663', '#d7aefb', '#78d9ec', '#fcb68e']
@@ -25,7 +26,19 @@ app.setName(APP_NAME)
 
 function configureAppIdentity() {
   app.setName(APP_NAME)
+  app.setAppUserModelId(APP_ID)
   app.setPath('userData', path.join(app.getPath('appData'), APP_NAME))
+}
+
+function getAppIconPath() {
+  const candidates = [
+    app.isPackaged
+      ? path.join(process.resourcesPath, 'assets', 'app.ico')
+      : path.join(process.cwd(), 'assets', 'app.ico'),
+    path.join(__dirname, '../assets/app.ico'),
+  ]
+
+  return candidates.find((candidate) => fs.existsSync(candidate))
 }
 
 function normalizeAccountPlatform(value?: string | null) {
@@ -233,6 +246,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: APP_NAME,
+    icon: getAppIconPath(),
     frame: false,
     titleBarStyle: 'hidden',
     webPreferences: {

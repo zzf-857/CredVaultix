@@ -103,15 +103,19 @@ function OtpTypeBadge({ type }: { type: string }) {
       label={isTotp ? '基于时间' : '基于计数器'}
       size="small"
       sx={{
-        height: 22,
-        fontSize: '0.65rem',
+        height: 24,
+        fontSize: '0.68rem',
         fontWeight: 600,
+        lineHeight: 1.35,
         bgcolor: isTotp ? 'rgba(141,220,159,0.12)' : 'rgba(173,198,255,0.12)',
         color: isTotp ? '#8ddc9f' : '#adc6ff',
         border: '1px solid',
         borderColor: isTotp ? 'rgba(141,220,159,0.3)' : 'rgba(173,198,255,0.3)',
         '& .MuiChip-icon': {
           color: 'inherit',
+        },
+        '& .MuiChip-label': {
+          px: 0.8,
         },
       }}
     />
@@ -171,7 +175,7 @@ function TotpCard({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       sx={{
-        p: 2.5,
+        p: 2.75,
         mb: 0,
         borderRadius: 3,
         border: '1px solid',
@@ -186,11 +190,11 @@ function TotpCard({
       }}
     >
       {/* Header row */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.5 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1.75 }}>
         <Box
           sx={{
-            width: 36,
-            height: 36,
+            width: 38,
+            height: 38,
             borderRadius: 2,
             display: 'flex',
             alignItems: 'center',
@@ -205,8 +209,8 @@ function TotpCard({
           <SecurityIcon sx={{ fontSize: 20, color: isHotp ? '#adc6ff' : '#8ddc9f' }} />
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '0.9rem', color: isOrphaned ? 'text.secondary' : 'text.primary', textDecoration: isOrphaned ? 'line-through' : 'none' }} noWrap>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, flexWrap: 'wrap' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '0.9rem', lineHeight: 1.35, color: isOrphaned ? 'text.secondary' : 'text.primary', textDecoration: isOrphaned ? 'line-through' : 'none' }} noWrap>
               {account.issuer || account.label}
             </Typography>
             <OtpTypeBadge type={account.otp_type} />
@@ -216,7 +220,7 @@ function TotpCard({
                 label="主账号已删"
                 size="small"
                 sx={{
-                  height: 22, fontSize: '0.65rem', fontWeight: 600,
+                  height: 24, fontSize: '0.68rem', fontWeight: 600, lineHeight: 1.35,
                   bgcolor: 'rgba(211,47,47,0.1)', color: 'error.main', border: '1px solid', borderColor: 'rgba(211,47,47,0.3)',
                 }}
               />
@@ -233,14 +237,14 @@ function TotpCard({
             )}
           </Box>
           {account.issuer && (
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }} noWrap>
+            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: '0.7rem', mt: 0.3, lineHeight: 1.35 }} noWrap>
               {account.label}
               {isHotp && ` · 计数器: ${account.counter}`}
             </Typography>
           )}
         </Box>
 
-        <Box sx={{ display: 'flex', gap: 0.25, opacity: hovered ? 1 : 0.2, transition: 'opacity 0.15s' }}>
+        <Box sx={{ display: 'flex', gap: 0.35, opacity: hovered ? 1 : 0.2, transition: 'opacity 0.15s' }}>
           <IconButton
             size="small"
             onClick={() => setShowSecret(!showSecret)}
@@ -264,10 +268,10 @@ function TotpCard({
         sx={{
           display: 'flex',
           alignItems: 'center',
-          gap: 1.5,
+          gap: 1.6,
           cursor: 'pointer',
-          py: 1,
-          px: 1.5,
+          py: 1.15,
+          px: 1.75,
           borderRadius: 2,
           bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
           border: '1px solid',
@@ -283,6 +287,7 @@ function TotpCard({
             fontWeight: 700,
             letterSpacing: 0,
             fontSize: '1.75rem',
+            lineHeight: 1.2,
             color: isUrgent ? 'error.main' : 'primary.main',
             flex: 1,
             transition: 'color 0.3s',
@@ -348,11 +353,12 @@ function TotpCard({
         <Typography
           variant="caption"
           sx={{
-            mt: 1,
-            display: 'block',
-            color: 'text.secondary',
-            fontSize: '0.65rem',
-            wordBreak: 'break-all',
+             mt: 1.25,
+             display: 'block',
+             color: 'text.secondary',
+             fontSize: '0.65rem',
+             lineHeight: 1.45,
+             wordBreak: 'break-all',
           }}
           className="mono-data"
         >
@@ -454,7 +460,7 @@ function TempTotpDisplay({
     <Paper
       elevation={0}
       sx={{
-        p: 2,
+        p: 2.25,
         borderRadius: 3,
         border: '1px solid',
         borderColor: isUrgent ? 'error.dark' : 'primary.main',
@@ -467,10 +473,10 @@ function TempTotpDisplay({
         sx={{
           display: 'flex',
           alignItems: 'center',
-          gap: 1.5,
+          gap: 1.6,
           cursor: 'pointer',
-          py: 1,
-          px: 1.5,
+          py: 1.15,
+          px: 1.75,
           borderRadius: 2,
           '&:hover': { bgcolor: 'action.selected' },
           transition: 'background-color 0.15s',
@@ -483,6 +489,7 @@ function TempTotpDisplay({
             fontWeight: 700,
             letterSpacing: 0,
             fontSize: '1.75rem',
+            lineHeight: 1.2,
             color: isUrgent ? 'error.main' : 'primary.main',
             flex: 1,
             transition: 'color 0.3s',
@@ -933,7 +940,7 @@ export default function TwoFactorPanel() {
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
       {/* Header */}
-      <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, bgcolor: 'background.paper' }}>
+      <Box sx={{ p: 2.25, display: 'flex', alignItems: 'center', gap: 1.75, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0, bgcolor: 'background.paper' }}>
         <Box
           sx={{
             width: 42,
@@ -950,10 +957,10 @@ export default function TwoFactorPanel() {
           <SecurityIcon />
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1.2 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1.28 }}>
             2FA 验证器
           </Typography>
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.3, lineHeight: 1.35 }}>
             {totpAccounts.length} 个验证账户
           </Typography>
         </Box>
@@ -970,9 +977,9 @@ export default function TwoFactorPanel() {
             aria-label="text alignment"
             sx={{
               mr: 1,
-              height: 30,
+              height: 32,
               '& .MuiToggleButton-root': {
-                px: 1,
+                px: 1.1,
                 py: 0.5,
                 borderColor: 'divider',
                 color: 'text.secondary',
@@ -999,7 +1006,7 @@ export default function TwoFactorPanel() {
             size="small"
             startIcon={<FlashOnIcon />}
             onClick={() => setTempDialogOpen(true)}
-            sx={{ height: 32 }}
+            sx={{ height: 34 }}
           >
             临时验证器
           </Button>
@@ -1008,7 +1015,7 @@ export default function TwoFactorPanel() {
             size="small"
             startIcon={<AddIcon />}
             onClick={() => setDialogOpen(true)}
-            sx={{ height: 32 }}
+            sx={{ height: 34 }}
           >
             添加账户
           </Button>
@@ -1035,7 +1042,7 @@ export default function TwoFactorPanel() {
               <Typography variant="h6" sx={{ color: 'text.primary', mb: 1, fontWeight: 800 }}>
                 暂无 2FA 账户
               </Typography>
-              <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3, fontSize: '0.8rem' }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3, fontSize: '0.8rem', lineHeight: 1.55 }}>
                 添加你的双因素认证账户，随时生成验证码
               </Typography>
               <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
@@ -1181,11 +1188,11 @@ export default function TwoFactorPanel() {
           临时验证器 (内存计算，不保存)
         </DialogTitle>
         <DialogContent sx={{ pt: 2.5 }}>
-          <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2.25, lineHeight: 1.55 }}>
             在这里，你可以快速生成一次性的 2FA 验证码。数据完全保留在内存中，关闭弹窗或重启软件后即被销毁，绝不写入数据库。
           </Typography>
 
-          <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+          <Box sx={{ mb: 2.25, display: 'flex', gap: 1.1 }}>
             <Chip
               label="手动输入"
               variant={tempInputMode === 'manual' ? 'filled' : 'outlined'}
@@ -1211,20 +1218,20 @@ export default function TwoFactorPanel() {
                   onChange={(e) => setTempOtpType(e.target.value as 'totp' | 'hotp')}
                 >
                   <MenuItem value="totp">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, py: 0.35 }}>
                       <TimerIcon sx={{ fontSize: 18, color: '#81c995' }} />
                       <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>基于时间 (TOTP)</Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>每 30 秒自动刷新验证码</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.35 }}>基于时间 (TOTP)</Typography>
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.2, lineHeight: 1.35 }}>每 30 秒自动刷新验证码</Typography>
                       </Box>
                     </Box>
                   </MenuItem>
                   <MenuItem value="hotp">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, py: 0.35 }}>
                       <PinIcon sx={{ fontSize: 18, color: '#a8c7fa' }} />
                       <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>基于计数器 (HOTP)</Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>手动点击生成下一个验证码</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.35 }}>基于计数器 (HOTP)</Typography>
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.2, lineHeight: 1.35 }}>手动点击生成下一个验证码</Typography>
                       </Box>
                     </Box>
                   </MenuItem>
@@ -1274,7 +1281,7 @@ export default function TwoFactorPanel() {
 
           {/* Real-time Code Display Section */}
           <Box sx={{ mt: 1, mb: 1 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1.1, fontWeight: 600, lineHeight: 1.35 }}>
               实时生成验证码
             </Typography>
             <TempTotpDisplay
@@ -1309,7 +1316,7 @@ export default function TwoFactorPanel() {
           添加 2FA 账户
         </DialogTitle>
         <DialogContent sx={{ pt: 2.5 }}>
-          <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+          <Box sx={{ mb: 2.25, display: 'flex', gap: 1.1 }}>
             <Chip
               label="手动输入"
               variant={inputMode === 'manual' ? 'filled' : 'outlined'}
@@ -1335,20 +1342,20 @@ export default function TwoFactorPanel() {
                   onChange={(e) => setOtpType(e.target.value as 'totp' | 'hotp')}
                 >
                   <MenuItem value="totp">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, py: 0.35 }}>
                       <TimerIcon sx={{ fontSize: 18, color: '#81c995' }} />
                       <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>基于时间 (TOTP)</Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>每 30 秒自动刷新验证码</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.35 }}>基于时间 (TOTP)</Typography>
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.2, lineHeight: 1.35 }}>每 30 秒自动刷新验证码</Typography>
                       </Box>
                     </Box>
                   </MenuItem>
                   <MenuItem value="hotp">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, py: 0.35 }}>
                       <PinIcon sx={{ fontSize: 18, color: '#a8c7fa' }} />
                       <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 500 }}>基于计数器 (HOTP)</Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>手动点击生成下一个验证码</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.35 }}>基于计数器 (HOTP)</Typography>
+                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.2, lineHeight: 1.35 }}>手动点击生成下一个验证码</Typography>
                       </Box>
                     </Box>
                   </MenuItem>
@@ -1412,12 +1419,12 @@ export default function TwoFactorPanel() {
             确定要删除以下 2FA 账户吗？
           </Typography>
           {deleteTarget && (
-            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: 'background.paper', borderColor: 'divider' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+            <Paper variant="outlined" sx={{ p: 1.75, borderRadius: 2, bgcolor: 'background.paper', borderColor: 'divider' }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.35 }}>
                 {deleteTarget.issuer || deleteTarget.label}
               </Typography>
               {deleteTarget.issuer && (
-                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25, lineHeight: 1.35 }}>
                   {deleteTarget.label}
                 </Typography>
               )}

@@ -50,11 +50,10 @@ import { v4 as uuidv4 } from 'uuid'
 import AccountPlatformDialog from './AccountPlatformDialog'
 import TotpCodeDisplay from './TotpCodeDisplay'
 import { useStore } from '../stores/useStore'
-import { AccountRow, CustomFieldRow } from '../types'
+import { AccountRow, CustomFieldRow, TagRow } from '../types'
 import {
   AccountPlatform,
   getAccountPlatformLabel,
-  getSuggestedPlatformTags,
 } from '../utils/accountPlatform'
 import {
   ACCOUNT_TAG_INPUT_CONTROL_HEIGHT,
@@ -71,16 +70,18 @@ const PLATFORM_ACCENTS: Record<AccountPlatform, string> = {
 const sectionLabelSx = {
   fontWeight: 800,
   color: 'text.secondary',
+  fontSize: '0.76rem',
   letterSpacing: 0,
-  mb: 1,
+  mb: 1.25,
   display: 'block',
+  lineHeight: 1.45,
   textTransform: 'uppercase',
 }
 
 const panelSx = {
-  p: 1.25,
+  p: 2,
   borderRadius: 2,
-  mb: 2,
+  mb: 2.4,
   bgcolor: (theme: any) => theme.palette.mode === 'dark' ? '#1c1b1b' : '#ffffff',
   borderColor: 'divider',
 }
@@ -88,8 +89,9 @@ const panelSx = {
 const fieldBoxSx = {
   display: 'flex',
   alignItems: 'center',
-  gap: 1.25,
-  p: 1.25,
+  gap: 1.65,
+  px: 1.7,
+  py: 1.55,
   borderRadius: 2,
   border: '1px solid',
   borderColor: 'divider',
@@ -118,15 +120,42 @@ function PlatformChip({ platform }: { platform: AccountPlatform }) {
       size="small"
       label={getAccountPlatformLabel(platform)}
       sx={{
-        height: 24,
+        height: 26,
         fontWeight: 700,
         bgcolor: `${accent}22`,
         color: accent,
         border: '1px solid',
         borderColor: `${accent}55`,
+        '& .MuiChip-label': {
+          px: 1,
+        },
       }}
     />
   )
+}
+
+function getCreatedTagSuggestions(accounts: AccountRow[], currentTags: TagRow[] = []) {
+  const current = new Set(currentTags.map((tag) => tag.name.trim().toLowerCase()).filter(Boolean))
+  const tagStats = new Map<string, { name: string; count: number }>()
+
+  for (const account of accounts) {
+    for (const tag of account.tags || []) {
+      const name = tag.name.trim()
+      const key = name.toLowerCase()
+      if (!name || current.has(key)) continue
+
+      const existing = tagStats.get(key)
+      if (existing) {
+        existing.count += 1
+      } else {
+        tagStats.set(key, { name, count: 1 })
+      }
+    }
+  }
+
+  return Array.from(tagStats.values())
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'))
+    .map((tag) => tag.name)
 }
 
 function SensitiveField({
@@ -180,12 +209,41 @@ function SensitiveField({
 
   if (!hasValue) return null
 
+  const isSecretField = fieldKey === 'password' || fieldKey === 'totp_secret'
+  const requiresRevealBeforeCopy = fieldKey === 'totp_secret'
+  const canCopy = !requiresRevealBeforeCopy || visible
+  const handleCopy = () => {
+    if (!canCopy) return
+    onCopy(value, fieldKey)
+  }
+
   return (
-    <Box sx={{ ...fieldBoxSx, mb: 1, '&:hover .field-actions': { opacity: 1 } }}>
+    <Box
+      role={canCopy ? 'button' : undefined}
+      tabIndex={canCopy ? 0 : undefined}
+      onClick={handleCopy}
+      onKeyDown={(event) => {
+        if (!canCopy) return
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          handleCopy()
+        }
+      }}
+      sx={{
+        ...fieldBoxSx,
+        mb: 1.15,
+        cursor: canCopy ? 'pointer' : 'default',
+        '&:focus-visible': {
+          outline: '2px solid',
+          outlineColor: 'primary.main',
+          outlineOffset: 2,
+        },
+      }}
+    >
       <Box
         sx={{
-          width: 34,
-          height: 34,
+          width: 40,
+          height: 40,
           borderRadius: 2,
           color: 'primary.main',
           bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(173, 198, 255, 0.10)' : 'rgba(11, 87, 208, 0.08)',
@@ -197,29 +255,42 @@ function SensitiveField({
         {icon}
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.68rem', display: 'block', fontWeight: 800 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block', fontWeight: 800, lineHeight: 1.42 }}>
           {label}
         </Typography>
         <Typography
           variant="body2"
-          className={fieldKey === 'password' || fieldKey === 'totp_secret' ? 'mono-data' : undefined}
-          sx={{ fontSize: '0.88rem', color: 'text.primary' }}
+          className={isSecretField ? 'mono-data' : undefined}
+          sx={{ fontSize: '0.96rem', color: 'text.primary', mt: 0.35, lineHeight: 1.5, fontWeight: 650 }}
           noWrap
         >
-          {(fieldKey === 'password' || fieldKey === 'totp_secret') && !visible ? '••••••••' : value}
+          {isSecretField && !visible ? '••••••••' : value}
         </Typography>
       </Box>
-      <Box className="field-actions" sx={{ display: 'flex', gap: 0.25, opacity: 0.82, transition: 'opacity 0.15s' }}>
-        {(fieldKey === 'password' || fieldKey === 'totp_secret') && (
-          <IconButton size="small" onClick={() => setVisible(!visible)} sx={{ color: 'text.secondary' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.85, flexShrink: 0 }}>
+        {copiedField === fieldKey && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'success.main', fontSize: '0.78rem', fontWeight: 800 }}>
+            <CheckIcon sx={{ fontSize: 16 }} />
+            已复制
+          </Box>
+        )}
+        {requiresRevealBeforeCopy && !visible && (
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.74rem', lineHeight: 1.35 }}>
+            先显示
+          </Typography>
+        )}
+        {isSecretField && (
+          <IconButton
+            size="small"
+            onClick={(event) => {
+              event.stopPropagation()
+              setVisible(!visible)
+            }}
+            sx={{ color: 'text.secondary' }}
+          >
             {visible ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <VisibilityIcon sx={{ fontSize: 16 }} />}
           </IconButton>
         )}
-        <Tooltip title={copiedField === fieldKey ? '已复制!' : '复制'} arrow TransitionComponent={Fade}>
-          <IconButton size="small" onClick={() => onCopy(value, fieldKey)} sx={{ color: copiedField === fieldKey ? 'success.main' : 'text.secondary' }}>
-            {copiedField === fieldKey ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
-          </IconButton>
-        </Tooltip>
       </Box>
     </Box>
   )
@@ -266,6 +337,7 @@ function AccountDetail({
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [linkTotpDialogOpen, setLinkTotpDialogOpen] = useState(false)
   const [linkData, setLinkData] = useState({ issuer: '', label: '', secret: '', otpType: 'totp' })
+  const [tagSourceAccounts, setTagSourceAccounts] = useState<AccountRow[]>([])
   const [newTagName, setNewTagName] = useState('')
   const { copiedField, copy } = useCopy()
 
@@ -288,6 +360,9 @@ function AccountDetail({
       totpSecret: data.totp_secret,
       notes: data.notes,
     })
+
+    const tagSources = await window.electronAPI.getAccounts({ isDeleted: false, platform: 'all' })
+    setTagSourceAccounts(tagSources)
   }
 
   useEffect(() => {
@@ -383,10 +458,7 @@ function AccountDetail({
   if (!account) return null
 
   const hasTotpSecret = Boolean(!editing && account.totp_secret && account.totp_secret.trim())
-  const suggestedTags = getSuggestedPlatformTags(
-    account.platform,
-    (account.tags || []).map((tag) => tag.name)
-  )
+  const createdTagSuggestions = getCreatedTagSuggestions(tagSourceAccounts, account.tags || [])
   const sectionOrder = getAccountDetailSectionOrder(hasTotpSecret)
 
   const renderAccountInfoSection = () => (
@@ -422,8 +494,8 @@ function AccountDetail({
           <Box sx={{ ...fieldBoxSx, mb: 1 }}>
             <Box
               sx={{
-                width: 34,
-                height: 34,
+                width: 40,
+                height: 40,
                 borderRadius: 2,
                 color: 'primary.main',
                 bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(173, 198, 255, 0.10)' : 'rgba(11, 87, 208, 0.08)',
@@ -435,7 +507,7 @@ function AccountDetail({
               <PublicOutlinedIcon sx={{ fontSize: 18 }} />
             </Box>
             <Box>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.68rem', display: 'block', fontWeight: 800 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block', fontWeight: 800, lineHeight: 1.42 }}>
                 主账号类型
               </Typography>
               <PlatformChip platform={account.platform} />
@@ -491,7 +563,7 @@ function AccountDetail({
       </Typography>
       <Paper variant="outlined" sx={panelSx}>
         {(account.tags || []).length > 0 ? (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1.5 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.85, mb: 1.65 }}>
             {(account.tags || []).map((tag) => (
               <Chip
                 key={tag.id}
@@ -508,12 +580,12 @@ function AccountDetail({
             ))}
           </Box>
         ) : (
-          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.85rem', mb: 1.5 }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.85rem', mb: 1.65, lineHeight: 1.5 }}>
             还没有记录这个主账号注册过的平台。
           </Typography>
         )}
 
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'stretch', mb: suggestedTags.length > 0 ? 1.5 : 0 }}>
+        <Box sx={{ display: 'flex', gap: 1.1, alignItems: 'stretch', mb: createdTagSuggestions.length > 0 ? 1.85 : 0 }}>
           <TextField
             fullWidth
             size="small"
@@ -553,14 +625,14 @@ function AccountDetail({
           </Button>
         </Box>
 
-        {suggestedTags.length > 0 && (
+        {createdTagSuggestions.length > 0 && (
           <>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1 }}>
-              常用建议
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.2, lineHeight: 1.45, fontSize: '0.75rem', fontWeight: 800 }}>
+              已创建标签
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-              {suggestedTags.slice(0, 6).map((tag) => (
-                <Chip key={tag} label={tag} variant="outlined" onClick={() => handleAddTag(tag)} />
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.95 }}>
+              {createdTagSuggestions.slice(0, 12).map((tag) => (
+                <Chip key={tag} label={tag} variant="outlined" onClick={() => handleAddTag(tag)} sx={{ height: 28, fontWeight: 700 }} />
               ))}
             </Box>
           </>
@@ -586,22 +658,22 @@ function AccountDetail({
         <Paper variant="outlined" sx={panelSx}>
           {customFields.map((field, index) => (
             <Box key={field.id}>
-              {index > 0 && <Box sx={{ height: 8 }} />}
+              {index > 0 && <Box sx={{ height: 10 }} />}
               <Box sx={{ ...fieldBoxSx, '&:hover .cf-actions': { opacity: 1 } }}>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.68rem', display: 'block', fontWeight: 800 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block', fontWeight: 800, lineHeight: 1.42 }}>
                     {field.field_name} {field.is_secret ? '敏感' : ''}
                   </Typography>
                   <Typography
                     variant="body2"
                     className={field.is_secret ? 'mono-data' : undefined}
-                    sx={{ fontSize: '0.88rem', color: 'text.primary' }}
+                    sx={{ fontSize: '0.96rem', color: 'text.primary', mt: 0.35, lineHeight: 1.5, fontWeight: 650 }}
                     noWrap
                   >
                     {field.field_value || '(空)'}
                   </Typography>
                 </Box>
-                <Box className="cf-actions" sx={{ display: 'flex', gap: 0.25, opacity: 0.82, transition: 'opacity 0.15s' }}>
+                <Box className="cf-actions" sx={{ display: 'flex', gap: 0.35, opacity: 0.82, transition: 'opacity 0.15s' }}>
                   <IconButton size="small" onClick={() => copy(field.field_value, field.id)} sx={{ color: copiedField === field.id ? 'success.main' : 'text.secondary' }}>
                     {copiedField === field.id ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
                   </IconButton>
@@ -631,7 +703,7 @@ function AccountDetail({
             }}
             sx={{ mb: 1 }}
           />
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1 }}>
             <Chip
               label={newFieldIsSecret ? '🔒 加密字段' : '📝 普通字段'}
               size="small"
@@ -674,7 +746,7 @@ function AccountDetail({
             ),
           }}
           sx={{
-            '& .MuiInputBase-root': { fontSize: '0.85rem', lineHeight: 1.6 },
+            '& .MuiInputBase-root': { fontSize: '0.95rem', lineHeight: 1.7 },
             '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#ffffff' },
           }}
         />
@@ -688,8 +760,8 @@ function AccountDetail({
             variant="body2"
             sx={{
               whiteSpace: 'pre-wrap',
-              fontSize: '0.85rem',
-              lineHeight: 1.6,
+              fontSize: '0.95rem',
+              lineHeight: 1.72,
               color: 'text.primary',
               maxHeight: notesExpanded ? 'none' : 120,
               overflow: 'hidden',
@@ -704,7 +776,7 @@ function AccountDetail({
           )}
         </Paper>
       ) : (
-        <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8rem', fontStyle: 'italic' }}>
+        <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8rem', lineHeight: 1.5, fontStyle: 'italic' }}>
           暂无备注
         </Typography>
       )}
@@ -726,10 +798,10 @@ function AccountDetail({
     >
       <Box
         sx={{
-          p: 2.5,
+          p: 3,
           display: 'flex',
           alignItems: 'center',
-          gap: 1.5,
+          gap: 1.95,
           borderBottom: '1px solid',
           borderColor: 'divider',
           flexShrink: 0,
@@ -738,8 +810,8 @@ function AccountDetail({
       >
         <Box
           sx={{
-            width: 52,
-            height: 52,
+            width: 56,
+            height: 56,
             borderRadius: 3,
             display: 'grid',
             placeItems: 'center',
@@ -750,7 +822,7 @@ function AccountDetail({
             flexShrink: 0,
           }}
         >
-          <AccountBoxIcon sx={{ fontSize: 28 }} />
+          <AccountBoxIcon sx={{ fontSize: 30 }} />
         </Box>
         {editing ? (
           <TextField
@@ -763,13 +835,13 @@ function AccountDetail({
           />
         ) : (
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.2rem', lineHeight: 1.2 }} noWrap>
+            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.28rem', lineHeight: 1.3 }} noWrap>
               {account.name}
             </Typography>
-            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }} noWrap>
+            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.45, fontSize: '0.82rem', lineHeight: 1.45 }} noWrap>
               {account.username || '未设置主邮箱 / 登录账号'}
             </Typography>
-            <Box sx={{ mt: 1, display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            <Box sx={{ mt: 1.1, display: 'flex', gap: 0.85, flexWrap: 'wrap' }}>
               <PlatformChip platform={account.platform} />
               {account.totp_secret && account.totp_secret.trim() && (
                 <Chip size="small" label="已记录 2FA" variant="outlined" sx={{ color: 'success.main', borderColor: 'rgba(141, 220, 159, 0.45)' }} />
@@ -810,7 +882,7 @@ function AccountDetail({
         </Box>
       </Box>
 
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5 }}>
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 3.1 }}>
         {sectionOrder.map((section) => {
           switch (section) {
             case 'realtime-code':
@@ -1056,15 +1128,20 @@ export default function AccountsView() {
           bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0e0e0e' : '#ffffff',
         }}
       >
-        <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 800 }}>
-            主账号仓库
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.78rem', mt: 0.65, lineHeight: 1.45 }}>
-            记录 Google / Microsoft 主账号，并用标签标记它们登录过的平台。
-          </Typography>
+        <Box sx={{ p: 2.55, borderBottom: '1px solid', borderColor: 'divider' }}>
+          <Box sx={{ display: 'grid', gap: 0.75 }}>
+            <Typography variant="h6" sx={{ fontSize: '1.12rem', fontWeight: 850, lineHeight: 1.38 }}>
+              主账号仓库
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.86rem', lineHeight: 1.68 }}>
+              集中管理 Google / Microsoft 主账号。
+              <Box component="span" sx={{ display: 'block', mt: 0.2 }}>
+                用标签记录它们登录过的平台。
+              </Box>
+            </Typography>
+          </Box>
 
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 2 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.85, mt: 2.25 }}>
             {([
               ['all', '全部'],
               ['google', 'Google'],
@@ -1082,7 +1159,7 @@ export default function AccountsView() {
           </Box>
         </Box>
 
-        <Box sx={{ p: 1.5, display: 'flex', gap: 1, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
+        <Box sx={{ p: 1.8, display: 'flex', gap: 1.15, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
           <TextField
             size="small"
             placeholder="搜索主账号..."
@@ -1109,7 +1186,7 @@ export default function AccountsView() {
           </Tooltip>
         </Box>
 
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 1 }}>
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 1.3 }}>
           {accounts.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8, px: 3, border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
               <AccountBoxIcon sx={{ fontSize: 44, color: 'text.secondary', opacity: 0.42, mb: 1.5 }} />
@@ -1134,9 +1211,9 @@ export default function AccountsView() {
                 onMouseEnter={() => setHoveredId(account.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 sx={{
-                  px: 1.25,
-                  py: 1.25,
-                  mb: 0.75,
+                  px: 1.7,
+                  py: 1.55,
+                  mb: 1.05,
                   cursor: 'grab',
                   border: '1px solid',
                   borderColor: selectedAccountId === account.id ? 'primary.main' : 'transparent',
@@ -1161,11 +1238,11 @@ export default function AccountsView() {
                   },
                 }}
               >
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.45 }}>
                   <Box
                     sx={{
-                      width: 40,
-                      height: 40,
+                      width: 42,
+                      height: 42,
                       borderRadius: 2,
                       display: 'grid',
                       placeItems: 'center',
@@ -1176,29 +1253,29 @@ export default function AccountsView() {
                       borderColor: `${PLATFORM_ACCENTS[account.platform]}55`,
                     }}
                   >
-                    <AccountBoxIcon sx={{ fontSize: 21 }} />
+                    <AccountBoxIcon sx={{ fontSize: 22 }} />
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75, flexWrap: 'wrap' }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '0.9rem', flex: 1, minWidth: 0 }} noWrap>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.85, mb: 0.85, flexWrap: 'wrap' }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '0.95rem', lineHeight: 1.4, flex: 1, minWidth: 0 }} noWrap>
                         {account.name}
                       </Typography>
                       <PlatformChip platform={account.platform} />
                     </Box>
 
-                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.74rem', display: 'block' }} noWrap>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.78rem', display: 'block', lineHeight: 1.42 }} noWrap>
                       {account.username || '未设置主邮箱 / 登录账号'}
                     </Typography>
 
                     {(account.tags || []).length > 0 && (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mt: 1.1 }}>
                         {getVisibleAccountPreviewTags(account.tags || []).map((tag) => (
                           <Chip
                             key={tag.id}
                             label={tag.name}
                             size="small"
                             sx={{
-                              height: 22,
+                              height: 23,
                               bgcolor: `${tag.color}22`,
                               color: tag.color,
                               border: '1px solid',

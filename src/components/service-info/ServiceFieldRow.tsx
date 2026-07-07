@@ -45,12 +45,12 @@ export default function ServiceFieldRow({
       }}
       sx={{
         display: 'grid',
-        gridTemplateColumns: '28px 22px minmax(0, 1fr) auto',
+        gridTemplateColumns: '32px 26px minmax(0, 1fr) auto',
         alignItems: 'center',
-        gap: 0.75,
-        px: 1.25,
-        py: 1,
-        m: 0.75,
+        gap: 1.15,
+        px: 1.7,
+        py: 1.5,
+        m: 1,
         border: '1px solid',
         borderColor: 'divider',
         borderRadius: 2,
@@ -66,18 +66,18 @@ export default function ServiceFieldRow({
         checked={checked}
         onChange={onToggleSelected}
         inputProps={{ 'aria-label': `选择字段 ${field.field_name}` }}
-        sx={{ p: 0.25 }}
+        sx={{ p: 0.35 }}
       />
       <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
       <Box sx={{ minWidth: 0 }}>
-        <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', fontWeight: 800 }}>
+        <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', fontWeight: 800, fontSize: '0.78rem', lineHeight: 1.45 }}>
           {field.field_name}
         </Typography>
-        <Typography variant="body2" noWrap className={isSecret ? 'mono-data' : undefined} sx={{ color: 'text.primary' }}>
+        <Typography variant="body2" noWrap className={isSecret ? 'mono-data' : undefined} sx={{ color: 'text.primary', mt: 0.35, fontSize: '0.95rem', lineHeight: 1.5, fontWeight: 650 }}>
           {displayedValue || '(空)'}
         </Typography>
       </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.45 }}>
         {isSecret && (
           <Tooltip title={visible ? '隐藏' : '显示'}>
             <IconButton size="small" onClick={() => setVisible(!visible)}>

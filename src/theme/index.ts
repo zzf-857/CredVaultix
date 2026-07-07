@@ -5,15 +5,15 @@ const fontFamily = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Mic
 const typography = {
   fontFamily,
   fontSize: 14,
-  h4: { fontWeight: 700, letterSpacing: 0 },
-  h5: { fontWeight: 700, letterSpacing: 0 },
-  h6: { fontWeight: 700, letterSpacing: 0 },
-  subtitle1: { fontWeight: 600, letterSpacing: 0 },
-  subtitle2: { fontWeight: 700, letterSpacing: 0 },
-  body1: { letterSpacing: 0 },
-  body2: { fontSize: '0.875rem', letterSpacing: 0 },
-  caption: { fontSize: '0.75rem', letterSpacing: 0 },
-  overline: { fontSize: '0.68rem', fontWeight: 800, letterSpacing: 0, textTransform: 'none' as const },
+  h4: { fontWeight: 700, letterSpacing: 0, lineHeight: 1.2 },
+  h5: { fontWeight: 700, letterSpacing: 0, lineHeight: 1.25 },
+  h6: { fontWeight: 700, letterSpacing: 0, lineHeight: 1.32 },
+  subtitle1: { fontWeight: 600, letterSpacing: 0, lineHeight: 1.38 },
+  subtitle2: { fontWeight: 700, letterSpacing: 0, lineHeight: 1.38 },
+  body1: { letterSpacing: 0, lineHeight: 1.55 },
+  body2: { fontSize: '0.875rem', letterSpacing: 0, lineHeight: 1.52 },
+  caption: { fontSize: '0.75rem', letterSpacing: 0, lineHeight: 1.42 },
+  overline: { fontSize: '0.68rem', fontWeight: 800, letterSpacing: 0, lineHeight: 1.4, textTransform: 'none' as const },
 }
 
 export const darkTheme = createTheme({
@@ -75,14 +75,19 @@ export const darkTheme = createTheme({
           textTransform: 'none',
           fontWeight: 700,
           borderRadius: 10,
-          minHeight: 32,
-          padding: '6px 14px',
+          minHeight: 34,
+          padding: '7px 16px',
           boxShadow: 'none',
           letterSpacing: 0,
+          lineHeight: 1.35,
           transition: 'background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.12s ease',
           '&:active': {
             transform: 'scale(0.97)'
           }
+        },
+        sizeSmall: {
+          minHeight: 34,
+          padding: '6px 13px',
         },
         containedPrimary: {
           background: '#adc6ff',
@@ -118,8 +123,13 @@ export const darkTheme = createTheme({
           borderRadius: 8,
           fontWeight: 700,
           fontSize: '0.72rem',
-          height: 24,
+          height: 26,
           letterSpacing: 0,
+          lineHeight: 1.35,
+          '& .MuiChip-label': {
+            paddingLeft: 9,
+            paddingRight: 9,
+          },
         },
       },
     },
@@ -128,6 +138,7 @@ export const darkTheme = createTheme({
         root: {
           borderRadius: 10,
           margin: '2px 8px',
+          padding: '9px 12px',
           border: '1px solid transparent',
           transition: 'background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease',
           '&.Mui-selected': {
@@ -164,6 +175,16 @@ export const darkTheme = createTheme({
             },
           },
         },
+        input: {
+          padding: '11px 13px',
+          lineHeight: 1.45,
+        },
+        inputSizeSmall: {
+          padding: '9px 12px',
+        },
+        multiline: {
+          padding: '9px 12px',
+        },
       },
     },
     MuiTextField: {
@@ -173,6 +194,7 @@ export const darkTheme = createTheme({
             color: '#c2c6d6',
             fontWeight: 700,
             letterSpacing: 0,
+            lineHeight: 1.35,
           },
         },
       },
@@ -181,6 +203,27 @@ export const darkTheme = createTheme({
       styleOverrides: {
         select: {
           fontWeight: 600,
+          lineHeight: 1.45,
+        },
+      },
+    },
+    MuiMenuItem: {
+      styleOverrides: {
+        root: {
+          minHeight: 38,
+          paddingTop: 8,
+          paddingBottom: 8,
+          lineHeight: 1.4,
+        },
+      },
+    },
+    MuiFormHelperText: {
+      styleOverrides: {
+        root: {
+          marginLeft: 0,
+          marginRight: 0,
+          marginTop: 6,
+          lineHeight: 1.45,
         },
       },
     },
@@ -200,8 +243,26 @@ export const darkTheme = createTheme({
         root: {
           fontWeight: 800,
           letterSpacing: 0,
+          lineHeight: 1.35,
+          padding: '18px 24px 15px',
           borderBottom: '1px solid #424754',
           backgroundColor: '#201f1f',
+        },
+      },
+    },
+    MuiDialogContent: {
+      styleOverrides: {
+        root: {
+          padding: '20px 24px',
+          lineHeight: 1.5,
+        },
+      },
+    },
+    MuiDialogActions: {
+      styleOverrides: {
+        root: {
+          gap: 8,
+          padding: '16px 24px 20px',
         },
       },
     },
@@ -271,12 +332,17 @@ export const lightTheme = createTheme({
           textTransform: 'none', 
           fontWeight: 700, 
           borderRadius: 10, 
-          minHeight: 32,
-          padding: '6px 14px',
+          minHeight: 34,
+          padding: '7px 16px',
           boxShadow: 'none',
           letterSpacing: 0,
+          lineHeight: 1.35,
           transition: 'background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease',
           '&:active': { transform: 'scale(0.97)' }
+        },
+        sizeSmall: {
+          minHeight: 34,
+          padding: '6px 13px',
         },
         containedPrimary: {
           background: '#0b57d0',
@@ -306,12 +372,13 @@ export const lightTheme = createTheme({
         } 
       } 
     },
-    MuiChip: { styleOverrides: { root: { borderRadius: 8, fontWeight: 700, fontSize: '0.72rem', height: 24, letterSpacing: 0 } } },
+    MuiChip: { styleOverrides: { root: { borderRadius: 8, fontWeight: 700, fontSize: '0.72rem', height: 26, letterSpacing: 0, lineHeight: 1.35, '& .MuiChip-label': { paddingLeft: 9, paddingRight: 9 } } } },
     MuiListItemButton: {
       styleOverrides: {
         root: {
           borderRadius: 10,
           margin: '2px 8px',
+          padding: '9px 12px',
           border: '1px solid transparent',
           transition: 'background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease',
           '&.Mui-selected': {
@@ -345,9 +412,22 @@ export const lightTheme = createTheme({
             },
           },
         },
+        input: {
+          padding: '11px 13px',
+          lineHeight: 1.45,
+        },
+        inputSizeSmall: {
+          padding: '9px 12px',
+        },
+        multiline: {
+          padding: '9px 12px',
+        },
       },
     },
-    MuiTextField: { styleOverrides: { root: { '& .MuiInputLabel-root': { fontWeight: 700, letterSpacing: 0 } } } },
+    MuiTextField: { styleOverrides: { root: { '& .MuiInputLabel-root': { fontWeight: 700, letterSpacing: 0, lineHeight: 1.35 } } } },
+    MuiSelect: { styleOverrides: { select: { fontWeight: 600, lineHeight: 1.45 } } },
+    MuiMenuItem: { styleOverrides: { root: { minHeight: 38, paddingTop: 8, paddingBottom: 8, lineHeight: 1.4 } } },
+    MuiFormHelperText: { styleOverrides: { root: { marginLeft: 0, marginRight: 0, marginTop: 6, lineHeight: 1.45 } } },
     MuiDialog: { 
       styleOverrides: { 
         paper: { 
@@ -364,8 +444,26 @@ export const lightTheme = createTheme({
         root: {
           fontWeight: 800,
           letterSpacing: 0,
+          lineHeight: 1.35,
+          padding: '18px 24px 15px',
           borderBottom: '1px solid #d7dce8',
           backgroundColor: '#f8fafd',
+        },
+      },
+    },
+    MuiDialogContent: {
+      styleOverrides: {
+        root: {
+          padding: '20px 24px',
+          lineHeight: 1.5,
+        },
+      },
+    },
+    MuiDialogActions: {
+      styleOverrides: {
+        root: {
+          gap: 8,
+          padding: '16px 24px 20px',
         },
       },
     },

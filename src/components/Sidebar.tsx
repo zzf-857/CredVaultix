@@ -3,9 +3,11 @@ import { Box, Button, Divider, List, ListItemButton, ListItemIcon, ListItemText,
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import SecurityIcon from '@mui/icons-material/Security'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import FolderOpenIcon from '@mui/icons-material/FolderOpen'
+import SettingsIcon from '@mui/icons-material/Settings'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import appIcon from '../../assets/app.png'
 import { useStore } from '../stores/useStore'
+import SettingsPanel from './SettingsPanel'
 
 const navItems = [
   {
@@ -40,6 +42,7 @@ const navItems = [
 
 export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
   const { activeView, setActiveView } = useStore()
+  const [settingsOpen, setSettingsOpen] = React.useState(false)
 
   return (
     <Box
@@ -54,47 +57,56 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
     >
       <Box
         sx={{
-          px: collapsed ? 1 : 1.5,
-          pt: collapsed ? 1.25 : 2,
-          pb: collapsed ? 1 : 1.5,
-          minHeight: collapsed ? 58 : 116,
+          px: collapsed ? 1 : 1.75,
+          pt: collapsed ? 1.25 : 1.75,
+          pb: collapsed ? 1 : 1.55,
+          minHeight: collapsed ? 58 : 86,
           display: 'flex',
-          alignItems: collapsed ? 'center' : 'flex-start',
+          alignItems: collapsed ? 'center' : 'center',
           justifyContent: collapsed ? 'center' : 'flex-start',
-          flexDirection: 'column',
         }}
       >
         {collapsed ? (
           <Box
+            component="img"
+            src={appIcon}
+            alt="CredVaultix"
             sx={{
-              width: 34,
-              height: 34,
-              borderRadius: 2.25,
-              display: 'grid',
-              placeItems: 'center',
-              bgcolor: 'primary.main',
-              color: (theme) => theme.palette.mode === 'dark' ? '#001a42' : '#ffffff',
-              fontWeight: 900,
+              width: 44,
+              height: 44,
+              display: 'block',
+              objectFit: 'contain',
+              bgcolor: 'transparent',
             }}
-          >
-            C
-          </Box>
+          />
         ) : (
-          <>
-            <Typography variant="overline" sx={{ color: 'text.secondary' }}>
-              本地保险库
-            </Typography>
-            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.05rem', lineHeight: 1.2 }}>
-              账号与服务信息
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.78rem', mt: 0.75, lineHeight: 1.45 }}>
-              本地管理账号、2FA 与自定义密钥资料。
-            </Typography>
-          </>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.15, minWidth: 0 }}>
+            <Box
+              component="img"
+              src={appIcon}
+              alt="CredVaultix"
+              sx={{
+                width: 48,
+                height: 48,
+                display: 'block',
+                objectFit: 'contain',
+                bgcolor: 'transparent',
+                flexShrink: 0,
+              }}
+            />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 850, fontSize: '1rem', lineHeight: 1.25 }}>
+                CredVaultix
+              </Typography>
+              <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', mt: 0.25, lineHeight: 1.35 }}>
+                本地账号与服务信息库
+              </Typography>
+            </Box>
+          </Box>
         )}
       </Box>
 
-      <Divider sx={{ mx: collapsed ? 1 : 1.5, mb: 1 }} />
+      <Divider sx={{ mx: collapsed ? 1 : 1.75, mb: 1.2 }} />
 
       <List dense disablePadding sx={{ px: collapsed ? 0.75 : 1 }}>
         {navItems.map((item) => {
@@ -109,8 +121,9 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
                 sx={{
                   minHeight: collapsed ? 44 : 52,
                   borderRadius: 2,
-                  mb: 0.5,
-                  px: collapsed ? 1 : 1.25,
+                  mb: 0.65,
+                  px: collapsed ? 1 : 1.5,
+                  py: collapsed ? 0.75 : 1.05,
                   justifyContent: collapsed ? 'center' : 'flex-start',
                   borderLeft: '2px solid',
                   borderLeftColor: selected ? 'primary.main' : 'transparent',
@@ -129,8 +142,9 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
                   <ListItemText
                     primary={item.label}
                     secondary={item.helper}
-                    primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 800, noWrap: true }}
-                    secondaryTypographyProps={{ fontSize: '0.72rem', noWrap: true }}
+                    sx={{ my: 0 }}
+                    primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 800, lineHeight: 1.32, noWrap: true }}
+                    secondaryTypographyProps={{ fontSize: '0.72rem', lineHeight: 1.35, noWrap: true }}
                   />
                 )}
               </ListItemButton>
@@ -140,25 +154,27 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
       </List>
 
       <Box sx={{ mt: 'auto', p: collapsed ? 0.75 : 1 }}>
-        <Tooltip title={collapsed ? '打开数据目录' : ''} placement="right">
+        <Tooltip title={collapsed ? '设置' : ''} placement="right">
           <Button
             fullWidth
             size="small"
-            startIcon={collapsed ? undefined : <FolderOpenIcon />}
-            onClick={() => window.electronAPI.openDataDirectory()}
+            startIcon={collapsed ? undefined : <SettingsIcon />}
+            onClick={() => setSettingsOpen(true)}
             variant={collapsed ? 'text' : 'outlined'}
             sx={{
               minWidth: 0,
-              height: collapsed ? 44 : 36,
-              px: collapsed ? 0.5 : 1,
+              height: collapsed ? 44 : 38,
+              px: collapsed ? 0.5 : 1.25,
               color: 'text.secondary',
               borderColor: 'divider',
             }}
           >
-            {collapsed ? <FolderOpenIcon fontSize="small" /> : '打开数据目录'}
+            {collapsed ? <SettingsIcon fontSize="small" /> : '设置'}
           </Button>
         </Tooltip>
       </Box>
+
+      <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </Box>
   )
 }

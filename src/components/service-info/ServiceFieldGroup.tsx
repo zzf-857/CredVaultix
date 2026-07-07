@@ -53,7 +53,7 @@ export default function ServiceFieldGroup({
       onDragOver={(event) => event.preventDefault()}
       onDrop={handleDrop}
       sx={{
-        mb: 2,
+        mb: 2.35,
         border: '1px solid',
         borderColor: draggingFieldId ? 'primary.main' : 'divider',
         borderRadius: 2,
@@ -65,9 +65,9 @@ export default function ServiceFieldGroup({
         sx={{
           display: 'flex',
           alignItems: 'center',
-          gap: 0.75,
-          px: 1,
-          minHeight: 40,
+          gap: 1.1,
+          px: 1.55,
+          minHeight: 48,
           bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
           borderBottom: collapsed || fields.length === 0 ? 0 : '1px solid',
           borderColor: 'divider',
@@ -83,7 +83,7 @@ export default function ServiceFieldGroup({
           <Box sx={{ width: 30 }} />
         )}
         <Box sx={{ width: 8, height: 18, borderRadius: 99, bgcolor: color || 'divider' }} />
-        <Typography variant="caption" noWrap sx={{ flex: 1, minWidth: 0, color: 'text.secondary', fontWeight: 800, textTransform: 'uppercase' }}>
+        <Typography variant="caption" noWrap sx={{ flex: 1, minWidth: 0, color: 'text.secondary', fontWeight: 800, fontSize: '0.76rem', lineHeight: 1.45, textTransform: 'uppercase' }}>
           {title} ({fields.length})
         </Typography>
         {group && (
@@ -116,9 +116,9 @@ export default function ServiceFieldGroup({
       </Box>
 
       {!collapsed && (
-        <Box sx={{ minHeight: fields.length ? 0 : 36 }}>
+        <Box sx={{ minHeight: fields.length ? 0 : 40 }}>
           {fields.length === 0 ? (
-            <Typography variant="caption" sx={{ display: 'block', px: 4.75, py: 1, color: 'text.disabled' }}>
+            <Typography variant="caption" sx={{ display: 'block', px: 5.25, py: 1.5, color: 'text.disabled', fontSize: '0.76rem', lineHeight: 1.5 }}>
               暂无字段
             </Typography>
           ) : (
