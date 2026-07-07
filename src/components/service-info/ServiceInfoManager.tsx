@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
+  Autocomplete,
   Box,
   Button,
   Dialog,
@@ -73,7 +74,7 @@ export default function ServiceInfoManager() {
   const [moveDialogOpen, setMoveDialogOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<SecretGroupRow | null>(null)
   const [serviceName, setServiceName] = useState('')
-  const [serviceDescription, setServiceDescription] = useState('')
+  const [groupInputValue, setGroupInputValue] = useState('')
   const [groupName, setGroupName] = useState('')
   const [groupColor, setGroupColor] = useState(GROUP_COLORS[0])
   const [targetGroupId, setTargetGroupId] = useState<string>('')
@@ -99,18 +100,41 @@ export default function ServiceInfoManager() {
     await loadServiceInfo()
   }
 
+  const openCreateServiceDialog = () => {
+    setServiceName('')
+    setGroupInputValue('')
+    setServiceDialogOpen(true)
+  }
+
+  const findGroupByName = (name: string) => {
+    const normalized = name.trim().toLowerCase()
+    return orderedGroups.find((group) => group.name.trim().toLowerCase() === normalized)
+  }
+
   const createService = async () => {
     const name = serviceName.trim()
     if (!name) return
 
+    const trimmedGroupName = groupInputValue.trim()
+    const existingGroup = trimmedGroupName ? findGroupByName(trimmedGroupName) : undefined
+    const groupId = existingGroup
+      ? existingGroup.id
+      : trimmedGroupName
+        ? (await window.electronAPI.createSecretGroup({
+            id: uuidv4(),
+            name: trimmedGroupName,
+            color: GROUP_COLORS[0],
+          })).id
+        : null
+
     const result = await window.electronAPI.createSecretService({
       id: uuidv4(),
       name,
-      description: serviceDescription.trim(),
+      groupId: groupId,
     })
     setServiceDialogOpen(false)
     setServiceName('')
-    setServiceDescription('')
+    setGroupInputValue('')
     await reloadAfterChange()
     setSelectedService(result.id)
   }
@@ -218,7 +242,7 @@ export default function ServiceInfoManager() {
                   <CreateNewFolderIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={() => setServiceDialogOpen(true)}>
+              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateServiceDialog}>
                 新建服务
               </Button>
             </Box>
@@ -326,7 +350,7 @@ export default function ServiceInfoManager() {
           <VpnKeyOutlinedIcon sx={{ color: 'primary.main' }} />
           新建服务
         </DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <TextField
             autoFocus
             fullWidth
@@ -334,11 +358,24 @@ export default function ServiceInfoManager() {
             value={serviceName}
             onChange={(event) => setServiceName(event.target.value)}
           />
-          <TextField
-            fullWidth
-            label="用途"
-            value={serviceDescription}
-            onChange={(event) => setServiceDescription(event.target.value)}
+          <Autocomplete
+            freeSolo
+            selectOnFocus
+            clearOnBlur
+            handleHomeEndKeys
+            options={orderedGroups.map((group) => group.name)}
+            value={groupInputValue}
+            inputValue={groupInputValue}
+            onChange={(_event, value) => setGroupInputValue(value || '')}
+            onInputChange={(_event, value) => setGroupInputValue(value)}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                fullWidth
+                label="分组"
+                helperText="可选择已有分组，也可以直接输入新分组名称"
+              />
+            )}
             sx={{ mt: 2 }}
           />
         </DialogContent>
@@ -355,7 +392,7 @@ export default function ServiceInfoManager() {
           <CreateNewFolderIcon sx={{ color: 'primary.main' }} />
           {editingGroup ? '重命名分组' : '新建分组'}
         </DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <TextField
             autoFocus
             fullWidth
@@ -393,7 +430,7 @@ export default function ServiceInfoManager() {
 
       <Dialog open={moveDialogOpen} onClose={() => setMoveDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>移入分组</DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <FormControl fullWidth>
             <InputLabel id="service-info-move-label">目标分组</InputLabel>
             <Select

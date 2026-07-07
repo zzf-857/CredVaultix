@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type Database from 'better-sqlite3'
+import { spawn } from 'child_process'
 import path from 'path'
 import { DATABASE_FILE_NAME, initDatabase, getDatabase } from './database'
 import { encrypt, decrypt } from './crypto'
@@ -21,6 +22,8 @@ const APP_ID = 'com.personal.credvaultix'
 const APP_NAME = 'CredVaultix'
 const LEGACY_DATABASE_FILE_NAME = 'account-manager.db'
 const TAG_COLOR_PALETTE = ['#a8c7fa', '#81c995', '#f2b8b5', '#fdd663', '#d7aefb', '#78d9ec', '#fcb68e']
+let isQuittingForUpdate = false
+let downloadedInstallerPath: string | null = null
 
 app.setName(APP_NAME)
 
@@ -144,6 +147,53 @@ function migrateLegacyUserDataToCredVaultix() {
   }
 }
 
+function getDownloadedInstallerPath() {
+  const updater = autoUpdater as typeof autoUpdater & {
+    installerPath?: string | null
+    downloadedUpdateHelper?: { file?: string | null } | null
+  }
+
+  return downloadedInstallerPath ?? updater.installerPath ?? updater.downloadedUpdateHelper?.file ?? null
+}
+
+function closeDatabaseForUpdateInstall() {
+  try {
+    const database = getDatabase()
+    if (!database || !database.open) return
+
+    try {
+      database.pragma('wal_checkpoint(FULL)')
+    } catch (error) {
+      console.warn('Failed to checkpoint database before update install:', error)
+    }
+
+    database.close()
+  } catch (error) {
+    console.warn('Failed to close database before update install:', error)
+  }
+}
+
+function quoteCmdArg(value: string) {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
+function launchDownloadedInstallerAfterExit(installerPath: string) {
+  const installDirectory = path.dirname(process.execPath)
+  const installerArgs = ['--updated', '/S', '/currentuser', `/D=${installDirectory}`]
+  const command = [
+    'ping 127.0.0.1 -n 4 > nul',
+    [installerPath, ...installerArgs].map(quoteCmdArg).join(' '),
+  ].join(' & ')
+
+  const child = spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+
+  child.unref()
+}
+
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
@@ -161,6 +211,7 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('update-available', (info) => {
+    downloadedInstallerPath = null
     sendUpdateMessage('available', { version: info.version, info })
   })
 
@@ -214,7 +265,11 @@ function setupAutoUpdater() {
     }
 
     try {
-      await autoUpdater.downloadUpdate()
+      const downloadedFiles = await autoUpdater.downloadUpdate()
+      downloadedInstallerPath =
+        downloadedFiles.find((filePath) => filePath.endsWith('.exe')) ??
+        downloadedFiles[0] ??
+        getDownloadedInstallerPath()
       return { success: true }
     } catch (err: any) {
       return { success: false, error: err.message || String(err) }
@@ -226,8 +281,31 @@ function setupAutoUpdater() {
       return false
     }
 
-    autoUpdater.quitAndInstall()
-    return true
+    const installerPath = getDownloadedInstallerPath()
+    if (!installerPath || !fs.existsSync(installerPath)) {
+      sendUpdateMessage('error', { error: '更新包尚未下载完成，请先下载更新包' })
+      return false
+    }
+
+    try {
+      isQuittingForUpdate = true
+      sendUpdateMessage('installing')
+      closeDatabaseForUpdateInstall()
+
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.removeAllListeners('close')
+        window.destroy()
+      }
+      mainWindow = null
+
+      launchDownloadedInstallerAfterExit(installerPath)
+      app.quit()
+      return true
+    } catch (err: any) {
+      isQuittingForUpdate = false
+      sendUpdateMessage('error', { error: err.message || String(err) })
+      return false
+    }
   })
 
   if (app.isPackaged && !isPortable) {
@@ -280,7 +358,9 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  app.quit()
+  if (!isQuittingForUpdate) {
+    app.quit()
+  }
 })
 
 function registerIpcHandlers() {

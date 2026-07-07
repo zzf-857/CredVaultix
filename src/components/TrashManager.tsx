@@ -128,7 +128,7 @@ export default function TrashManager() {
           <WarningAmberIcon sx={{ color: 'warning.main' }} />
           确认彻底删除
         </DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <Typography variant="body2" sx={{ lineHeight: 1.55 }}>确定要彻底从设备中清除该账号的所有数据吗？</Typography>
           <Typography variant="body2" sx={{ mt: 1.1, color: 'error.main', fontSize: '0.8rem', lineHeight: 1.5 }}>
             此操作不可逆。彻底删除后，关联的 2FA 实时验证码将失去账号关联变孤立状态。

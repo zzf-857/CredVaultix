@@ -253,8 +253,11 @@ export const darkTheme = createTheme({
     MuiDialogContent: {
       styleOverrides: {
         root: {
-          padding: '20px 24px',
+          padding: '28px 24px 20px',
           lineHeight: 1.5,
+          '.MuiDialogTitle-root + &': {
+            paddingTop: 28,
+          },
         },
       },
     },
@@ -454,8 +457,11 @@ export const lightTheme = createTheme({
     MuiDialogContent: {
       styleOverrides: {
         root: {
-          padding: '20px 24px',
+          padding: '28px 24px 20px',
           lineHeight: 1.5,
+          '.MuiDialogTitle-root + &': {
+            paddingTop: 28,
+          },
         },
       },
     },

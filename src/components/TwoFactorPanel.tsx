@@ -1187,7 +1187,7 @@ export default function TwoFactorPanel() {
           <FlashOnIcon sx={{ color: 'primary.main' }} />
           临时验证器 (内存计算，不保存)
         </DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2.25, lineHeight: 1.55 }}>
             在这里，你可以快速生成一次性的 2FA 验证码。数据完全保留在内存中，关闭弹窗或重启软件后即被销毁，绝不写入数据库。
           </Typography>
@@ -1315,7 +1315,7 @@ export default function TwoFactorPanel() {
           <SecurityIcon sx={{ color: 'primary.main' }} />
           添加 2FA 账户
         </DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <Box sx={{ mb: 2.25, display: 'flex', gap: 1.1 }}>
             <Chip
               label="手动输入"

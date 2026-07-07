@@ -43,11 +43,14 @@ export default function ServiceDetail() {
   } = useStore()
 
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null)
+  const [serviceDialogOpen, setServiceDialogOpen] = useState(false)
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false)
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
   const [moveDialogOpen, setMoveDialogOpen] = useState(false)
   const [editingField, setEditingField] = useState<SecretFieldRow | null>(null)
   const [editingGroup, setEditingGroup] = useState<SecretFieldGroupRow | null>(null)
+  const [serviceName, setServiceName] = useState('')
+  const [serviceDescription, setServiceDescription] = useState('')
   const [fieldName, setFieldName] = useState('')
   const [fieldValue, setFieldValue] = useState('')
   const [fieldIsSecret, setFieldIsSecret] = useState(true)
@@ -79,6 +82,25 @@ export default function ServiceDetail() {
 
   const refreshDetail = async () => {
     await loadServiceDetail(service.id)
+  }
+
+  const openEditServiceDialog = () => {
+    setServiceName(service.name)
+    setServiceDescription(service.description || '')
+    setServiceDialogOpen(true)
+  }
+
+  const saveService = async () => {
+    const name = serviceName.trim()
+    if (!name) return
+
+    await window.electronAPI.updateSecretService(service.id, {
+      name,
+      description: serviceDescription.trim(),
+    })
+    setServiceDialogOpen(false)
+    await loadServiceInfo()
+    await refreshDetail()
   }
 
   const openCreateFieldDialog = () => {
@@ -245,13 +267,11 @@ export default function ServiceDetail() {
               )}
             </Box>
           </Box>
-          <Box sx={{ display: 'flex', gap: 0.75 }}>
+          <Box sx={{ display: 'flex', gap: 0.75, WebkitAppRegion: 'no-drag', position: 'relative', zIndex: 2 }}>
             <Tooltip title="编辑服务">
-              <span>
-                <IconButton size="small" disabled>
-                  <EditOutlinedIcon fontSize="small" />
-                </IconButton>
-              </span>
+              <IconButton size="small" onClick={openEditServiceDialog}>
+                <EditOutlinedIcon fontSize="small" />
+              </IconButton>
             </Tooltip>
             <Tooltip title="删除服务">
               <IconButton size="small" onClick={deleteService}>
@@ -323,9 +343,38 @@ export default function ServiceDetail() {
           ))}
       </Box>
 
+      <Dialog open={serviceDialogOpen} onClose={() => setServiceDialogOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <EditOutlinedIcon sx={{ color: 'primary.main' }} />
+          编辑服务
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            label="服务名称"
+            value={serviceName}
+            onChange={(event) => setServiceName(event.target.value)}
+          />
+          <TextField
+            fullWidth
+            label="用途"
+            value={serviceDescription}
+            onChange={(event) => setServiceDescription(event.target.value)}
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setServiceDialogOpen(false)}>取消</Button>
+          <Button variant="contained" onClick={saveService} disabled={!serviceName.trim()}>
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={fieldDialogOpen} onClose={() => setFieldDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>{editingField ? '编辑字段' : '新建字段'}</DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <TextField
             autoFocus
             fullWidth
@@ -358,7 +407,7 @@ export default function ServiceDetail() {
 
       <Dialog open={groupDialogOpen} onClose={() => setGroupDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>{editingGroup ? '重命名字段组' : '新建字段组'}</DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <TextField
             autoFocus
             fullWidth
@@ -396,7 +445,7 @@ export default function ServiceDetail() {
 
       <Dialog open={moveDialogOpen} onClose={() => setMoveDialogOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>移入字段组</DialogTitle>
-        <DialogContent sx={{ pt: 2.5 }}>
+        <DialogContent>
           <FormControl fullWidth>
             <InputLabel id="service-field-move-label">目标字段组</InputLabel>
             <Select

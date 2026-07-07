@@ -47,6 +47,29 @@ describe('CredVaultix update flow wiring', () => {
     expect(mainSource).toContain('5000')
   })
 
+  it('delays the NSIS installer until the current app has cleaned up for updates', () => {
+    expect(mainSource).toContain("import { spawn } from 'child_process'")
+    expect(mainSource).toContain('let downloadedInstallerPath: string | null = null')
+    expect(mainSource).toContain('function getDownloadedInstallerPath()')
+    expect(mainSource).toContain('const downloadedFiles = await autoUpdater.downloadUpdate()')
+    expect(mainSource).toContain('downloadedFiles.find((filePath) => filePath.endsWith')
+    expect(mainSource).toContain('function closeDatabaseForUpdateInstall()')
+    expect(mainSource).toContain('function launchDownloadedInstallerAfterExit')
+    expect(mainSource).toContain('BrowserWindow.getAllWindows()')
+    expect(mainSource).toContain("window.removeAllListeners('close')")
+    expect(mainSource).toContain('window.destroy()')
+    expect(mainSource).toContain("database.pragma('wal_checkpoint(FULL)')")
+    expect(mainSource).toContain('database.close()')
+    expect(mainSource).toContain('process.execPath')
+    expect(mainSource).toContain("'--updated'")
+    expect(mainSource).toContain("'/S'")
+    expect(mainSource).toContain("'/currentuser'")
+    expect(mainSource).toContain('windowsHide: true')
+    expect(mainSource).toContain('detached: true')
+    expect(mainSource).toContain('app.quit()')
+    expect(mainSource).not.toContain('autoUpdater.quitAndInstall()')
+  })
+
   it('exposes updater controls through preload and renderer types', () => {
     for (const methodName of [
       'getVersion',
