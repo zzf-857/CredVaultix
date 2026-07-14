@@ -50,6 +50,7 @@
 - 升级 Electron、Vite、electron-builder、better-sqlite3 等运行与打包依赖，移除已知高危依赖链。
 - CI 使用 Node.js 22 LTS（最低 22.12），审计完整依赖树，并增加 Pull Request 核对模板。
 - Release Action 在上传前校验安装包、blockmap 与 `latest.yml` 的版本、路径、大小和 SHA-512。
+- GitHub Actions 升级到 Node.js 24 Runtime 对应主版本，移除 Node.js 20 弃用警告。
 - README 增加基于纯演示数据生成的账号、服务、2FA 与统一回收站界面预览。
 
 ## [1.0.3] - 2026-07-07
