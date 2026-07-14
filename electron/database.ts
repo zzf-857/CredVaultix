@@ -6,8 +6,10 @@ import {
   assertCountsNotReduced,
   backupDatabaseIfExists,
   getExistingTableCounts,
+  hasPlaintextTotpSecrets,
   hasServiceInfoSchema,
 } from './databaseSafety'
+import { encryptIfNeeded } from './crypto'
 
 let db: Database.Database
 export const DATABASE_FILE_NAME = 'credvaultix.db'
@@ -16,17 +18,25 @@ export function initDatabase() {
   const userDataPath = app.getPath('userData')
   const dbPath = path.join(userDataPath, DATABASE_FILE_NAME)
   let needsServiceInfoMigration = false
+  let needsTotpEncryptionMigration = false
 
   if (fs.existsSync(dbPath)) {
     const schemaCheckDb = new Database(dbPath, { readonly: true, fileMustExist: true })
     try {
       needsServiceInfoMigration = !hasServiceInfoSchema(schemaCheckDb)
+      needsTotpEncryptionMigration = hasPlaintextTotpSecrets(schemaCheckDb)
     } finally {
       schemaCheckDb.close()
     }
   }
 
-  if (needsServiceInfoMigration) {
+  if (needsServiceInfoMigration || needsTotpEncryptionMigration) {
+    const checkpointDb = new Database(dbPath, { fileMustExist: true })
+    try {
+      checkpointDb.pragma('wal_checkpoint(FULL)')
+    } finally {
+      checkpointDb.close()
+    }
     backupDatabaseIfExists(dbPath, userDataPath)
   }
 
@@ -34,6 +44,7 @@ export function initDatabase() {
 
   // Enable WAL mode for better performance
   db.pragma('journal_mode = WAL')
+  db.pragma('foreign_keys = ON')
 
   const protectedCountsBefore = getExistingTableCounts(db)
 
@@ -202,6 +213,19 @@ export function initDatabase() {
     SET platform = 'other'
     WHERE platform IS NULL OR platform NOT IN ('google', 'microsoft', 'other')
   `).run()
+
+  const plaintextTotpRows = db
+    .prepare('SELECT id, secret FROM totp_accounts WHERE secret <> ?')
+    .all('') as Array<{ id: string; secret: string }>
+  const encryptTotpSecret = db.prepare('UPDATE totp_accounts SET secret = ? WHERE id = ?')
+  db.transaction(() => {
+    for (const row of plaintextTotpRows) {
+      const encryptedSecret = encryptIfNeeded(row.secret)
+      if (encryptedSecret !== row.secret) {
+        encryptTotpSecret.run(encryptedSecret, row.id)
+      }
+    }
+  })()
 
   const protectedCountsAfter = getExistingTableCounts(db)
   assertCountsNotReduced(protectedCountsBefore, protectedCountsAfter)

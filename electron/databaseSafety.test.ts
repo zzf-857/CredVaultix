@@ -7,6 +7,7 @@ import {
   backupDatabaseIfExists,
   buildDatabaseBackupPath,
   getExistingTableCounts,
+  hasPlaintextTotpSecrets,
   hasServiceInfoSchema,
 } from './databaseSafety'
 
@@ -36,11 +37,11 @@ describe('databaseSafety', () => {
     const backupPath = buildDatabaseBackupPath('C:/AppData/CredVaultix', new Date('2026-07-01T10:11:12.000Z'))
 
     expect(backupPath.replace(/\\/g, '/')).toBe(
-      'C:/AppData/CredVaultix/credvaultix-before-service-vault-2026-07-01-101112.db'
+      'C:/AppData/CredVaultix/credvaultix-before-migration-2026-07-01-101112.db'
     )
   })
 
-  it('copies an existing database before migration', () => {
+  it('copies an existing database after the caller checkpoints it', () => {
     const dir = mkdtempSync(join(tmpdir(), 'credvaultix-backup-'))
     try {
       const dbPath = join(dir, 'credvaultix.db')
@@ -49,7 +50,7 @@ describe('databaseSafety', () => {
       const result = backupDatabaseIfExists(dbPath, dir, new Date('2026-07-01T10:11:12.000Z'))
 
       expect(result.created).toBe(true)
-      expect(result.filePath?.endsWith('credvaultix-before-service-vault-2026-07-01-101112.db')).toBe(true)
+      expect(result.filePath?.endsWith('credvaultix-before-migration-2026-07-01-101112.db')).toBe(true)
       expect(readFileSync(result.filePath!, 'utf-8')).toBe('current-data')
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -100,5 +101,45 @@ describe('service info schema readiness', () => {
     })
 
     expect(hasServiceInfoSchema(db as any)).toBe(true)
+  })
+})
+
+describe('TOTP encryption migration detection', () => {
+  it('detects plaintext secrets and ignores empty or encrypted values', () => {
+    const createTotpDatabase = (secrets: string[]) => ({
+      prepare(sql: string) {
+        if (sql.includes('sqlite_master')) {
+          return { get: () => ({ name: 'totp_accounts' }) }
+        }
+        if (sql.includes('SELECT secret FROM totp_accounts')) {
+          return { all: () => secrets.filter(Boolean).map((secret) => ({ secret })) }
+        }
+        throw new Error(`Unexpected SQL in fake database: ${sql}`)
+      },
+    })
+
+    const encrypted = `${'a'.repeat(32)}:${'b'.repeat(32)}:cafe`
+    expect(hasPlaintextTotpSecrets(createTotpDatabase([]) as any)).toBe(false)
+    expect(hasPlaintextTotpSecrets(createTotpDatabase(['', encrypted]) as any)).toBe(false)
+    expect(hasPlaintextTotpSecrets(createTotpDatabase([encrypted, 'JBSWY3DPEHPK3PXP']) as any)).toBe(true)
+  })
+
+  it('does not overwrite another backup created during the same second', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'credvaultix-backup-collision-'))
+    try {
+      const dbPath = join(dir, 'credvaultix.db')
+      const now = new Date('2026-07-01T10:11:12.000Z')
+      writeFileSync(dbPath, 'first')
+      const first = backupDatabaseIfExists(dbPath, dir, now)
+      writeFileSync(dbPath, 'second')
+      const second = backupDatabaseIfExists(dbPath, dir, now)
+
+      expect(first.filePath).not.toBe(second.filePath)
+      expect(second.filePath?.endsWith('-2.db')).toBe(true)
+      expect(readFileSync(first.filePath!, 'utf-8')).toBe('first')
+      expect(readFileSync(second.filePath!, 'utf-8')).toBe('second')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

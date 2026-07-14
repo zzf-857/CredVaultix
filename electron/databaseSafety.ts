@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import type Database from 'better-sqlite3'
+import { isEncryptedValue } from './encryptionFormat'
 
 export const PROTECTED_TABLES = [
   'accounts',
@@ -43,7 +44,7 @@ function assertSafeTableName(tableName: string) {
 export function buildDatabaseBackupPath(userDataPath: string, now = new Date()) {
   return path.join(
     userDataPath,
-    `credvaultix-before-service-vault-${formatBackupTimestamp(now)}.db`
+    `credvaultix-before-migration-${formatBackupTimestamp(now)}.db`
   )
 }
 
@@ -56,7 +57,16 @@ export function backupDatabaseIfExists(dbPath: string, userDataPath: string, now
     fs.mkdirSync(userDataPath, { recursive: true })
   }
 
-  const backupPath = buildDatabaseBackupPath(userDataPath, now)
+  const baseBackupPath = buildDatabaseBackupPath(userDataPath, now)
+  const extension = path.extname(baseBackupPath)
+  const stem = baseBackupPath.slice(0, -extension.length)
+  let backupPath = baseBackupPath
+  let suffix = 2
+  while (fs.existsSync(backupPath)) {
+    backupPath = `${stem}-${suffix}${extension}`
+    suffix += 1
+  }
+
   fs.copyFileSync(dbPath, backupPath)
 
   const sourceSize = fs.statSync(dbPath).size
@@ -95,6 +105,15 @@ export function getExistingTableCounts(
 
 export function hasServiceInfoSchema(db: Database.Database) {
   return SERVICE_INFO_TABLES.every((tableName) => hasTable(db, tableName))
+}
+
+export function hasPlaintextTotpSecrets(db: Database.Database) {
+  if (!hasTable(db, 'totp_accounts')) return false
+
+  const rows = db
+    .prepare('SELECT secret FROM totp_accounts WHERE secret <> ?')
+    .all('') as Array<{ secret: string }>
+  return rows.some((row) => !isEncryptedValue(row.secret))
 }
 
 export function assertCountsNotReduced(before: CoreTableCounts, after: CoreTableCounts) {

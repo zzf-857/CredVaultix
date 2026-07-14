@@ -34,7 +34,11 @@ export function clearServiceInfoBackupTables(db: Database.Database) {
   db.prepare('DELETE FROM secret_groups').run()
 }
 
-export function importServiceInfoBackupData(db: Database.Database, data: BackupData) {
+export function importServiceInfoBackupData(
+  db: Database.Database,
+  data: BackupData,
+  protectSecretValue: (value: string) => string = (value) => value
+) {
   if (!hasServiceInfoBackupData(data)) {
     return
   }
@@ -94,13 +98,15 @@ export function importServiceInfoBackupData(db: Database.Database, data: BackupD
 
   const insertSecretField = db.prepare('INSERT INTO secret_fields (id, service_id, group_id, field_name, field_value, is_secret, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
   for (const field of data.secretFields || []) {
+    const isSecret = field.is_secret ?? 1
+    const fieldValue = field.field_value || ''
     insertSecretField.run(
       field.id,
       field.service_id,
       field.group_id || null,
       field.field_name,
-      field.field_value || '',
-      field.is_secret ?? 1,
+      isSecret ? protectSecretValue(fieldValue) : fieldValue,
+      isSecret,
       field.sort_order || 0,
       field.created_at || now,
       field.updated_at || now

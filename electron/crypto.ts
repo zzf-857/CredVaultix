@@ -1,9 +1,12 @@
 import crypto from 'crypto'
 import path from 'path'
 import { app } from 'electron'
+import { isEncryptedValue } from './encryptionFormat'
 
-// AES-256-GCM encryption using a machine-specific fixed key
-// Plan A: No master password, key derived from app path + machine info
+export { isEncryptedValue } from './encryptionFormat'
+
+// AES-256-GCM obfuscation-at-rest using a key derived from the local app data path.
+// This is not a master-password or OS-keystore boundary; see docs/SECURITY.md.
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 16
 const TAG_LENGTH = 16
@@ -53,6 +56,11 @@ export function encrypt(plaintext: string): string {
   const tag = cipher.getAuthTag()
   // Format: iv:tag:ciphertext (all hex)
   return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted}`
+}
+
+export function encryptIfNeeded(value: string): string {
+  if (!value || isEncryptedValue(value)) return value
+  return encrypt(value)
 }
 
 export function decrypt(ciphertext: string): string {

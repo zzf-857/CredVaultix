@@ -1,11 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-contextBridge.exposeInMainWorld('electronAPI', {
+const electronAPI = {
   // Window controls
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
   close: () => ipcRenderer.send('window:close'),
   isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  setUnsavedChanges: (hasUnsavedChanges: boolean) => ipcRenderer.send('app:setUnsavedChanges', hasUnsavedChanges),
 
   // TOTP 2FA
   getTotpAccounts: () => ipcRenderer.invoke('totp:getAll'),
@@ -40,6 +41,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createSecretService: (data: any) => ipcRenderer.invoke('serviceInfo:createService', data),
   updateSecretService: (id: string, data: any) => ipcRenderer.invoke('serviceInfo:updateService', id, data),
   deleteSecretService: (id: string) => ipcRenderer.invoke('serviceInfo:deleteService', id),
+  getDeletedSecretServices: () => ipcRenderer.invoke('serviceInfo:getDeletedServices'),
+  restoreSecretService: (id: string) => ipcRenderer.invoke('serviceInfo:restoreService', id),
+  hardDeleteSecretService: (id: string) => ipcRenderer.invoke('serviceInfo:hardDeleteService', id),
   moveSecretServices: (data: any) => ipcRenderer.invoke('serviceInfo:moveServices', data),
   reorderSecretServices: (data: any) => ipcRenderer.invoke('serviceInfo:reorderServices', data),
   createSecretFieldGroup: (data: any) => ipcRenderer.invoke('serviceInfo:createFieldGroup', data),
@@ -51,6 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   moveSecretFields: (data: any) => ipcRenderer.invoke('serviceInfo:moveFields', data),
   reorderSecretFields: (data: any) => ipcRenderer.invoke('serviceInfo:reorderFields', data),
   openDataDirectory: () => ipcRenderer.invoke('app:openDataDirectory'),
+  openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
 
   // Preferences
   getAppPreferences: () => ipcRenderer.invoke('preferences:get'),
@@ -71,4 +76,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Database
   exportDatabase: () => ipcRenderer.invoke('db:export'),
   importDatabase: () => ipcRenderer.invoke('db:import'),
-})
+}
+
+contextBridge.exposeInMainWorld('electronAPI', electronAPI)

@@ -19,15 +19,16 @@
         "noUnusedLocals": false,
         "noUnusedParameters": false,
         "noFallthroughCasesInSwitch": true,
-        "baseUrl": ".",
+        "tsBuildInfoFile": "./node_modules/.cache/credvaultix/renderer.tsbuildinfo",
         "paths": {
             "@/*": [
-                "src/*"
+                "./src/*"
             ]
         }
     },
     "include": [
-        "src"
+        "src",
+        "shared"
     ],
     "references": [
         {

@@ -1,7 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import electron from 'vite-plugin-electron'
-import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
 
 export default defineConfig(() => {
@@ -10,7 +9,7 @@ export default defineConfig(() => {
   return {
     test: {
       environment: 'node',
-      include: ['src/**/*.test.ts', 'electron/**/*.test.ts'],
+      include: ['src/**/*.test.ts', 'electron/**/*.test.ts', 'scripts/**/*.test.mjs'],
     },
     plugins: [
       react(),
@@ -41,8 +40,7 @@ export default defineConfig(() => {
                     }
                   }
                 }
-              ]),
-              renderer()
+              ])
             ]
       )
     ],

@@ -107,4 +107,21 @@ describe('serviceInfoBackup', () => {
 
     expect(db.runCalls).toEqual([])
   })
+
+  it('protects plaintext sensitive fields during import without changing ordinary fields', () => {
+    const db = new FakeDatabase()
+    const protectSecretValue = (value: string) => `encrypted:${value}`
+    importServiceInfoBackupData(db as any, {
+      secretFields: [
+        { id: 'secret', service_id: 's1', field_name: 'API Key', field_value: 'plain', is_secret: 1 },
+        { id: 'note', service_id: 's1', field_name: 'Region', field_value: 'ap-shanghai', is_secret: 0 },
+      ],
+    }, protectSecretValue)
+
+    const fieldSql = 'INSERT INTO secret_fields (id, service_id, group_id, field_name, field_value, is_secret, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    expect(db.paramsBySql.get(fieldSql)?.map((params) => params[4])).toEqual([
+      'encrypted:plain',
+      'ap-shanghai',
+    ])
+  })
 })

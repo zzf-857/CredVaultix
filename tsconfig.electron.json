@@ -3,19 +3,21 @@
         "composite": true,
         "target": "ESNext",
         "module": "ESNext",
-        "moduleResolution": "Node",
+        "moduleResolution": "Bundler",
         "allowSyntheticDefaultImports": true,
         "skipLibCheck": true,
         "strict": true,
         "isolatedModules": true,
         "emitDeclarationOnly": true,
-        "baseUrl": ".",
+        "outDir": "node_modules/.cache/credvaultix/electron",
+        "tsBuildInfoFile": "node_modules/.cache/credvaultix/electron.tsbuildinfo",
         "types": [
             "node",
             "electron"
         ]
     },
     "include": [
-        "electron"
+        "electron",
+        "shared"
     ]
 }

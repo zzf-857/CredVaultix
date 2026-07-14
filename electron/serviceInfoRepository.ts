@@ -51,7 +51,8 @@ function updateServiceTimestamp(db: Database.Database, serviceId: string) {
   db.prepare('UPDATE secret_services SET updated_at = ? WHERE id = ?').run(nowIso(), serviceId)
 }
 
-export function registerServiceInfoIpc(db: Database.Database) {
+export function registerServiceInfoIpc(initialDatabase: Database.Database) {
+  let db = initialDatabase
   ipcMain.handle('serviceInfo:getAll', () => ({
     groups: db.prepare('SELECT * FROM secret_groups ORDER BY sort_order ASC, name ASC').all(),
     services: db.prepare('SELECT * FROM secret_services WHERE is_deleted = 0 ORDER BY sort_order ASC, updated_at DESC').all(),
@@ -149,12 +150,41 @@ export function registerServiceInfoIpc(db: Database.Database) {
     return { success: true }
   })
 
+  ipcMain.handle('serviceInfo:getDeletedServices', () => (
+    db.prepare('SELECT * FROM secret_services WHERE is_deleted = 1 ORDER BY deleted_at DESC, updated_at DESC').all()
+  ))
+
+  ipcMain.handle('serviceInfo:restoreService', (_event, id: string) => {
+    db.prepare('UPDATE secret_services SET is_deleted = 0, deleted_at = NULL, updated_at = ? WHERE id = ?')
+      .run(nowIso(), id)
+    return { success: true }
+  })
+
+  ipcMain.handle('serviceInfo:hardDeleteService', (_event, id: string) => {
+    const service = db
+      .prepare('SELECT is_deleted FROM secret_services WHERE id = ?')
+      .get(id) as { is_deleted?: number } | undefined
+    if (!service || !service.is_deleted) {
+      return { success: false }
+    }
+
+    db.transaction(() => {
+      db.prepare('DELETE FROM secret_fields WHERE service_id = ?').run(id)
+      db.prepare('DELETE FROM secret_field_groups WHERE service_id = ?').run(id)
+      db.prepare('DELETE FROM secret_services WHERE id = ?').run(id)
+    })()
+    return { success: true }
+  })
+
   ipcMain.handle('serviceInfo:moveServices', (_event, data: { ids: string[]; groupId: string | null }) => {
     const groupId = normalizeNullableId(data.groupId)
     const updatedAt = nowIso()
     db.transaction(() => {
+      let sortOrder = nextServiceSortOrder(db, groupId)
       for (const id of data.ids) {
-        db.prepare('UPDATE secret_services SET group_id = ?, updated_at = ? WHERE id = ?').run(groupId, updatedAt, id)
+        db.prepare('UPDATE secret_services SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ?')
+          .run(groupId, sortOrder, updatedAt, id)
+        sortOrder += 1
       }
     })()
     return { success: true }
@@ -264,9 +294,15 @@ export function registerServiceInfoIpc(db: Database.Database) {
     const groupId = normalizeNullableId(data.groupId)
     const updatedAt = nowIso()
     db.transaction(() => {
+      const firstField = data.ids.length > 0
+        ? db.prepare('SELECT service_id FROM secret_fields WHERE id = ?').get(data.ids[0]) as { service_id?: string } | undefined
+        : undefined
+      let sortOrder = firstField?.service_id ? nextFieldSortOrder(db, firstField.service_id, groupId) : 1
       for (const id of data.ids) {
         const current = db.prepare('SELECT service_id FROM secret_fields WHERE id = ?').get(id) as { service_id?: string } | undefined
-        db.prepare('UPDATE secret_fields SET group_id = ?, updated_at = ? WHERE id = ?').run(groupId, updatedAt, id)
+        db.prepare('UPDATE secret_fields SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ?')
+          .run(groupId, sortOrder, updatedAt, id)
+        sortOrder += 1
         if (current?.service_id) updateServiceTimestamp(db, current.service_id)
       }
     })()
@@ -291,4 +327,28 @@ export function registerServiceInfoIpc(db: Database.Database) {
     const result = await shell.openPath(app.getPath('userData'))
     return { success: result === '' }
   })
+
+  ipcMain.handle('app:openExternal', async (_event, value: string) => {
+    try {
+      const rawValue = String(value || '').trim()
+      const hasUnsupportedScheme = /^[a-z][a-z0-9+.-]*:/i.test(rawValue)
+        && !/^https?:/i.test(rawValue)
+        && !/^localhost:\d+(?:\/|$)/i.test(rawValue)
+      if (hasUnsupportedScheme) {
+        return { success: false, error: '只允许打开 HTTP 或 HTTPS 地址' }
+      }
+      const url = new URL(/^https?:\/\//i.test(rawValue) ? rawValue : `https://${rawValue}`)
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return { success: false, error: '只允许打开 HTTP 或 HTTPS 地址' }
+      }
+      await shell.openExternal(url.toString())
+      return { success: true }
+    } catch {
+      return { success: false, error: '地址格式无效' }
+    }
+  })
+
+  return (nextDatabase: Database.Database) => {
+    db = nextDatabase
+  }
 }

@@ -1,10 +1,10 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { autoUpdater } from 'electron-updater'
-import type Database from 'better-sqlite3'
+import Database from 'better-sqlite3'
 import { spawn } from 'child_process'
 import path from 'path'
 import { DATABASE_FILE_NAME, initDatabase, getDatabase } from './database'
-import { encrypt, decrypt } from './crypto'
+import { encrypt, decrypt, encryptIfNeeded } from './crypto'
 import { backupDatabaseIfExists } from './databaseSafety'
 import {
   SERVICE_INFO_BACKUP_VERSION,
@@ -13,6 +13,9 @@ import {
 } from './serviceInfoBackup'
 import { readPreferences, resetPreferences, updatePreferences } from './preferencesStore'
 import { registerServiceInfoIpc } from './serviceInfoRepository'
+import { accountMatchesSearch } from './accountSearch'
+import { assertValidJsonBackup } from './backupValidation'
+import { normalizeCsvAccountRow } from './csvAccountImport'
 import fs from 'fs'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
@@ -24,13 +27,34 @@ const LEGACY_DATABASE_FILE_NAME = 'account-manager.db'
 const TAG_COLOR_PALETTE = ['#a8c7fa', '#81c995', '#f2b8b5', '#fdd663', '#d7aefb', '#78d9ec', '#fcb68e']
 let isQuittingForUpdate = false
 let downloadedInstallerPath: string | null = null
+let usesExplicitUserDataDirectory = false
+let hasUnsavedRendererChanges = false
 
 app.setName(APP_NAME)
 
 function configureAppIdentity() {
   app.setName(APP_NAME)
   app.setAppUserModelId(APP_ID)
-  app.setPath('userData', path.join(app.getPath('appData'), APP_NAME))
+  const userDataArgument = process.argv.find((argument) => argument.startsWith('--user-data-dir='))
+  const explicitUserDataPath = userDataArgument?.slice('--user-data-dir='.length).trim()
+  usesExplicitUserDataDirectory = Boolean(explicitUserDataPath)
+  app.setPath(
+    'userData',
+    explicitUserDataPath ? path.resolve(explicitUserDataPath) : path.join(app.getPath('appData'), APP_NAME)
+  )
+}
+
+configureAppIdentity()
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  })
 }
 
 function getAppIconPath() {
@@ -52,6 +76,34 @@ function normalizeAccountPlatform(value?: string | null) {
   return 'other'
 }
 
+function normalizeOtpAlgorithm(value?: string | null) {
+  const algorithm = String(value || 'SHA1').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  return ['SHA1', 'SHA256', 'SHA512'].includes(algorithm) ? algorithm : 'SHA1'
+}
+
+function normalizeOtpDigits(value?: number | null) {
+  const digits = Number(value)
+  return Number.isInteger(digits) && digits >= 6 && digits <= 10 ? digits : 6
+}
+
+function normalizeOtpPeriod(value?: number | null) {
+  const period = Number(value)
+  return Number.isInteger(period) && period >= 5 && period <= 300 ? period : 30
+}
+
+function normalizeOtpType(value?: string | null) {
+  return String(value || '').toLowerCase() === 'hotp' ? 'hotp' : 'totp'
+}
+
+function normalizeOtpCounter(value?: number | null) {
+  const counter = Number(value)
+  return Number.isSafeInteger(counter) && counter >= 0 ? counter : 0
+}
+
+function isSqliteDatabasePath(filePath: string) {
+  return path.extname(filePath).toLowerCase() === '.db'
+}
+
 function pickTagColor(name: string) {
   const seed = Array.from(name).reduce((total, char) => total + char.charCodeAt(0), 0)
   return TAG_COLOR_PALETTE[seed % TAG_COLOR_PALETTE.length]
@@ -67,7 +119,15 @@ function backupCurrentDatabaseBeforeImport(currentDb: Database.Database) {
     console.warn('Failed to checkpoint database before import backup:', error)
   }
 
-  backupDatabaseIfExists(dbPath, userDataPath)
+  return backupDatabaseIfExists(dbPath, userDataPath)
+}
+
+function removeDatabaseSidecars(dbPath: string) {
+  for (const sidecarPath of [`${dbPath}-wal`, `${dbPath}-shm`]) {
+    if (fs.existsSync(sidecarPath)) {
+      fs.rmSync(sidecarPath, { force: true })
+    }
+  }
 }
 
 function copyFileIfMissing(sourcePath: string, targetPath: string) {
@@ -144,6 +204,28 @@ function migrateLegacyUserDataToCredVaultix() {
     }
   } catch (err) {
     console.error('Error migrating legacy user data:', err)
+  }
+}
+
+function validateSqliteBackup(filePath: string) {
+  const candidate = new Database(filePath, { readonly: true, fileMustExist: true })
+  try {
+    const integrity = candidate.pragma('integrity_check', { simple: true })
+    if (integrity !== 'ok') {
+      throw new Error(`SQLite 完整性检查失败：${String(integrity)}`)
+    }
+
+    const requiredTables = ['accounts', 'totp_accounts']
+    for (const tableName of requiredTables) {
+      const row = candidate
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .get(tableName) as { name?: string } | undefined
+      if (!row?.name) {
+        throw new Error(`SQLite 备份缺少必要数据表：${tableName}`)
+      }
+    }
+  } finally {
+    candidate.close()
   }
 }
 
@@ -330,7 +412,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
     },
     backgroundColor: '#121212',
     show: false
@@ -340,6 +423,30 @@ function createWindow() {
     mainWindow?.show()
   })
 
+  mainWindow.on('close', (event) => {
+    if (isQuittingForUpdate || !hasUnsavedRendererChanges || !mainWindow) return
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: 'warning',
+      title: '存在未保存修改',
+      message: '账号或自定义字段仍有未保存修改。',
+      detail: '确定要放弃修改并退出 CredVaultix 吗？',
+      buttons: ['继续编辑', '放弃并退出'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    })
+    if (choice === 0) {
+      event.preventDefault()
+      return
+    }
+    hasUnsavedRendererChanges = false
+  })
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  mainWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault()
+  })
+
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
   } else {
@@ -347,15 +454,18 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  configureAppIdentity()
-  migrateLegacyUserDataToCredVaultix()
+if (hasSingleInstanceLock) {
+  app.whenReady().then(() => {
+    if (!usesExplicitUserDataDirectory) {
+      migrateLegacyUserDataToCredVaultix()
+    }
 
-  initDatabase()
-  registerIpcHandlers()
-  createWindow()
-  setupAutoUpdater()
-})
+    initDatabase()
+    registerIpcHandlers()
+    createWindow()
+    setupAutoUpdater()
+  })
+}
 
 app.on('window-all-closed', () => {
   if (!isQuittingForUpdate) {
@@ -365,7 +475,7 @@ app.on('window-all-closed', () => {
 
 function registerIpcHandlers() {
   let db = getDatabase()
-  registerServiceInfoIpc(db)
+  const updateServiceInfoDatabase = registerServiceInfoIpc(db)
 
   ipcMain.handle('preferences:get', () => readPreferences(app.getPath('userData')))
   ipcMain.handle('preferences:update', (_event, patch: Record<string, unknown>) =>
@@ -404,6 +514,9 @@ function registerIpcHandlers() {
     }
   })
   ipcMain.on('window:close', () => mainWindow?.close())
+  ipcMain.on('app:setUnsavedChanges', (_event, hasUnsavedChanges: boolean) => {
+    hasUnsavedRendererChanges = Boolean(hasUnsavedChanges)
+  })
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized())
 
   // ============ Accounts ============
@@ -418,10 +531,6 @@ function registerIpcHandlers() {
       conditions.push('is_deleted = 0')
     }
 
-    if (filters?.search) {
-      conditions.push('(name LIKE ? OR username LIKE ? OR notes LIKE ?)')
-      params.push(`%${filters.search}%`, `%${filters.search}%`, `%${filters.search}%`)
-    }
     if (filters?.favoritesOnly) {
       conditions.push('is_favorite = 1')
     }
@@ -435,7 +544,10 @@ function registerIpcHandlers() {
     query += ' ORDER BY updated_at DESC'
 
     const rows = db.prepare(query).all(...params) as any[]
-    return rows.map(hydrateAccountRow)
+    const hydratedRows = rows.map(hydrateAccountRow)
+    return filters?.search
+      ? hydratedRows.filter((account) => accountMatchesSearch(account, filters.search || ''))
+      : hydratedRows
   })
 
   ipcMain.handle('accounts:getById', (_event, id: string) => {
@@ -453,12 +565,14 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('accounts:create', (_event, data: { id: string; name: string; platform?: string; username?: string; password?: string; phone?: string; backupEmail?: string; totpSecret?: string; notes?: string }) => {
+    const accountName = String(data.name || '').trim()
+    if (!accountName) throw new Error('Account name is required')
     const now = new Date().toISOString()
     db.prepare(`
       INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      data.id, data.name, normalizeAccountPlatform(data.platform ?? 'google'),
+      data.id, accountName, normalizeAccountPlatform(data.platform ?? 'google'),
       encrypt(data.username || ''), encrypt(data.password || ''),
       encrypt(data.phone || ''), encrypt(data.backupEmail || ''),
       encrypt(data.totpSecret || ''), data.notes || '',
@@ -472,7 +586,12 @@ function registerIpcHandlers() {
     const updates: string[] = ['updated_at = ?']
     const params: any[] = [now]
 
-    if (data.name !== undefined) { updates.push('name = ?'); params.push(data.name) }
+    if (data.name !== undefined) {
+      const accountName = data.name.trim()
+      if (!accountName) throw new Error('Account name is required')
+      updates.push('name = ?')
+      params.push(accountName)
+    }
     if (data.platform !== undefined) { updates.push('platform = ?'); params.push(normalizeAccountPlatform(data.platform)) }
     if (data.username !== undefined) { updates.push('username = ?'); params.push(encrypt(data.username)) }
     if (data.password !== undefined) { updates.push('password = ?'); params.push(encrypt(data.password)) }
@@ -492,11 +611,18 @@ function registerIpcHandlers() {
         db.prepare('DELETE FROM totp_accounts WHERE linked_account_id = ?').run(id)
       } else {
         // Update linked totp secret if it exists
-        db.prepare('UPDATE totp_accounts SET secret = ? WHERE linked_account_id = ?').run(data.totpSecret.trim(), id)
+        db.prepare('UPDATE totp_accounts SET secret = ? WHERE linked_account_id = ?').run(encrypt(data.totpSecret.trim()), id)
       }
-    } else if (data.name !== undefined) {
-      // Name changed → update linked totp issuer/label
-      db.prepare('UPDATE totp_accounts SET issuer = ?, label = ? WHERE linked_account_id = ?').run(data.name, data.name, id)
+    }
+    if (data.name !== undefined) {
+      db.prepare('UPDATE totp_accounts SET issuer = ? WHERE linked_account_id = ?').run(data.name.trim(), id)
+    }
+    if (data.username !== undefined) {
+      const fallbackLabel = data.name?.trim()
+        || (db.prepare('SELECT name FROM accounts WHERE id = ?').get(id) as { name?: string } | undefined)?.name
+        || ''
+      db.prepare('UPDATE totp_accounts SET label = ? WHERE linked_account_id = ?')
+        .run(data.username.trim() || fallbackLabel, id)
     }
 
     return { success: true }
@@ -514,10 +640,15 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('accounts:hardDelete', (_event, id: string) => {
-    db.prepare('DELETE FROM account_custom_fields WHERE account_id = ?').run(id)
-    db.prepare('DELETE FROM account_tags WHERE account_id = ?').run(id)
-    db.prepare("UPDATE totp_accounts SET linked_account_id = ? WHERE linked_account_id = ?").run('!deleted-' + id, id)
-    db.prepare('DELETE FROM accounts WHERE id = ?').run(id)
+    const account = db.prepare('SELECT is_deleted FROM accounts WHERE id = ?').get(id) as { is_deleted?: number } | undefined
+    if (!account || !account.is_deleted) return { success: false }
+
+    db.transaction(() => {
+      db.prepare('DELETE FROM account_custom_fields WHERE account_id = ?').run(id)
+      db.prepare('DELETE FROM account_tags WHERE account_id = ?').run(id)
+      db.prepare('UPDATE totp_accounts SET linked_account_id = ? WHERE linked_account_id = ?').run(`!deleted-${id}`, id)
+      db.prepare('DELETE FROM accounts WHERE id = ?').run(id)
+    })()
     return { success: true }
   })
 
@@ -528,7 +659,9 @@ function registerIpcHandlers() {
       properties: ['openFile']
     })
 
-    if (result.canceled || result.filePaths.length === 0) return { count: 0 }
+    if (result.canceled || result.filePaths.length === 0) {
+      return { count: 0, invalidTotpCount: 0, skippedRowCount: 0 }
+    }
     const raw = fs.readFileSync(result.filePaths[0], 'utf-8')
     
     // Parse CSV
@@ -538,33 +671,65 @@ function registerIpcHandlers() {
       transformHeader: (header) => header.trim().toLowerCase()
     })
 
-    if (parsed.errors.length && parsed.data.length === 0) return { count: 0 }
+    if (parsed.errors.length && parsed.data.length === 0) {
+      return { count: 0, invalidTotpCount: 0, skippedRowCount: 0 }
+    }
 
     let count = 0
+    let invalidTotpCount = 0
+    let skippedRowCount = 0
     const now = new Date().toISOString()
     const insertAccount = db.prepare('INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, is_favorite, is_deleted, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insertTotp = db.prepare(`
+      INSERT INTO totp_accounts (
+        id, issuer, label, secret, algorithm, digits, period, otp_type,
+        counter, linked_account_id, sort_order, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    const maxTotpOrder = db.prepare('SELECT MAX(sort_order) as maxOrder FROM totp_accounts').get() as { maxOrder?: number | null } | undefined
+    let nextTotpOrder = (maxTotpOrder?.maxOrder || 0) + 1
 
     db.transaction(() => {
       for (const row of parsed.data as any[]) {
+        const normalized = normalizeCsvAccountRow(row)
+        if (!normalized) {
+          skippedRowCount += 1
+          continue
+        }
+
         const id = uuidv4()
-        const name = row.name || row.url || row.title || '未命名账号'
-        const username = row.username || row.login || row.email || ''
-        const password = row.password || ''
-        const notes = row.note || row.notes || ''
-        const totp = row.totp || row.authenticator || ''
+        if (normalized.invalidTotpUri) invalidTotpCount += 1
         
         insertAccount.run(
-          id, name,
-          'other',
-          encrypt(username), encrypt(password),
-          encrypt(''), encrypt(''), encrypt(totp),
-          notes, 0, 0, now, now
+          id, normalized.name,
+          normalizeAccountPlatform(normalized.platform),
+          encrypt(normalized.username), encrypt(normalized.password),
+          encrypt(normalized.phone), encrypt(normalized.backupEmail), encrypt(normalized.totpSecret),
+          normalized.notes, 0, 0, now, now
         )
+
+        if (normalized.totpSecret) {
+          insertTotp.run(
+            uuidv4(),
+            normalized.otp?.issuer || normalized.name,
+            normalized.otp?.label || normalized.username || normalized.name,
+            encrypt(normalized.totpSecret),
+            normalized.otp?.algorithm || 'SHA1',
+            normalized.otp?.digits || 6,
+            normalized.otp?.period || 30,
+            normalized.otp?.otpType || 'totp',
+            normalized.otp?.counter || 0,
+            id,
+            nextTotpOrder,
+            now
+          )
+          nextTotpOrder += 1
+        }
         count++
       }
     })()
 
-    return { count }
+    return { count, invalidTotpCount, skippedRowCount }
   })
 
   ipcMain.handle('accounts:addTag', (_event, data: { accountId: string; tagName: string; color?: string }) => {
@@ -598,14 +763,26 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('accounts:updateField', (_event, id: string, data: { fieldName?: string; fieldValue?: string; isSecret?: boolean }) => {
+    const current = db
+      .prepare('SELECT field_value, is_secret FROM account_custom_fields WHERE id = ?')
+      .get(id) as { field_value: string; is_secret: number } | undefined
+    if (!current) return { success: true }
+
+    const currentIsSecret = Boolean(current.is_secret)
+    const nextIsSecret = data.isSecret !== undefined ? Boolean(data.isSecret) : currentIsSecret
     const updates: string[] = []
     const params: any[] = []
     if (data.fieldName !== undefined) { updates.push('field_name = ?'); params.push(data.fieldName) }
-    if (data.fieldValue !== undefined) {
-      const isSecret = data.isSecret !== undefined ? data.isSecret : false
-      updates.push('field_value = ?'); params.push(isSecret ? encrypt(data.fieldValue) : data.fieldValue)
+    if (data.fieldValue !== undefined || data.isSecret !== undefined) {
+      const plainValue = data.fieldValue !== undefined
+        ? data.fieldValue
+        : currentIsSecret
+          ? decrypt(current.field_value)
+          : current.field_value
+      updates.push('field_value = ?')
+      params.push(nextIsSecret ? encrypt(plainValue) : plainValue)
     }
-    if (data.isSecret !== undefined) { updates.push('is_secret = ?'); params.push(data.isSecret ? 1 : 0) }
+    if (data.isSecret !== undefined) { updates.push('is_secret = ?'); params.push(nextIsSecret ? 1 : 0) }
     if (updates.length === 0) return { success: true }
     params.push(id)
     db.prepare(`UPDATE account_custom_fields SET ${updates.join(', ')} WHERE id = ?`).run(...params)
@@ -619,10 +796,11 @@ function registerIpcHandlers() {
 
   // ============ TOTP 2FA ============
   ipcMain.handle('totp:getAll', () => {
-    return db.prepare('SELECT * FROM totp_accounts ORDER BY sort_order ASC, label ASC').all()
+    return (db.prepare('SELECT * FROM totp_accounts ORDER BY sort_order ASC, label ASC').all() as any[])
+      .map((account) => ({ ...account, secret: decrypt(account.secret) }))
   })
 
-  ipcMain.handle('totp:create', (_event, data: { id: string; issuer: string; label: string; secret: string; otpType?: string; linkedAccountId?: string }) => {
+  ipcMain.handle('totp:create', (_event, data: { id: string; issuer: string; label: string; secret: string; algorithm?: string; digits?: number; period?: number; otpType?: string; counter?: number; linkedAccountId?: string }) => {
     const now = new Date().toISOString()
     // Find the next sort order
     const row = db.prepare('SELECT MAX(sort_order) as maxOrder FROM totp_accounts').get() as any
@@ -632,19 +810,25 @@ function registerIpcHandlers() {
       INSERT INTO totp_accounts (id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id, sort_order, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-      data.id, data.issuer, data.label, data.secret,
-      'SHA1', 6, 30, data.otpType || 'totp', 0, data.linkedAccountId || null,
+      data.id, data.issuer, data.label, encrypt(data.secret),
+      normalizeOtpAlgorithm(data.algorithm), normalizeOtpDigits(data.digits), normalizeOtpPeriod(data.period),
+      normalizeOtpType(data.otpType), normalizeOtpCounter(data.counter), data.linkedAccountId || null,
       nextOrder, now
     )
     return { id: data.id }
   })
 
-  ipcMain.handle('totp:update', (_event, id: string, data: { issuer?: string; label?: string; secret?: string }) => {
+  ipcMain.handle('totp:update', (_event, id: string, data: { issuer?: string; label?: string; secret?: string; algorithm?: string; digits?: number; period?: number; otpType?: string; counter?: number }) => {
     const updates: string[] = []
     const params: any[] = []
     if (data.issuer !== undefined) { updates.push('issuer = ?'); params.push(data.issuer) }
     if (data.label !== undefined) { updates.push('label = ?'); params.push(data.label) }
-    if (data.secret !== undefined) { updates.push('secret = ?'); params.push(data.secret) }
+    if (data.secret !== undefined) { updates.push('secret = ?'); params.push(encrypt(data.secret)) }
+    if (data.algorithm !== undefined) { updates.push('algorithm = ?'); params.push(normalizeOtpAlgorithm(data.algorithm)) }
+    if (data.digits !== undefined) { updates.push('digits = ?'); params.push(normalizeOtpDigits(data.digits)) }
+    if (data.period !== undefined) { updates.push('period = ?'); params.push(normalizeOtpPeriod(data.period)) }
+    if (data.otpType !== undefined) { updates.push('otp_type = ?'); params.push(normalizeOtpType(data.otpType)) }
+    if (data.counter !== undefined) { updates.push('counter = ?'); params.push(normalizeOtpCounter(data.counter)) }
     if (updates.length === 0) return { success: true }
     params.push(id)
     db.prepare(`UPDATE totp_accounts SET ${updates.join(', ')} WHERE id = ?`).run(...params)
@@ -652,7 +836,15 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('totp:delete', (_event, id: string) => {
-    db.prepare('DELETE FROM totp_accounts WHERE id = ?').run(id)
+    const current = db.prepare('SELECT linked_account_id FROM totp_accounts WHERE id = ?')
+      .get(id) as { linked_account_id?: string | null } | undefined
+    db.transaction(() => {
+      db.prepare('DELETE FROM totp_accounts WHERE id = ?').run(id)
+      if (current?.linked_account_id && !current.linked_account_id.startsWith('!deleted-')) {
+        db.prepare('UPDATE accounts SET totp_secret = ?, updated_at = ? WHERE id = ?')
+          .run('', new Date().toISOString(), current.linked_account_id)
+      }
+    })()
     return { success: true }
   })
 
@@ -675,9 +867,8 @@ function registerIpcHandlers() {
 
     if (result.canceled || !result.filePath) return { success: false }
 
-    if (result.filePath.endsWith('.db')) {
-      const dbPath = path.join(app.getPath('userData'), DATABASE_FILE_NAME)
-      fs.copyFileSync(dbPath, result.filePath)
+    if (isSqliteDatabasePath(result.filePath)) {
+      await db.backup(result.filePath)
     } else {
       const data = {
         version: SERVICE_INFO_BACKUP_VERSION,
@@ -708,16 +899,47 @@ function registerIpcHandlers() {
 
     const filePath = result.filePaths[0]
 
-    if (filePath.endsWith('.db')) {
+    if (isSqliteDatabasePath(filePath)) {
       const dbPath = path.join(app.getPath('userData'), DATABASE_FILE_NAME)
-      backupCurrentDatabaseBeforeImport(db)
+      validateSqliteBackup(filePath)
+      const backup = backupCurrentDatabaseBeforeImport(db)
       db.close()
-      fs.copyFileSync(filePath, dbPath)
-      initDatabase()
-      db = getDatabase()
+      try {
+        removeDatabaseSidecars(dbPath)
+        fs.copyFileSync(filePath, dbPath)
+        initDatabase()
+        db = getDatabase()
+        updateServiceInfoDatabase(db)
+      } catch (importError) {
+        try {
+          const failedDatabase = getDatabase()
+          if (failedDatabase?.open) failedDatabase.close()
+        } catch {
+          // The imported database may have failed before a connection was assigned.
+        }
+
+        if (!backup.filePath || !fs.existsSync(backup.filePath)) {
+          throw importError
+        }
+
+        try {
+          removeDatabaseSidecars(dbPath)
+          fs.copyFileSync(backup.filePath, dbPath)
+          initDatabase()
+          db = getDatabase()
+          updateServiceInfoDatabase(db)
+        } catch (restoreError) {
+          throw new Error(
+            `导入失败，且自动恢复原数据库失败：${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+            { cause: importError }
+          )
+        }
+        throw importError
+      }
     } else {
       const raw = fs.readFileSync(filePath, 'utf-8')
       const data = JSON.parse(raw)
+      assertValidJsonBackup(data)
 
       backupCurrentDatabaseBeforeImport(db)
 
@@ -734,9 +956,22 @@ function registerIpcHandlers() {
         }
 
         // Import TOTP accounts
-        const insertTotp = db.prepare('INSERT INTO totp_accounts (id, issuer, label, secret, algorithm, digits, period, otp_type, counter, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        const insertTotp = db.prepare('INSERT INTO totp_accounts (id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         for (const a of data.totpAccounts || []) {
-          insertTotp.run(a.id, a.issuer, a.label, a.secret, a.algorithm || 'SHA1', a.digits || 6, a.period || 30, a.otp_type || 'totp', a.counter || 0, a.sort_order || 0, a.created_at)
+          insertTotp.run(
+            a.id,
+            a.issuer,
+            a.label,
+            encryptIfNeeded(a.secret || ''),
+            normalizeOtpAlgorithm(a.algorithm),
+            normalizeOtpDigits(a.digits),
+            normalizeOtpPeriod(a.period),
+            normalizeOtpType(a.otp_type),
+            normalizeOtpCounter(a.counter),
+            a.linked_account_id || null,
+            a.sort_order || 0,
+            a.created_at
+          )
         }
 
         // Import Accounts
@@ -746,11 +981,11 @@ function registerIpcHandlers() {
             a.id,
             a.name,
             normalizeAccountPlatform(a.platform),
-            a.username || '',
-            a.password || '',
-            a.phone || '',
-            a.backup_email || '',
-            a.totp_secret || '',
+            encryptIfNeeded(a.username || ''),
+            encryptIfNeeded(a.password || ''),
+            encryptIfNeeded(a.phone || ''),
+            encryptIfNeeded(a.backup_email || ''),
+            encryptIfNeeded(a.totp_secret || ''),
             a.notes || '',
             a.is_favorite || 0,
             a.is_deleted || 0,
@@ -763,7 +998,15 @@ function registerIpcHandlers() {
         // Import Account Custom Fields
         const insertField = db.prepare('INSERT INTO account_custom_fields (id, account_id, field_name, field_value, is_secret, sort_order) VALUES (?, ?, ?, ?, ?, ?)')
         for (const f of data.accountCustomFields || []) {
-          insertField.run(f.id, f.account_id, f.field_name, f.field_value || '', f.is_secret || 0, f.sort_order || 0)
+          const isSecret = f.is_secret ? 1 : 0
+          insertField.run(
+            f.id,
+            f.account_id,
+            f.field_name,
+            isSecret ? encryptIfNeeded(f.field_value || '') : f.field_value || '',
+            isSecret,
+            f.sort_order || 0
+          )
         }
 
         const insertAccountTag = db.prepare('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)')
@@ -771,7 +1014,7 @@ function registerIpcHandlers() {
           insertAccountTag.run(tag.account_id, tag.tag_id)
         }
 
-        importServiceInfoBackupData(db, data)
+        importServiceInfoBackupData(db, data, encryptIfNeeded)
       })
 
       importTransaction()
