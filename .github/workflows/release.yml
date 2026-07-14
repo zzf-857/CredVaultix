@@ -5,42 +5,76 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
+    name: Verify, package and publish
     runs-on: windows-latest
-
-    permissions:
-      contents: write
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout
+      - name: Checkout tag
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.x
           cache: npm
 
-      - name: Install dependencies
+      - name: Install locked dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Validate tag, package version and changelog
+        run: npm run release:check -- --tag $env:GITHUB_REF_NAME
 
-      - name: Typecheck
-        run: npm run typecheck
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      - name: Run tests, typecheck and production build
+        run: npm run verify
 
       - name: Clean release directory
+        shell: pwsh
         run: if (Test-Path release) { Remove-Item -Recurse -Force release }
 
       - name: Build Windows app
         run: npm run electron:build -- --publish never
 
-      - name: Upload release assets
+      - name: Verify updater assets
+        run: npm run release:assets
+
+      - name: Prepare release notes
+        run: node scripts/extract-release-notes.mjs $env:GITHUB_REF_NAME release-notes.md
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CredVaultix-${{ github.ref_name }}-windows
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          fail_on_unmatched_files: true
           files: |
             release/*.exe
             release/*.blockmap
             release/latest.yml
+          draft: false
+          prerelease: false
