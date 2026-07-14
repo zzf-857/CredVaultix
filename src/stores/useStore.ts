@@ -2,14 +2,19 @@ import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 import type {
   AccountRow,
+  AppPreferences,
+  CreateTotpData,
+  CsvImportResult,
   SecretFieldGroupRow,
   SecretFieldRow,
   SecretGroupRow,
   SecretServiceRow,
   ServiceInfoSortMode,
   TotpAccountRow,
+  UpdateTotpData,
 } from '../types'
 import type { AccountPlatform } from '../utils/accountPlatform'
+import { resolveAppPreferences } from '../utils/appPreferences'
 
 type ActiveView = 'accounts' | '2fa' | 'trash' | 'service-info'
 
@@ -22,7 +27,9 @@ interface SelectedServiceDetail {
 interface AppState {
   totpAccounts: TotpAccountRow[]
   accounts: AccountRow[]
+  allAccounts: AccountRow[]
   trashAccounts: AccountRow[]
+  trashServices: SecretServiceRow[]
 
   serviceGroups: SecretGroupRow[]
   secretServices: SecretServiceRow[]
@@ -38,6 +45,7 @@ interface AppState {
   accountSearchQuery: string
   accountPlatformFilter: AccountPlatform | 'all'
   themeMode: 'dark' | 'light'
+  navigationBlockReason: string | null
 
   accountsPinnedIds: string[]
   accountsCustomOrder: string[]
@@ -47,6 +55,8 @@ interface AppState {
   setAccountSearchQuery: (query: string) => void
   setAccountPlatformFilter: (platform: AccountPlatform | 'all') => void
   toggleTheme: () => void
+  loadAppPreferences: () => Promise<AppPreferences>
+  setNavigationBlockReason: (reason: string | null) => void
 
   loadServiceInfo: () => Promise<void>
   loadServiceDetail: (serviceId: string) => Promise<void>
@@ -63,30 +73,37 @@ interface AppState {
 
   loadTotpAccounts: () => Promise<void>
   loadAccounts: () => Promise<void>
+  loadAllAccounts: () => Promise<void>
   loadTrashAccounts: () => Promise<void>
+  loadTrashServices: () => Promise<void>
 
-  createTotpAccount: (issuer: string, label: string, secret: string, otpType?: string, linkedAccountId?: string) => Promise<string>
+  createTotpAccount: (data: Omit<CreateTotpData, 'id'>) => Promise<string>
+  updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<void>
   deleteTotpAccount: (id: string) => Promise<void>
   incrementTotpCounter: (id: string) => Promise<number>
 
   createAccount: (name: string, platform?: AccountPlatform) => Promise<string>
-  updateAccount: (id: string, data: any) => Promise<void>
+  updateAccount: (id: string, data: any, reload?: boolean) => Promise<void>
   deleteAccount: (id: string) => Promise<void>
   restoreAccount: (id: string) => Promise<void>
   hardDeleteAccount: (id: string) => Promise<void>
+  restoreSecretService: (id: string) => Promise<void>
+  hardDeleteSecretService: (id: string) => Promise<void>
   addAccountTag: (accountId: string, tagName: string) => Promise<void>
   removeAccountTag: (accountId: string, tagId: string) => Promise<void>
   navigateToAccount: (accountId: string) => void
 
-  exportDatabase: () => Promise<void>
-  importDatabase: () => Promise<void>
-  importCsvAccounts: () => Promise<number>
+  exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
+  importDatabase: () => Promise<{ success: boolean }>
+  importCsvAccounts: () => Promise<CsvImportResult>
 }
 
 export const useStore = create<AppState>((set, get) => ({
   totpAccounts: [],
   accounts: [],
+  allAccounts: [],
   trashAccounts: [],
+  trashServices: [],
   serviceGroups: [],
   secretServices: [],
   selectedServiceId: null,
@@ -100,29 +117,57 @@ export const useStore = create<AppState>((set, get) => ({
   accountSearchQuery: '',
   accountPlatformFilter: 'all',
   themeMode: 'dark',
+  navigationBlockReason: null,
 
-  accountsPinnedIds: (() => {
-    try {
-      const saved = localStorage.getItem('accounts_pinned_ids')
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
-  })(),
-  accountsCustomOrder: (() => {
-    try {
-      const saved = localStorage.getItem('accounts_custom_order')
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
-  })(),
+  accountsPinnedIds: [],
+  accountsCustomOrder: [],
 
   setActiveView: (view) => set({ activeView: view }),
   setSelectedAccount: (id) => set({ selectedAccountId: id }),
   setAccountSearchQuery: (accountSearchQuery) => set({ accountSearchQuery }),
   setAccountPlatformFilter: (accountPlatformFilter) => set({ accountPlatformFilter }),
-  toggleTheme: () => set((state) => ({ themeMode: state.themeMode === 'dark' ? 'light' : 'dark' })),
+  setNavigationBlockReason: (navigationBlockReason) => {
+    window.electronAPI.setUnsavedChanges(Boolean(navigationBlockReason))
+    set({ navigationBlockReason })
+  },
+  toggleTheme: () => set((state) => {
+    const themeMode = state.themeMode === 'dark' ? 'light' : 'dark'
+    void window.electronAPI.updateAppPreferences({ themeMode })
+    return { themeMode }
+  }),
+
+  loadAppPreferences: async () => {
+    const preferences = await window.electronAPI.getAppPreferences()
+    let legacyPinnedIds: unknown = []
+    let legacyCustomOrder: unknown = []
+    try {
+      legacyPinnedIds = JSON.parse(localStorage.getItem('accounts_pinned_ids') || '[]')
+      legacyCustomOrder = JSON.parse(localStorage.getItem('accounts_custom_order') || '[]')
+    } catch {
+      // Ignore malformed legacy renderer preferences.
+    }
+
+    const {
+      accountsPinnedIds,
+      accountsCustomOrder,
+      themeMode,
+      serviceSortMode,
+      needsAccountPreferenceMigration,
+    } = resolveAppPreferences(preferences, legacyPinnedIds, legacyCustomOrder)
+
+    set({ accountsPinnedIds, accountsCustomOrder, themeMode, serviceSortMode })
+
+    if (needsAccountPreferenceMigration) {
+      try {
+        await window.electronAPI.updateAppPreferences({ accountsPinnedIds, accountsCustomOrder })
+        localStorage.removeItem('accounts_pinned_ids')
+        localStorage.removeItem('accounts_custom_order')
+      } catch (error) {
+        console.error('Failed to migrate legacy account preferences:', error)
+      }
+    }
+    return preferences
+  },
 
   loadServiceInfo: async () => {
     const { groups, services } = await window.electronAPI.getServiceInfo()
@@ -166,7 +211,10 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setServiceSearchQuery: (serviceSearchQuery) => set({ serviceSearchQuery }),
-  setServiceSortMode: (serviceSortMode) => set({ serviceSortMode }),
+  setServiceSortMode: (serviceSortMode) => {
+    set({ serviceSortMode })
+    void window.electronAPI.updateAppPreferences({ serviceSortMode })
+  },
   toggleSelectedServiceId: (id) => {
     set((state) => ({
       selectedServiceIds: state.selectedServiceIds.includes(id)
@@ -189,21 +237,13 @@ export const useStore = create<AppState>((set, get) => ({
       const accountsPinnedIds = state.accountsPinnedIds.includes(id)
         ? state.accountsPinnedIds.filter(x => x !== id)
         : [...state.accountsPinnedIds, id]
-      try {
-        localStorage.setItem('accounts_pinned_ids', JSON.stringify(accountsPinnedIds))
-      } catch (err) {
-        console.error('Failed to save accounts pinned ids:', err)
-      }
+      void window.electronAPI.updateAppPreferences({ accountsPinnedIds })
       return { accountsPinnedIds }
     })
   },
   updateAccountsCustomOrder: (order) => {
     set({ accountsCustomOrder: order })
-    try {
-      localStorage.setItem('accounts_custom_order', JSON.stringify(order))
-    } catch (err) {
-      console.error('Failed to save accounts custom order:', err)
-    }
+    void window.electronAPI.updateAppPreferences({ accountsCustomOrder: order })
   },
 
   loadTotpAccounts: async () => {
@@ -229,28 +269,41 @@ export const useStore = create<AppState>((set, get) => ({
     })
   },
 
+  loadAllAccounts: async () => {
+    const allAccounts = await window.electronAPI.getAccounts({
+      isDeleted: false,
+      platform: 'all',
+    })
+    set({ allAccounts })
+  },
+
   loadTrashAccounts: async () => {
-    const state = get()
     const trashAccounts = await window.electronAPI.getAccounts({
-      search: state.accountSearchQuery || undefined,
-      platform: state.accountPlatformFilter,
       isDeleted: true,
+      platform: 'all',
     })
     set({ trashAccounts })
   },
 
-  createTotpAccount: async (issuer, label, secret, otpType, linkedAccountId) => {
+  loadTrashServices: async () => {
+    const trashServices = await window.electronAPI.getDeletedSecretServices()
+    set({ trashServices })
+  },
+
+  createTotpAccount: async (data) => {
     const id = uuidv4()
     await window.electronAPI.createTotpAccount({
       id,
-      issuer,
-      label,
-      secret,
-      otpType: otpType || 'totp',
-      linkedAccountId,
+      ...data,
+      otpType: data.otpType || 'totp',
     })
     await get().loadTotpAccounts()
     return id
+  },
+
+  updateTotpAccount: async (id, data) => {
+    await window.electronAPI.updateTotpAccount(id, data)
+    await get().loadTotpAccounts()
   },
 
   deleteTotpAccount: async (id) => {
@@ -267,14 +320,16 @@ export const useStore = create<AppState>((set, get) => ({
   createAccount: async (name, platform = 'google') => {
     const id = uuidv4()
     await window.electronAPI.createAccount({ id, name, platform })
-    await get().loadAccounts()
+    await Promise.all([get().loadAccounts(), get().loadAllAccounts()])
     set({ selectedAccountId: id })
     return id
   },
 
-  updateAccount: async (id, data) => {
+  updateAccount: async (id, data, reload = true) => {
     await window.electronAPI.updateAccount(id, data)
-    await get().loadAccounts()
+    if (reload) {
+      await Promise.all([get().loadAccounts(), get().loadAllAccounts()])
+    }
   },
 
   deleteAccount: async (id) => {
@@ -282,37 +337,51 @@ export const useStore = create<AppState>((set, get) => ({
     if (get().selectedAccountId === id) {
       set({ selectedAccountId: null })
     }
-    await get().loadAccounts()
-    await get().loadTrashAccounts()
+    await Promise.all([get().loadAccounts(), get().loadAllAccounts(), get().loadTrashAccounts()])
   },
 
   restoreAccount: async (id) => {
     await window.electronAPI.restoreAccount(id)
-    await get().loadAccounts()
-    await get().loadTrashAccounts()
+    await Promise.all([get().loadAccounts(), get().loadAllAccounts(), get().loadTrashAccounts()])
   },
 
   hardDeleteAccount: async (id) => {
     await window.electronAPI.hardDeleteAccount(id)
-    await get().loadTrashAccounts()
+    await Promise.all([get().loadTrashAccounts(), get().loadAllAccounts()])
+  },
+
+  restoreSecretService: async (id) => {
+    await window.electronAPI.restoreSecretService(id)
+    await get().loadServiceInfo()
+    await get().loadTrashServices()
+  },
+
+  hardDeleteSecretService: async (id) => {
+    await window.electronAPI.hardDeleteSecretService(id)
+    await get().loadTrashServices()
   },
 
   addAccountTag: async (accountId, tagName) => {
     await window.electronAPI.addAccountTag({ accountId, tagName })
-    await get().loadAccounts()
+    await Promise.all([get().loadAccounts(), get().loadAllAccounts()])
   },
 
   removeAccountTag: async (accountId, tagId) => {
     await window.electronAPI.removeAccountTag({ accountId, tagId })
-    await get().loadAccounts()
+    await Promise.all([get().loadAccounts(), get().loadAllAccounts()])
   },
 
   navigateToAccount: (accountId) => {
-    set({ activeView: 'accounts', selectedAccountId: accountId })
+    set({
+      activeView: 'accounts',
+      selectedAccountId: accountId,
+      accountSearchQuery: '',
+      accountPlatformFilter: 'all',
+    })
   },
 
   exportDatabase: async () => {
-    await window.electronAPI.exportDatabase()
+    return window.electronAPI.exportDatabase()
   },
 
   importDatabase: async () => {
@@ -320,16 +389,19 @@ export const useStore = create<AppState>((set, get) => ({
     if (result.success) {
       await get().loadTotpAccounts()
       await get().loadAccounts()
+      await get().loadAllAccounts()
       await get().loadTrashAccounts()
       await get().loadServiceInfo()
+      await get().loadTrashServices()
     }
+    return result
   },
 
   importCsvAccounts: async () => {
     const result = await window.electronAPI.importCsvAccounts()
     if (result.count > 0) {
-      await get().loadAccounts()
+      await Promise.all([get().loadAccounts(), get().loadAllAccounts(), get().loadTotpAccounts()])
     }
-    return result.count
+    return result
   },
 }))

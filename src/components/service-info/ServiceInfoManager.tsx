@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -13,6 +14,7 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Snackbar,
   TextField,
   Tooltip,
   Typography,
@@ -23,10 +25,11 @@ import CreateNewFolderIcon from '@mui/icons-material/CreateNewFolder'
 import SearchIcon from '@mui/icons-material/Search'
 import SortIcon from '@mui/icons-material/Sort'
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
+import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { v4 as uuidv4 } from 'uuid'
 import { useStore } from '../../stores/useStore'
 import type { SecretGroupRow, SecretServiceRow, ServiceInfoSortMode } from '../../types'
-import { getGroupedItems, sortServiceInfoItems } from '../../utils/serviceInfoGrouping'
+import { getGroupedItems, moveIdsBefore, sortServiceInfoItems } from '../../utils/serviceInfoGrouping'
 import BatchActionBar from './BatchActionBar'
 import ServiceGroupList from './ServiceGroupList'
 import ServiceDetail from './ServiceDetail'
@@ -78,6 +81,9 @@ export default function ServiceInfoManager() {
   const [groupName, setGroupName] = useState('')
   const [groupColor, setGroupColor] = useState(GROUP_COLORS[0])
   const [targetGroupId, setTargetGroupId] = useState<string>('')
+  const [groupToDelete, setGroupToDelete] = useState<SecretGroupRow | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [notice, setNotice] = useState<{ severity: 'error'; text: string } | null>(null)
 
   useEffect(() => {
     void loadServiceInfo()
@@ -172,11 +178,25 @@ export default function ServiceInfoManager() {
     await reloadAfterChange()
   }
 
-  const deleteGroup = async (group: SecretGroupRow) => {
-    const confirmed = window.confirm(`删除分组“${group.name}”？分组内服务会移到未分组。`)
-    if (!confirmed) return
-    await window.electronAPI.deleteSecretGroup(group.id)
-    await reloadAfterChange()
+  const deleteGroup = (group: SecretGroupRow) => {
+    setGroupToDelete(group)
+  }
+
+  const confirmDeleteGroup = async () => {
+    if (!groupToDelete || deleteBusy) return
+    setDeleteBusy(true)
+    try {
+      await window.electronAPI.deleteSecretGroup(groupToDelete.id)
+      setGroupToDelete(null)
+      await reloadAfterChange()
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `删除分组失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   const toggleGroupCollapsed = async (group: SecretGroupRow) => {
@@ -205,6 +225,29 @@ export default function ServiceInfoManager() {
     const ids = selectedServiceIds.includes(serviceId) ? selectedServiceIds : [serviceId]
     await window.electronAPI.moveSecretServices({ ids, groupId })
     setDraggingServiceId(null)
+    await reloadAfterChange()
+  }
+
+  const dropBeforeService = async (targetServiceId: string, droppedServiceId: string) => {
+    const target = secretServices.find((service) => service.id === targetServiceId)
+    if (!target) return
+
+    const movingIds = selectedServiceIds.includes(droppedServiceId)
+      ? selectedServiceIds
+      : [droppedServiceId]
+    const targetGroupIds = secretServices
+      .filter((service) => service.group_id === target.group_id && !movingIds.includes(service.id))
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((service) => service.id)
+    const orderedIds = moveIdsBefore(
+      [...targetGroupIds, ...movingIds.filter((id) => !targetGroupIds.includes(id))],
+      movingIds,
+      targetServiceId
+    )
+
+    await window.electronAPI.reorderSecretServices({ orderedIds, groupId: target.group_id })
+    setDraggingServiceId(null)
+    clearSelectedServiceIds()
     await reloadAfterChange()
   }
 
@@ -311,12 +354,15 @@ export default function ServiceInfoManager() {
                 services={groupedServices.ungrouped}
                 selectedServiceId={selectedServiceId}
                 selectedServiceIds={selectedServiceIds}
+                canDrag={serviceSortMode === 'manual'}
                 draggingServiceId={draggingServiceId}
                 onSelectService={setSelectedService}
                 onToggleServiceSelected={toggleSelectedServiceId}
                 onToggleFavorite={toggleFavorite}
                 onDropToGroup={dropToGroup}
                 onDragStart={setDraggingServiceId}
+                onDragEnd={() => setDraggingServiceId(null)}
+                onDropBefore={dropBeforeService}
               />
               {orderedGroups.map((group) => (
                 <ServiceGroupList
@@ -327,6 +373,7 @@ export default function ServiceInfoManager() {
                   services={groupedServices.groups[group.id] || []}
                   selectedServiceId={selectedServiceId}
                   selectedServiceIds={selectedServiceIds}
+                  canDrag={serviceSortMode === 'manual'}
                   draggingServiceId={draggingServiceId}
                   onSelectService={setSelectedService}
                   onToggleServiceSelected={toggleSelectedServiceId}
@@ -335,7 +382,9 @@ export default function ServiceInfoManager() {
                   onRenameGroup={openRenameGroupDialog}
                   onDeleteGroup={deleteGroup}
                   onDropToGroup={dropToGroup}
-                  onDragStart={setDraggingServiceId}
+                    onDragStart={setDraggingServiceId}
+                    onDragEnd={() => setDraggingServiceId(null)}
+                    onDropBefore={dropBeforeService}
                 />
               ))}
             </>
@@ -454,6 +503,36 @@ export default function ServiceInfoManager() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog
+        open={groupToDelete !== null}
+        onClose={() => { if (!deleteBusy) setGroupToDelete(null) }}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningAmberIcon sx={{ color: 'warning.main' }} />
+          确认删除分组
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">确定删除分组“{groupToDelete?.name}”吗？</Typography>
+          <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary', fontSize: '0.82rem' }}>
+            分组内服务不会被删除，而是移动到未分组。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGroupToDelete(null)} disabled={deleteBusy}>取消</Button>
+          <Button variant="contained" color="error" onClick={confirmDeleteGroup} disabled={deleteBusy}>
+            {deleteBusy ? '删除中…' : '确认删除'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar open={notice !== null} autoHideDuration={5000} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity="error" variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>
+          {notice?.text}
+        </Alert>
+      </Snackbar>
     </Box>
   )
 }

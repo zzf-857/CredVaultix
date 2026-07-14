@@ -10,28 +10,52 @@ export default function ServiceListItem({
   service,
   checked,
   selected,
+  canDrag = true,
   onClick,
   onToggleSelected,
   onDragStart,
+  onDragEnd,
+  onDropBefore,
   onToggleFavorite,
 }: {
   service: SecretServiceRow
   checked: boolean
   selected: boolean
+  canDrag?: boolean
   onClick: () => void
   onToggleSelected: () => void
   onDragStart: (serviceId: string) => void
+  onDragEnd: () => void
+  onDropBefore: (targetServiceId: string, droppedServiceId: string) => void
   onToggleFavorite: () => void
 }) {
   return (
     <ListItemButton
       selected={selected}
-      draggable
+      draggable={canDrag}
       onClick={onClick}
       onDragStart={(event) => {
+        if (!canDrag) {
+          event.preventDefault()
+          return
+        }
         event.dataTransfer.setData('text/plain', service.id)
         event.dataTransfer.effectAllowed = 'move'
         onDragStart(service.id)
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const droppedId = event.dataTransfer.getData('text/plain')
+        if (droppedId && droppedId !== service.id) {
+          onDropBefore(service.id, droppedId)
+        }
       }}
       sx={{
         display: 'grid',
@@ -62,7 +86,9 @@ export default function ServiceListItem({
         inputProps={{ 'aria-label': `选择 ${service.name}` }}
         sx={{ p: 0.35 }}
       />
-      <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled' }} />
+      <Tooltip title={canDrag ? '拖动调整顺序或分组' : '切换到手动排序后可拖动'}>
+        <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled', opacity: canDrag ? 1 : 0.35 }} />
+      </Tooltip>
       <Box
         sx={{
           width: 40,

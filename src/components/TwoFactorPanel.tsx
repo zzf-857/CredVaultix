@@ -4,10 +4,12 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Tooltip, Fade, LinearProgress, Chip, Paper,
   MenuItem, Select, FormControl, InputLabel,
+  InputAdornment,
   ToggleButton, ToggleButtonGroup,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import SecurityIcon from '@mui/icons-material/Security'
@@ -27,6 +29,7 @@ import AppsIcon from '@mui/icons-material/Apps'
 import * as OTPAuth from 'otpauth'
 import { useStore } from '../stores/useStore'
 import { TotpAccountRow } from '../types'
+import { parseOtpAuthUri } from '../utils/otpAuth'
 
 interface OtpCode {
   code: string
@@ -68,33 +71,6 @@ function generateOtpCode(account: TotpAccountRow): OtpCode {
   }
 }
 
-function parseOtpAuthUri(uri: string): { issuer: string; label: string; secret: string; algorithm: string; digits: number; period: number; otpType: string; counter: number } | null {
-  try {
-    const url = new URL(uri)
-    if (url.protocol !== 'otpauth:') return null
-
-    const otpType = url.hostname // 'totp' or 'hotp'
-    if (otpType !== 'totp' && otpType !== 'hotp') return null
-
-    const path = decodeURIComponent(url.pathname.slice(1))
-    const secret = url.searchParams.get('secret') || ''
-    const issuer = url.searchParams.get('issuer') || ''
-    const algorithm = url.searchParams.get('algorithm') || 'SHA1'
-    const digits = parseInt(url.searchParams.get('digits') || '6')
-    const period = parseInt(url.searchParams.get('period') || '30')
-    const counter = parseInt(url.searchParams.get('counter') || '0')
-
-    const label = path.includes(':') ? path.split(':').slice(1).join(':') : path
-
-    return {
-      issuer: issuer || (path.includes(':') ? path.split(':')[0] : ''),
-      label, secret, algorithm, digits, period, otpType, counter,
-    }
-  } catch {
-    return null
-  }
-}
-
 function OtpTypeBadge({ type }: { type: string }) {
   const isTotp = type === 'totp'
   return (
@@ -127,6 +103,7 @@ function TotpCard({
   isPinned = false,
   onTogglePin,
   onRequestDelete,
+  onRequestEdit,
   onIncrementCounter,
   onNavigateToAccount,
 }: {
@@ -134,6 +111,7 @@ function TotpCard({
   isPinned?: boolean
   onTogglePin?: () => void
   onRequestDelete: (account: TotpAccountRow) => void
+  onRequestEdit: (account: TotpAccountRow) => void
   onIncrementCounter: (id: string) => void
   onNavigateToAccount?: (accountId: string) => void
 }) {
@@ -245,6 +223,15 @@ function TotpCard({
         </Box>
 
         <Box sx={{ display: 'flex', gap: 0.35, opacity: hovered ? 1 : 0.2, transition: 'opacity 0.15s' }}>
+          <Tooltip title="编辑 2FA 账户">
+            <IconButton
+              size="small"
+              onClick={() => onRequestEdit(account)}
+              sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+            >
+              <EditOutlinedIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
           <IconButton
             size="small"
             onClick={() => setShowSecret(!showSecret)}
@@ -372,11 +359,17 @@ function TotpCard({
 function TempTotpDisplay({
   secret,
   otpType,
+  algorithm,
+  digits,
+  period,
   counter,
   onIncrementCounter,
 }: {
   secret: string
   otpType: 'totp' | 'hotp'
+  algorithm: string
+  digits: number
+  period: number
   counter: number
   onIncrementCounter: () => void
 }) {
@@ -399,8 +392,8 @@ function TempTotpDisplay({
         
         if (isHotp) {
           const hotp = new OTPAuth.HOTP({
-            algorithm: 'SHA1',
-            digits: 6,
+            algorithm: algorithm as any,
+            digits,
             counter: counter,
             secret: secretObj,
           })
@@ -408,14 +401,14 @@ function TempTotpDisplay({
           setRemaining(-1)
         } else {
           const totp = new OTPAuth.TOTP({
-            algorithm: 'SHA1',
-            digits: 6,
-            period: 30,
+            algorithm: algorithm as any,
+            digits,
+            period,
             secret: secretObj,
           })
           setCode(totp.generate())
           const now = Math.floor(Date.now() / 1000)
-          setRemaining(30 - (now % 30))
+          setRemaining(period - (now % period))
         }
       } catch {
         setCode('------')
@@ -427,7 +420,7 @@ function TempTotpDisplay({
 
     const timer = setInterval(generate, 1000)
     return () => clearInterval(timer)
-  }, [secret, otpType, counter])
+  }, [secret, otpType, algorithm, digits, period, counter])
 
   const handleCopy = async () => {
     if (code === '------') return
@@ -452,7 +445,7 @@ function TempTotpDisplay({
     )
   }
 
-  const progress = !isHotp ? (remaining / 30) * 100 : 100
+  const progress = !isHotp ? (remaining / period) * 100 : 100
   const isUrgent = !isHotp && remaining <= 5
   const formattedCode = code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code
 
@@ -556,10 +549,11 @@ function TempTotpDisplay({
 export default function TwoFactorPanel() {
   const {
     totpAccounts,
-    accounts,
+    allAccounts: accounts,
     loadTotpAccounts,
-    loadAccounts,
+    loadAllAccounts,
     createTotpAccount,
+    updateTotpAccount,
     deleteTotpAccount,
     incrementTotpCounter,
     navigateToAccount,
@@ -568,22 +562,31 @@ export default function TwoFactorPanel() {
   } = useStore()
 
   // Alignment state with localStorage persistence and safety check
-  const [alignment, setAlignment] = useState<'left' | 'center'>(() => {
-    try {
-      const saved = localStorage.getItem('2fa_card_alignment')
-      return (saved === 'left' || saved === 'center') ? saved : 'left'
-    } catch {
-      return 'left'
-    }
-  })
+  const [alignment, setAlignment] = useState<'left' | 'center'>('left')
+
+  useEffect(() => {
+    let mounted = true
+    window.electronAPI.getAppPreferences().then((preferences) => {
+      if (!mounted) return
+      let savedAlignment = preferences.twoFactorAlignment
+      if (savedAlignment !== 'left' && savedAlignment !== 'center') {
+        const legacyAlignment = localStorage.getItem('2fa_card_alignment')
+        if (legacyAlignment === 'left' || legacyAlignment === 'center') {
+          savedAlignment = legacyAlignment
+          void window.electronAPI.updateAppPreferences({ twoFactorAlignment: savedAlignment })
+          localStorage.removeItem('2fa_card_alignment')
+        }
+      }
+      if (savedAlignment === 'left' || savedAlignment === 'center') {
+        setAlignment(savedAlignment)
+      }
+    }).catch(() => undefined)
+    return () => { mounted = false }
+  }, [])
 
   const handleAlignmentChange = (newAlignment: 'left' | 'center') => {
     setAlignment(newAlignment)
-    try {
-      localStorage.setItem('2fa_card_alignment', newAlignment)
-    } catch (e) {
-      console.error('Failed to save 2fa card alignment:', e)
-    }
+    void window.electronAPI.updateAppPreferences({ twoFactorAlignment: newAlignment })
   }
 
   const [activeGroup, setActiveGroup] = useState<string>('')
@@ -688,8 +691,15 @@ export default function TwoFactorPanel() {
   const [issuer, setIssuer] = useState('')
   const [label, setLabel] = useState('')
   const [secret, setSecret] = useState('')
+  const [secretVisible, setSecretVisible] = useState(false)
+  const [algorithm, setAlgorithm] = useState<'SHA1' | 'SHA256' | 'SHA512'>('SHA1')
+  const [digits, setDigits] = useState(6)
+  const [period, setPeriod] = useState(30)
+  const [counter, setCounter] = useState(0)
   const [uri, setUri] = useState('')
   const [uriError, setUriError] = useState('')
+  const [manualError, setManualError] = useState('')
+  const [editingTarget, setEditingTarget] = useState<TotpAccountRow | null>(null)
 
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<TotpAccountRow | null>(null)
@@ -699,9 +709,13 @@ export default function TwoFactorPanel() {
   const [tempDialogOpen, setTempDialogOpen] = useState(false)
   const [tempInputMode, setTempInputMode] = useState<'manual' | 'uri'>('manual')
   const [tempOtpType, setTempOtpType] = useState<'totp' | 'hotp'>('totp')
+  const [tempAlgorithm, setTempAlgorithm] = useState<'SHA1' | 'SHA256' | 'SHA512'>('SHA1')
+  const [tempDigits, setTempDigits] = useState(6)
+  const [tempPeriod, setTempPeriod] = useState(30)
   const [tempIssuer, setTempIssuer] = useState('')
   const [tempLabel, setTempLabel] = useState('')
   const [tempSecret, setTempSecret] = useState('')
+  const [tempSecretVisible, setTempSecretVisible] = useState(false)
   const [tempUri, setTempUri] = useState('')
   const [tempUriError, setTempUriError] = useState('')
   const [tempCounter, setTempCounter] = useState(0)
@@ -711,10 +725,14 @@ export default function TwoFactorPanel() {
     setTempIssuer('')
     setTempLabel('')
     setTempSecret('')
+    setTempSecretVisible(false)
     setTempUri('')
     setTempUriError('')
     setTempInputMode('manual')
     setTempOtpType('totp')
+    setTempAlgorithm('SHA1')
+    setTempDigits(6)
+    setTempPeriod(30)
     setTempCounter(0)
   }
 
@@ -734,6 +752,9 @@ export default function TwoFactorPanel() {
       setTempLabel(parsed.label)
       setTempSecret(parsed.secret)
       setTempOtpType(parsed.otpType as 'totp' | 'hotp')
+      setTempAlgorithm(parsed.algorithm)
+      setTempDigits(parsed.digits)
+      setTempPeriod(parsed.period)
       setTempCounter(parsed.counter)
     } else {
       setTempUriError('无效的 otpauth URI')
@@ -745,18 +766,23 @@ export default function TwoFactorPanel() {
     setIssuer(tempIssuer)
     setLabel(tempLabel || tempIssuer || '临时转入账户')
     setSecret(tempSecret)
+    setSecretVisible(false)
     setOtpType(tempOtpType)
+    setAlgorithm(tempAlgorithm)
+    setDigits(tempDigits)
+    setPeriod(tempPeriod)
+    setCounter(tempCounter)
     setInputMode(tempInputMode)
     setUri(tempUri)
+    setEditingTarget(null)
     
     setTempDialogOpen(false)
     setDialogOpen(true)
   }
 
   useEffect(() => {
-    loadTotpAccounts()
-    loadAccounts()
-  }, [])
+    void Promise.all([loadTotpAccounts(), loadAllAccounts()])
+  }, [loadAllAccounts, loadTotpAccounts])
 
   // Identify platform for grouping (Google, Microsoft, Others) with safe accessors
   const getAccountPlatform = (acc: TotpAccountRow) => {
@@ -888,6 +914,7 @@ export default function TwoFactorPanel() {
                 account={account}
                 isPinned={account.linked_account_id ? accountsPinnedIds.includes(account.linked_account_id) : false}
                 onRequestDelete={handleRequestDelete}
+                onRequestEdit={openEditDialog}
                 onIncrementCounter={incrementTotpCounter}
                 onNavigateToAccount={navigateToAccount}
               />
@@ -898,17 +925,104 @@ export default function TwoFactorPanel() {
     )
   }
 
+  const isValidSecret = (value: string) => {
+    try {
+      OTPAuth.Secret.fromBase32(value.replace(/\s/g, '').toUpperCase())
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const openCreateDialog = () => {
+    setEditingTarget(null)
+    setIssuer('')
+    setLabel('')
+    setSecret('')
+    setSecretVisible(false)
+    setAlgorithm('SHA1')
+    setDigits(6)
+    setPeriod(30)
+    setCounter(0)
+    setUri('')
+    setUriError('')
+    setManualError('')
+    setInputMode('manual')
+    setOtpType('totp')
+    setDialogOpen(true)
+  }
+
+  const openEditDialog = (account: TotpAccountRow) => {
+    setEditingTarget(account)
+    setIssuer(account.issuer || '')
+    setLabel(account.label || '')
+    setSecret(account.secret || '')
+    setSecretVisible(false)
+    setAlgorithm((['SHA1', 'SHA256', 'SHA512'].includes(account.algorithm?.toUpperCase())
+      ? account.algorithm.toUpperCase()
+      : 'SHA1') as 'SHA1' | 'SHA256' | 'SHA512')
+    setDigits(account.digits || 6)
+    setPeriod(account.period || 30)
+    setCounter(account.counter || 0)
+    setUri('')
+    setUriError('')
+    setManualError('')
+    setInputMode('manual')
+    setOtpType(account.otp_type === 'hotp' ? 'hotp' : 'totp')
+    setDialogOpen(true)
+  }
+
   const handleAdd = async () => {
+    let nextData: {
+      issuer: string
+      label: string
+      secret: string
+      algorithm: string
+      digits: number
+      period: number
+      otpType: string
+      counter: number
+    }
+
     if (inputMode === 'uri') {
       const parsed = parseOtpAuthUri(uri.trim())
       if (!parsed) {
         setUriError('无效的 otpauth URI')
         return
       }
-      await createTotpAccount(parsed.issuer, parsed.label, parsed.secret, parsed.otpType)
+      nextData = parsed
     } else {
-      if (!label.trim() || !secret.trim()) return
-      await createTotpAccount(issuer.trim(), label.trim(), secret.trim().replace(/\s/g, ''), otpType)
+      if (!label.trim() || !secret.trim()) {
+        setManualError('账户名称和密钥不能为空')
+        return
+      }
+      if (!isValidSecret(secret)) {
+        setManualError('密钥不是有效的 Base32 内容')
+        return
+      }
+      setManualError('')
+      nextData = {
+        issuer: issuer.trim(),
+        label: label.trim(),
+        secret: secret.trim().replace(/\s/g, ''),
+        algorithm,
+        digits,
+        period,
+        otpType,
+        counter,
+      }
+    }
+
+    if (editingTarget) {
+      await updateTotpAccount(editingTarget.id, nextData)
+      if (editingTarget.linked_account_id && !editingTarget.linked_account_id.startsWith('!deleted-')) {
+        await window.electronAPI.updateAccount(editingTarget.linked_account_id, {
+          totpSecret: nextData.secret,
+        })
+        await loadAllAccounts()
+      }
+    } else {
+      await createTotpAccount(nextData)
     }
     resetDialog()
   }
@@ -918,10 +1032,17 @@ export default function TwoFactorPanel() {
     setIssuer('')
     setLabel('')
     setSecret('')
+    setSecretVisible(false)
+    setAlgorithm('SHA1')
+    setDigits(6)
+    setPeriod(30)
+    setCounter(0)
     setUri('')
     setUriError('')
+    setManualError('')
     setInputMode('manual')
     setOtpType('totp')
+    setEditingTarget(null)
   }
 
   const handleRequestDelete = (account: TotpAccountRow) => {
@@ -1014,7 +1135,7 @@ export default function TwoFactorPanel() {
             variant="contained"
             size="small"
             startIcon={<AddIcon />}
-            onClick={() => setDialogOpen(true)}
+            onClick={openCreateDialog}
             sx={{ height: 34 }}
           >
             添加账户
@@ -1049,7 +1170,7 @@ export default function TwoFactorPanel() {
                 <Button variant="outlined" startIcon={<FlashOnIcon />} onClick={() => setTempDialogOpen(true)}>
                   临时验证器
                 </Button>
-                <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
+                <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateDialog}>
                   添加第一个账户
                 </Button>
               </Box>
@@ -1257,9 +1378,21 @@ export default function TwoFactorPanel() {
                 required
                 label="密钥（Base32 格式）"
                 value={tempSecret}
+                type={tempSecretVisible ? 'text' : 'password'}
                 onChange={(e) => setTempSecret(e.target.value)}
                 placeholder="如: JBSWY3DPEHPK3PXP"
                 helperText="通常是一串大写字母和数字的组合"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip title={tempSecretVisible ? '隐藏密钥' : '显示密钥'}>
+                        <IconButton size="small" onClick={() => setTempSecretVisible((current) => !current)} edge="end">
+                          {tempSecretVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                }}
                 sx={{ mb: 3 }}
               />
             </>
@@ -1287,6 +1420,9 @@ export default function TwoFactorPanel() {
             <TempTotpDisplay
               secret={tempSecret}
               otpType={tempOtpType}
+              algorithm={tempAlgorithm}
+              digits={tempDigits}
+              period={tempPeriod}
               counter={tempCounter}
               onIncrementCounter={() => setTempCounter(prev => prev + 1)}
             />
@@ -1313,7 +1449,7 @@ export default function TwoFactorPanel() {
       <Dialog open={dialogOpen} onClose={resetDialog} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon sx={{ color: 'primary.main' }} />
-          添加 2FA 账户
+          {editingTarget ? '编辑 2FA 账户' : '添加 2FA 账户'}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mb: 2.25, display: 'flex', gap: 1.1 }}>
@@ -1382,10 +1518,63 @@ export default function TwoFactorPanel() {
                 required
                 label="密钥（Base32 格式）"
                 value={secret}
-                onChange={(e) => setSecret(e.target.value)}
+                type={secretVisible ? 'text' : 'password'}
+                onChange={(e) => { setSecret(e.target.value); setManualError('') }}
                 placeholder="如: JBSWY3DPEHPK3PXP"
-                helperText="通常是一串大写字母和数字的组合"
+                error={Boolean(manualError)}
+                helperText={manualError || '通常是一串大写字母和数字的组合'}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <Tooltip title={secretVisible ? '隐藏密钥' : '显示密钥'}>
+                        <IconButton size="small" onClick={() => setSecretVisible((current) => !current)} edge="end">
+                          {secretVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
+                    </InputAdornment>
+                  ),
+                }}
               />
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 2, mt: 2 }}>
+                <TextField
+                  select
+                  label="算法"
+                  value={algorithm}
+                  onChange={(event) => setAlgorithm(event.target.value as 'SHA1' | 'SHA256' | 'SHA512')}
+                >
+                  <MenuItem value="SHA1">SHA1</MenuItem>
+                  <MenuItem value="SHA256">SHA256</MenuItem>
+                  <MenuItem value="SHA512">SHA512</MenuItem>
+                </TextField>
+                <TextField
+                  select
+                  label="验证码位数"
+                  value={digits}
+                  onChange={(event) => setDigits(Number(event.target.value))}
+                >
+                  <MenuItem value={6}>6 位</MenuItem>
+                  <MenuItem value={8}>8 位</MenuItem>
+                </TextField>
+                {otpType === 'totp' ? (
+                  <TextField
+                    type="number"
+                    label="刷新周期（秒）"
+                    value={period}
+                    inputProps={{ min: 5, max: 300, step: 1 }}
+                    onChange={(event) => setPeriod(Math.max(5, Math.min(300, Number(event.target.value) || 30)))}
+                    sx={{ gridColumn: '1 / -1' }}
+                  />
+                ) : (
+                  <TextField
+                    type="number"
+                    label="当前计数器"
+                    value={counter}
+                    inputProps={{ min: 0, step: 1 }}
+                    onChange={(event) => setCounter(Math.max(0, Number(event.target.value) || 0))}
+                    sx={{ gridColumn: '1 / -1' }}
+                  />
+                )}
+              </Box>
             </>
           ) : (
             <TextField
@@ -1404,7 +1593,7 @@ export default function TwoFactorPanel() {
         </DialogContent>
         <DialogActions>
           <Button onClick={resetDialog}>取消</Button>
-          <Button variant="contained" onClick={handleAdd}>添加</Button>
+          <Button variant="contained" onClick={handleAdd}>{editingTarget ? '保存' : '添加'}</Button>
         </DialogActions>
       </Dialog>
 

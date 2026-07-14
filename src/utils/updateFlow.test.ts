@@ -14,7 +14,7 @@ import typesSource from '../types.ts?raw'
 
 describe('CredVaultix update flow wiring', () => {
   it('keeps the service information vault module wired while adding updates', () => {
-    expect(appSource).toContain("import ServiceInfoManager from './components/service-info/ServiceInfoManager'")
+    expect(appSource).toContain("lazy(() => import('./components/service-info/ServiceInfoManager'))")
     expect(appSource).toContain("activeView === 'service-info'")
     expect(sidebarSource).toContain('服务信息')
     expect(databaseSource).toContain('secret_services')
@@ -115,6 +115,15 @@ describe('CredVaultix update flow wiring', () => {
     expect(titleBarSource).not.toContain('DarkModeIcon')
   })
 
+  it('protects unsaved renderer edits when the desktop window closes', () => {
+    expect(mainSource).toContain("ipcMain.on('app:setUnsavedChanges'")
+    expect(mainSource).toContain("mainWindow.on('close'")
+    expect(mainSource).toContain('dialog.showMessageBoxSync')
+    expect(mainSource).toContain('放弃并退出')
+    expect(preloadSource).toContain("ipcRenderer.send('app:setUnsavedChanges'")
+    expect(typesSource).toContain('setUnsavedChanges')
+  })
+
   it('uses user-created tag suggestions and full-row account field copying', () => {
     expect(accountsViewSource).toContain('function getCreatedTagSuggestions')
     expect(accountsViewSource).toContain("getAccounts({ isDeleted: false, platform: 'all' })")
@@ -143,7 +152,12 @@ describe('CredVaultix update flow wiring', () => {
     expect(mainSource).toContain('function getAppIconPath()')
     expect(mainSource).toContain("path.join(process.resourcesPath, 'assets', 'app.ico')")
     expect(mainSource).toContain('icon: getAppIconPath()')
-    expect(mainSource).toContain("app.setPath('userData'")
+    expect(mainSource).toContain('app.setPath(')
+    expect(mainSource).toContain("argument.startsWith('--user-data-dir=')")
+    expect(mainSource).toContain('app.requestSingleInstanceLock()')
+    expect(mainSource).toContain("app.on('second-instance'")
+    expect(mainSource.indexOf('\nconfigureAppIdentity()\n')).toBeLessThan(mainSource.indexOf('app.requestSingleInstanceLock()'))
+    expect(mainSource).toContain('if (!usesExplicitUserDataDirectory)')
     expect(mainSource).toContain("path.join(app.getPath('appData'), APP_NAME)")
     expect(databaseSource).toContain("'credvaultix.db'")
     expect(mainSource).toContain("'account-manager.db'")

@@ -8,6 +8,7 @@ import {
   DialogContent,
   DialogTitle,
   LinearProgress,
+  Snackbar,
   Stack,
   Typography,
 } from '@mui/material'
@@ -61,11 +62,13 @@ function sectionSx() {
 }
 
 export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
-  const { themeMode, toggleTheme, exportDatabase, importDatabase } = useStore()
+  const { themeMode, toggleTheme, exportDatabase, importDatabase, navigationBlockReason } = useStore()
   const [appVersion, setAppVersion] = useState('')
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
   const [updateStatusText, setUpdateStatusText] = useState('点击检查更新以获取 GitHub 最新版本')
   const [downloadPercent, setDownloadPercent] = useState(0)
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false)
+  const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   useEffect(() => {
     window.electronAPI.getVersion().then(setAppVersion).catch(() => {
@@ -148,8 +151,32 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   const busy = updateStatus === 'checking' || updateStatus === 'downloading'
 
+  const handleExportDatabase = async () => {
+    try {
+      const result = await exportDatabase()
+      if (result.success) {
+        setNotice({ severity: 'success', text: `备份已导出${result.filePath ? `：${result.filePath}` : ''}` })
+      }
+    } catch (error) {
+      setNotice({ severity: 'error', text: `导出失败：${error instanceof Error ? error.message : String(error)}` })
+    }
+  }
+
+  const handleImportDatabase = async () => {
+    setImportConfirmOpen(false)
+    try {
+      const result = await importDatabase()
+      if (result.success) {
+        setNotice({ severity: 'success', text: '备份已恢复，账号、2FA 和服务信息已重新加载' })
+      }
+    } catch (error) {
+      setNotice({ severity: 'error', text: `导入失败；已保留导入前自动备份：${error instanceof Error ? error.message : String(error)}` })
+    }
+  }
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <>
+      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
         <SettingsIcon sx={{ color: 'primary.main' }} />
         设置
@@ -197,7 +224,13 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 </Button>
               )}
               {updateStatus === 'downloaded' && (
-                <Button onClick={() => window.electronAPI.quitAndInstall()} startIcon={<RestartAltIcon />} color="success" variant="contained">
+                <Button
+                  onClick={() => window.electronAPI.quitAndInstall()}
+                  startIcon={<RestartAltIcon />}
+                  color="success"
+                  variant="contained"
+                  disabled={Boolean(navigationBlockReason)}
+                >
                   重启安装
                 </Button>
               )}
@@ -209,16 +242,26 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               数据
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              <Button startIcon={<FileUploadIcon />} variant="outlined" onClick={importDatabase}>
+              <Button
+                startIcon={<FileUploadIcon />}
+                variant="outlined"
+                onClick={() => setImportConfirmOpen(true)}
+                disabled={Boolean(navigationBlockReason)}
+              >
                 导入数据库
               </Button>
-              <Button startIcon={<FileDownloadIcon />} variant="outlined" onClick={exportDatabase}>
+              <Button startIcon={<FileDownloadIcon />} variant="outlined" onClick={handleExportDatabase}>
                 导出数据库
               </Button>
               <Button startIcon={<FolderOpenIcon />} variant="outlined" onClick={() => window.electronAPI.openDataDirectory()}>
                 打开数据目录
               </Button>
             </Box>
+            {navigationBlockReason && (
+              <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 1.25 }}>
+                请先保存或取消账号编辑，再恢复备份或重启安装更新。
+              </Typography>
+            )}
           </Box>
 
           <Box sx={sectionSx()}>
@@ -238,6 +281,27 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       <DialogActions>
         <Button onClick={onClose}>关闭</Button>
       </DialogActions>
-    </Dialog>
+      </Dialog>
+      <Dialog open={importConfirmOpen} onClose={() => setImportConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>恢复本地备份</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" variant="outlined" sx={{ mb: 1.5 }}>
+            选择有效备份后，当前数据库内容会被备份并替换。
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            系统会先检查 JSON 结构或 SQLite 完整性；验证失败时不会开始覆盖。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportConfirmOpen(false)}>取消</Button>
+          <Button variant="contained" color="warning" onClick={handleImportDatabase}>选择备份并继续</Button>
+        </DialogActions>
+      </Dialog>
+      <Snackbar open={notice !== null} autoHideDuration={5000} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={notice?.severity || 'info'} variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>
+          {notice?.text}
+        </Alert>
+      </Snackbar>
+    </>
   )
 }

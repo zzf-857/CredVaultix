@@ -1,14 +1,26 @@
 import type { AccountPlatform } from './utils/accountPlatform'
 
+export interface AppPreferences {
+  sidebarWidth?: number
+  sidebarCollapsed?: boolean
+  accountsListWidth?: number
+  twoFactorAlignment?: 'left' | 'center'
+  themeMode?: 'dark' | 'light'
+  accountsPinnedIds?: string[]
+  accountsCustomOrder?: string[]
+  serviceSortMode?: ServiceInfoSortMode
+}
+
 export interface ElectronAPI {
   minimize: () => void
   maximize: () => void
   close: () => void
   isMaximized: () => Promise<boolean>
+  setUnsavedChanges: (hasUnsavedChanges: boolean) => void
 
   getTotpAccounts: () => Promise<TotpAccountRow[]>
   createTotpAccount: (data: CreateTotpData) => Promise<{ id: string }>
-  updateTotpAccount: (id: string, data: Partial<TotpAccountRow>) => Promise<{ success: boolean }>
+  updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<{ success: boolean }>
   deleteTotpAccount: (id: string) => Promise<{ success: boolean }>
   incrementTotpCounter: (id: string) => Promise<{ counter: number }>
 
@@ -19,7 +31,7 @@ export interface ElectronAPI {
   deleteAccount: (id: string) => Promise<{ success: boolean }>
   restoreAccount: (id: string) => Promise<{ success: boolean }>
   hardDeleteAccount: (id: string) => Promise<{ success: boolean }>
-  importCsvAccounts: () => Promise<{ count: number }>
+  importCsvAccounts: () => Promise<CsvImportResult>
   addAccountTag: (data: { accountId: string; tagName: string; color?: string }) => Promise<{ tagId: string }>
   removeAccountTag: (data: { accountId: string; tagId: string }) => Promise<{ success: boolean }>
 
@@ -35,6 +47,9 @@ export interface ElectronAPI {
   createSecretService: (data: CreateSecretServiceData) => Promise<{ id: string }>
   updateSecretService: (id: string, data: UpdateSecretServiceData) => Promise<{ success: boolean }>
   deleteSecretService: (id: string) => Promise<{ success: boolean }>
+  getDeletedSecretServices: () => Promise<SecretServiceRow[]>
+  restoreSecretService: (id: string) => Promise<{ success: boolean }>
+  hardDeleteSecretService: (id: string) => Promise<{ success: boolean }>
   moveSecretServices: (data: { ids: string[]; groupId: string | null }) => Promise<{ success: boolean }>
   reorderSecretServices: (data: { orderedIds: string[]; groupId: string | null }) => Promise<{ success: boolean }>
   createSecretFieldGroup: (data: { id: string; serviceId: string; name: string; color?: string }) => Promise<{ id: string }>
@@ -46,9 +61,10 @@ export interface ElectronAPI {
   moveSecretFields: (data: { ids: string[]; groupId: string | null }) => Promise<{ success: boolean }>
   reorderSecretFields: (data: { orderedIds: string[]; groupId: string | null }) => Promise<{ success: boolean }>
   openDataDirectory: () => Promise<{ success: boolean }>
-  getAppPreferences: () => Promise<Record<string, unknown>>
-  updateAppPreferences: (patch: Record<string, unknown>) => Promise<Record<string, unknown>>
-  resetAppPreferences: () => Promise<Record<string, unknown>>
+  openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
+  getAppPreferences: () => Promise<AppPreferences>
+  updateAppPreferences: (patch: Partial<AppPreferences>) => Promise<AppPreferences>
+  resetAppPreferences: () => Promise<AppPreferences>
   getVersion: () => Promise<string>
   checkUpdates: () => Promise<{ success: boolean; error?: string; isPortable?: boolean; status?: string; result?: unknown }>
   downloadUpdate: () => Promise<{ success: boolean; error?: string; isPortable?: boolean; status?: string }>
@@ -267,6 +283,23 @@ export interface CreateTotpData {
   otpType?: string
   counter?: number
   linkedAccountId?: string
+}
+
+export interface CsvImportResult {
+  count: number
+  invalidTotpCount: number
+  skippedRowCount: number
+}
+
+export interface UpdateTotpData {
+  issuer?: string
+  label?: string
+  secret?: string
+  algorithm?: string
+  digits?: number
+  period?: number
+  otpType?: string
+  counter?: number
 }
 
 declare global {

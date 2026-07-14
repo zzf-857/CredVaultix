@@ -32,6 +32,8 @@ describe('ServiceFieldGroup', () => {
         onDeleteGroup: () => undefined,
         onDropToGroup: () => undefined,
         onDragStart: () => undefined,
+        onDragEnd: () => undefined,
+        onDropBefore: () => undefined,
       })
     )
 

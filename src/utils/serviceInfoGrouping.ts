@@ -36,6 +36,22 @@ export function reorderItems<T extends GroupableItem>(items: T[], orderedIds: st
   return items.map((item) => (order.has(item.id) ? { ...item, sort_order: order.get(item.id)! } : item))
 }
 
+export function moveIdsBefore(orderedIds: string[], movingIds: string[], targetId: string): string[] {
+  const movingIdSet = new Set(movingIds)
+  const uniqueMovingIds = orderedIds.filter((id) => movingIdSet.has(id))
+  if (uniqueMovingIds.length === 0 || uniqueMovingIds.includes(targetId) || !orderedIds.includes(targetId)) {
+    return [...orderedIds]
+  }
+
+  const remainingIds = orderedIds.filter((id) => !uniqueMovingIds.includes(id))
+  const targetIndex = remainingIds.indexOf(targetId)
+  return [
+    ...remainingIds.slice(0, targetIndex),
+    ...uniqueMovingIds,
+    ...remainingIds.slice(targetIndex),
+  ]
+}
+
 function labelOf(item: GroupableItem) {
   return item.name || item.field_name || ''
 }

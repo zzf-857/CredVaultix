@@ -24,6 +24,7 @@ export default function ServiceGroupList({
   services,
   selectedServiceId,
   selectedServiceIds,
+  canDrag = true,
   draggingServiceId,
   onSelectService,
   onToggleServiceSelected,
@@ -33,6 +34,8 @@ export default function ServiceGroupList({
   onDeleteGroup,
   onDropToGroup,
   onDragStart,
+  onDragEnd,
+  onDropBefore,
 }: {
   title: string
   color?: string
@@ -40,6 +43,7 @@ export default function ServiceGroupList({
   services: SecretServiceRow[]
   selectedServiceId: string | null
   selectedServiceIds: string[]
+  canDrag?: boolean
   draggingServiceId: string | null
   onSelectService: (id: string) => void
   onToggleServiceSelected: (id: string) => void
@@ -49,6 +53,8 @@ export default function ServiceGroupList({
   onDeleteGroup?: (group: SecretGroupRow) => void
   onDropToGroup: (groupId: string | null, serviceId: string) => void
   onDragStart: (serviceId: string) => void
+  onDragEnd: () => void
+  onDropBefore: (targetServiceId: string, droppedServiceId: string) => void
 }) {
   const [menuAnchor, setMenuAnchor] = React.useState<HTMLElement | null>(null)
   const collapsed = Boolean(group?.is_collapsed)
@@ -134,10 +140,13 @@ export default function ServiceGroupList({
                 service={service}
                 checked={selectedServiceIds.includes(service.id)}
                 selected={selectedServiceId === service.id}
+                canDrag={canDrag}
                 onClick={() => onSelectService(service.id)}
                 onToggleSelected={() => onToggleServiceSelected(service.id)}
                 onToggleFavorite={() => onToggleFavorite(service)}
                 onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+                onDropBefore={onDropBefore}
               />
             ))
           )}

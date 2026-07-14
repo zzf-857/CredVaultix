@@ -16,9 +16,11 @@ import {
   Menu,
   MenuItem,
   Paper,
+  Snackbar,
   TextField,
   Tooltip,
   Typography,
+  Alert,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
@@ -60,6 +62,7 @@ import {
   getAccountDetailSectionOrder,
   getVisibleAccountPreviewTags,
 } from '../utils/accountManagerLayout'
+import { generateSecurePassword } from '../utils/securePassword'
 
 const PLATFORM_ACCENTS: Record<AccountPlatform, string> = {
   google: '#8ddc9f',
@@ -181,6 +184,11 @@ function SensitiveField({
 }) {
   const [visible, setVisible] = useState(false)
   const hasValue = value && value.length > 0
+  const isSecretField = fieldKey === 'password' || fieldKey === 'totp_secret'
+
+  useEffect(() => {
+    setVisible(false)
+  }, [editing, fieldKey])
 
   if (editing) {
     return (
@@ -189,16 +197,28 @@ function SensitiveField({
         size="small"
         label={label}
         value={value}
+        type={isSecretField && !visible ? 'password' : 'text'}
         onChange={(event) => onChange?.(event.target.value)}
         InputProps={{
           startAdornment: <InputAdornment position="start">{icon}</InputAdornment>,
-          endAdornment: onGenerate ? (
+          endAdornment: onGenerate || isSecretField ? (
             <InputAdornment position="end">
-              <Tooltip title="随机生成高强度密码">
-                <IconButton size="small" onClick={onGenerate} edge="end">
-                  <RefreshIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                {onGenerate && (
+                  <Tooltip title="随机生成高强度密码">
+                    <IconButton size="small" onClick={onGenerate}>
+                      <RefreshIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                {isSecretField && (
+                  <Tooltip title={visible ? '隐藏敏感值' : '显示敏感值'}>
+                    <IconButton size="small" onClick={() => setVisible((current) => !current)} edge="end">
+                      {visible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
             </InputAdornment>
           ) : undefined,
         }}
@@ -209,7 +229,6 @@ function SensitiveField({
 
   if (!hasValue) return null
 
-  const isSecretField = fieldKey === 'password' || fieldKey === 'totp_secret'
   const requiresRevealBeforeCopy = fieldKey === 'totp_secret'
   const canCopy = !requiresRevealBeforeCopy || visible
   const handleCopy = () => {
@@ -313,9 +332,13 @@ function AccountDetail({
     addAccountTag,
     createTotpAccount,
     deleteAccount,
+    incrementTotpCounter,
+    loadAccounts,
+    loadAllAccounts,
     removeAccountTag,
     totpAccounts,
     updateAccount,
+    setNavigationBlockReason,
   } = useStore()
   const [account, setAccount] = useState<AccountRow | null>(null)
   const [editing, setEditing] = useState(false)
@@ -331,15 +354,39 @@ function AccountDetail({
   })
   const [customFields, setCustomFields] = useState<CustomFieldRow[]>([])
   const [newFieldName, setNewFieldName] = useState('')
+  const [newFieldValue, setNewFieldValue] = useState('')
   const [newFieldIsSecret, setNewFieldIsSecret] = useState(false)
+  const [newFieldValueVisible, setNewFieldValueVisible] = useState(false)
   const [showAddField, setShowAddField] = useState(false)
+  const [editingCustomField, setEditingCustomField] = useState<CustomFieldRow | null>(null)
+  const [visibleCustomFieldIds, setVisibleCustomFieldIds] = useState<string[]>([])
+  const [customFieldDeleteId, setCustomFieldDeleteId] = useState<string | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [linkTotpDialogOpen, setLinkTotpDialogOpen] = useState(false)
+  const [linkSecretVisible, setLinkSecretVisible] = useState(false)
   const [linkData, setLinkData] = useState({ issuer: '', label: '', secret: '', otpType: 'totp' })
   const [tagSourceAccounts, setTagSourceAccounts] = useState<AccountRow[]>([])
   const [newTagName, setNewTagName] = useState('')
   const { copiedField, copy } = useCopy()
+
+  const hasUnsavedAccountChanges = Boolean(account && editing && (
+    editData.name !== account.name
+    || editData.platform !== account.platform
+    || editData.username !== account.username
+    || editData.password !== account.password
+    || editData.phone !== account.phone
+    || editData.backupEmail !== account.backup_email
+    || editData.totpSecret !== account.totp_secret
+    || editData.notes !== account.notes
+  ))
+  const hasUnsavedCustomFieldChanges = Boolean(showAddField && (
+    editingCustomField
+      ? newFieldName !== editingCustomField.field_name
+        || newFieldValue !== editingCustomField.field_value
+        || newFieldIsSecret !== Boolean(editingCustomField.is_secret)
+      : newFieldName.trim() || newFieldValue || newFieldIsSecret
+  ))
 
   const loadAccount = async () => {
     const data = await window.electronAPI.getAccountById(accountId)
@@ -375,9 +422,23 @@ function AccountDetail({
     }
   }, [editSignal])
 
+  useEffect(() => {
+    setNavigationBlockReason(
+      hasUnsavedAccountChanges
+        ? '账号修改尚未保存'
+        : hasUnsavedCustomFieldChanges
+          ? '自定义字段修改尚未保存'
+          : null
+    )
+    return () => setNavigationBlockReason(null)
+  }, [hasUnsavedAccountChanges, hasUnsavedCustomFieldChanges, setNavigationBlockReason])
+
   const handleSave = async () => {
+    const name = editData.name.trim()
+    if (!name) return
+
     await updateAccount(accountId, {
-      name: editData.name,
+      name,
       platform: editData.platform,
       username: editData.username,
       password: editData.password,
@@ -385,7 +446,7 @@ function AccountDetail({
       backupEmail: editData.backupEmail,
       totpSecret: editData.totpSecret,
       notes: editData.notes,
-    })
+    }, false)
 
     const hasLinkedTotp = totpAccounts.some((totpAccount) => totpAccount.linked_account_id === accountId)
     if (editData.totpSecret && editData.totpSecret.trim() && !hasLinkedTotp) {
@@ -395,25 +456,37 @@ function AccountDetail({
         secret: editData.totpSecret.trim(),
         otpType: 'totp',
       })
+      setLinkSecretVisible(false)
       setLinkTotpDialogOpen(true)
       return
     }
 
     setEditing(false)
     await loadAccount()
+    await Promise.all([loadAccounts(), loadAllAccounts()])
   }
 
   const handleConfirmLink = async () => {
-    await createTotpAccount(linkData.issuer, linkData.label, linkData.secret, linkData.otpType, accountId)
+    await createTotpAccount({
+      issuer: linkData.issuer,
+      label: linkData.label,
+      secret: linkData.secret,
+      otpType: linkData.otpType,
+      linkedAccountId: accountId,
+    })
     setLinkTotpDialogOpen(false)
+    setLinkSecretVisible(false)
     setEditing(false)
     await loadAccount()
+    await Promise.all([loadAccounts(), loadAllAccounts()])
   }
 
   const handleSkipLink = async () => {
     setLinkTotpDialogOpen(false)
+    setLinkSecretVisible(false)
     setEditing(false)
     await loadAccount()
+    await Promise.all([loadAccounts(), loadAllAccounts()])
   }
 
   const handleDelete = async () => {
@@ -422,25 +495,80 @@ function AccountDetail({
     onClose()
   }
 
-  const handleAddField = async () => {
-    if (!newFieldName.trim()) return
-    const id = uuidv4()
-    await window.electronAPI.addAccountField({
-      id,
-      accountId,
-      fieldName: newFieldName.trim(),
-      fieldValue: '',
-      isSecret: newFieldIsSecret,
-    })
+  const resetCustomFieldEditor = () => {
     setNewFieldName('')
+    setNewFieldValue('')
     setNewFieldIsSecret(false)
+    setNewFieldValueVisible(false)
+    setEditingCustomField(null)
     setShowAddField(false)
+  }
+
+  const handleCancelEdit = () => {
+    if (!account) return
+    setEditData({
+      name: account.name,
+      platform: account.platform,
+      username: account.username,
+      password: account.password,
+      phone: account.phone,
+      backupEmail: account.backup_email,
+      totpSecret: account.totp_secret,
+      notes: account.notes,
+    })
+    setEditing(false)
+  }
+
+  const openAddCustomField = () => {
+    setNewFieldName('')
+    setNewFieldValue('')
+    setNewFieldIsSecret(false)
+    setNewFieldValueVisible(false)
+    setEditingCustomField(null)
+    setShowAddField(true)
+  }
+
+  const openEditCustomField = (field: CustomFieldRow) => {
+    setNewFieldName(field.field_name)
+    setNewFieldValue(field.field_value)
+    setNewFieldIsSecret(Boolean(field.is_secret))
+    setNewFieldValueVisible(false)
+    setEditingCustomField(field)
+    setShowAddField(true)
+  }
+
+  const handleSaveField = async () => {
+    if (!newFieldName.trim()) return
+    if (editingCustomField) {
+      await window.electronAPI.updateAccountField(editingCustomField.id, {
+        fieldName: newFieldName.trim(),
+        fieldValue: newFieldValue,
+        isSecret: newFieldIsSecret,
+      })
+    } else {
+      await window.electronAPI.addAccountField({
+        id: uuidv4(),
+        accountId,
+        fieldName: newFieldName.trim(),
+        fieldValue: newFieldValue,
+        isSecret: newFieldIsSecret,
+      })
+    }
+    resetCustomFieldEditor()
     await loadAccount()
   }
 
-  const handleDeleteField = async (fieldId: string) => {
-    await window.electronAPI.deleteAccountField(fieldId)
+  const handleConfirmDeleteField = async () => {
+    if (!customFieldDeleteId) return
+    await window.electronAPI.deleteAccountField(customFieldDeleteId)
+    setCustomFieldDeleteId(null)
     await loadAccount()
+  }
+
+  const toggleCustomFieldVisibility = (fieldId: string) => {
+    setVisibleCustomFieldIds((ids) => ids.includes(fieldId)
+      ? ids.filter((id) => id !== fieldId)
+      : [...ids, fieldId])
   }
 
   const handleAddTag = async (tagName: string) => {
@@ -457,7 +585,9 @@ function AccountDetail({
 
   if (!account) return null
 
-  const hasTotpSecret = Boolean(!editing && account.totp_secret && account.totp_secret.trim())
+  const linkedTotpAccount = totpAccounts.find((totpAccount) => totpAccount.linked_account_id === accountId)
+  const displayedTotpSecret = linkedTotpAccount?.secret || account.totp_secret
+  const hasTotpSecret = Boolean(!editing && displayedTotpSecret && displayedTotpSecret.trim())
   const createdTagSuggestions = getCreatedTagSuggestions(tagSourceAccounts, account.tags || [])
   const sectionOrder = getAccountDetailSectionOrder(hasTotpSecret)
 
@@ -528,12 +658,7 @@ function AccountDetail({
           onGenerate={
             editing
               ? () => {
-                  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'
-                  let password = ''
-                  for (let index = 0; index < 16; index += 1) {
-                    password += chars.charAt(Math.floor(Math.random() * chars.length))
-                  }
-                  setEditData({ ...editData, password })
+                    setEditData({ ...editData, password: generateSecurePassword() })
                 }
               : undefined
           }
@@ -551,7 +676,18 @@ function AccountDetail({
         实时验证码
       </Typography>
       <Box sx={{ mb: 2 }}>
-        <TotpCodeDisplay secret={account.totp_secret} compact />
+        <TotpCodeDisplay
+          secret={displayedTotpSecret}
+          compact
+          algorithm={linkedTotpAccount?.algorithm}
+          digits={linkedTotpAccount?.digits}
+          period={linkedTotpAccount?.period}
+          otpType={linkedTotpAccount?.otp_type}
+          counter={linkedTotpAccount?.counter}
+          onIncrementCounter={linkedTotpAccount?.otp_type === 'hotp'
+            ? () => { void incrementTotpCounter(linkedTotpAccount.id) }
+            : undefined}
+        />
       </Box>
     </React.Fragment>
   )
@@ -648,7 +784,7 @@ function AccountDetail({
           自定义字段
         </Typography>
         {!editing && (
-          <IconButton size="small" onClick={() => setShowAddField(true)} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
+          <IconButton size="small" onClick={openAddCustomField} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
             <AddCircleOutlineIcon sx={{ fontSize: 18 }} />
           </IconButton>
         )}
@@ -670,14 +806,28 @@ function AccountDetail({
                     sx={{ fontSize: '0.96rem', color: 'text.primary', mt: 0.35, lineHeight: 1.5, fontWeight: 650 }}
                     noWrap
                   >
-                    {field.field_value || '(空)'}
+                    {field.is_secret && !visibleCustomFieldIds.includes(field.id)
+                      ? '••••••••'
+                      : field.field_value || '(空)'}
                   </Typography>
                 </Box>
                 <Box className="cf-actions" sx={{ display: 'flex', gap: 0.35, opacity: 0.82, transition: 'opacity 0.15s' }}>
+                  {Boolean(field.is_secret) && (
+                    <Tooltip title={visibleCustomFieldIds.includes(field.id) ? '隐藏' : '显示'}>
+                      <IconButton size="small" onClick={() => toggleCustomFieldVisibility(field.id)} sx={{ color: 'text.secondary' }}>
+                        {visibleCustomFieldIds.includes(field.id)
+                          ? <VisibilityOffIcon sx={{ fontSize: 14 }} />
+                          : <VisibilityIcon sx={{ fontSize: 14 }} />}
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   <IconButton size="small" onClick={() => copy(field.field_value, field.id)} sx={{ color: copiedField === field.id ? 'success.main' : 'text.secondary' }}>
                     {copiedField === field.id ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
                   </IconButton>
-                  <IconButton size="small" onClick={() => handleDeleteField(field.id)} sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}>
+                  <IconButton size="small" onClick={() => openEditCustomField(field)} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
+                    <EditIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                  <IconButton size="small" onClick={() => setCustomFieldDeleteId(field.id)} sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}>
                     <DeleteOutlineIcon sx={{ fontSize: 14 }} />
                   </IconButton>
                 </Box>
@@ -698,8 +848,30 @@ function AccountDetail({
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault()
-                handleAddField()
+                handleSaveField()
               }
+            }}
+            sx={{ mb: 1 }}
+          />
+          <TextField
+            fullWidth
+            size="small"
+            label="字段值"
+            value={newFieldValue}
+            onChange={(event) => setNewFieldValue(event.target.value)}
+            type={newFieldIsSecret && !newFieldValueVisible ? 'password' : 'text'}
+            multiline={!newFieldIsSecret}
+            minRows={newFieldIsSecret ? undefined : 2}
+            InputProps={{
+              endAdornment: newFieldIsSecret ? (
+                <InputAdornment position="end">
+                  <Tooltip title={newFieldValueVisible ? '隐藏敏感值' : '显示敏感值'}>
+                    <IconButton size="small" onClick={() => setNewFieldValueVisible((current) => !current)} edge="end">
+                      {newFieldValueVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </InputAdornment>
+              ) : undefined,
             }}
             sx={{ mb: 1 }}
           />
@@ -707,16 +879,19 @@ function AccountDetail({
             <Chip
               label={newFieldIsSecret ? '🔒 加密字段' : '📝 普通字段'}
               size="small"
-              onClick={() => setNewFieldIsSecret(!newFieldIsSecret)}
+              onClick={() => {
+                setNewFieldIsSecret(!newFieldIsSecret)
+                setNewFieldValueVisible(false)
+              }}
               variant="outlined"
               color={newFieldIsSecret ? 'warning' : 'default'}
             />
             <Box sx={{ flex: 1 }} />
-            <Button size="small" onClick={() => setShowAddField(false)}>
+            <Button size="small" onClick={resetCustomFieldEditor}>
               取消
             </Button>
-            <Button size="small" variant="contained" onClick={handleAddField}>
-              添加
+            <Button size="small" variant="contained" onClick={handleSaveField} disabled={!newFieldName.trim()}>
+              {editingCustomField ? '保存' : '添加'}
             </Button>
           </Box>
         </Paper>
@@ -853,10 +1028,10 @@ function AccountDetail({
         <Box sx={{ display: 'flex', gap: 0.5 }}>
           {editing ? (
             <>
-              <IconButton size="small" onClick={handleSave} sx={{ color: 'success.main' }}>
+              <IconButton size="small" onClick={handleSave} disabled={!editData.name.trim() || !hasUnsavedAccountChanges} sx={{ color: 'success.main' }}>
                 <SaveIcon sx={{ fontSize: 20 }} />
               </IconButton>
-              <IconButton size="small" onClick={() => setEditing(false)} sx={{ color: 'text.secondary' }}>
+              <IconButton size="small" onClick={handleCancelEdit} sx={{ color: 'text.secondary' }}>
                 <CloseIcon sx={{ fontSize: 20 }} />
               </IconButton>
             </>
@@ -950,7 +1125,19 @@ function AccountDetail({
             size="small"
             label="密钥"
             value={linkData.secret}
+            type={linkSecretVisible ? 'text' : 'password'}
             onChange={(event) => setLinkData({ ...linkData, secret: event.target.value })}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <Tooltip title={linkSecretVisible ? '隐藏密钥' : '显示密钥'}>
+                    <IconButton size="small" onClick={() => setLinkSecretVisible((current) => !current)} edge="end">
+                      {linkSecretVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </InputAdornment>
+              ),
+            }}
           />
         </DialogContent>
         <DialogActions>
@@ -960,9 +1147,27 @@ function AccountDetail({
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog open={customFieldDeleteId !== null} onClose={() => setCustomFieldDeleteId(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningAmberIcon sx={{ color: 'warning.main' }} />
+          删除自定义字段
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">确定删除这个自定义字段吗？该操作无法撤销。</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCustomFieldDeleteId(null)}>取消</Button>
+          <Button variant="contained" color="error" onClick={handleConfirmDeleteField}>删除</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
+
+type PendingAccountAction =
+  | { kind: 'select'; accountId: string | null; edit: boolean }
+  | { kind: 'create'; platform: AccountPlatform }
 
 export default function AccountsView() {
   const {
@@ -974,9 +1179,11 @@ export default function AccountsView() {
     importCsvAccounts,
     loadAccounts,
     loadTotpAccounts,
+    navigationBlockReason,
     selectedAccountId,
     setAccountPlatformFilter,
     setAccountSearchQuery,
+    setNavigationBlockReason,
     setSelectedAccount,
     accountsPinnedIds,
     accountsCustomOrder,
@@ -988,37 +1195,57 @@ export default function AccountsView() {
   const [listDeleteConfirm, setListDeleteConfirm] = useState<string | null>(null)
   const [editSignal, setEditSignal] = useState(0)
   const [platformDialogOpen, setPlatformDialogOpen] = useState(false)
+  const [pendingAccountAction, setPendingAccountAction] = useState<PendingAccountAction | null>(null)
+  const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
   const { copiedField, copy } = useCopy()
 
   // Drag and drop states for custom account ordering
   const [draggedId, setDraggedId] = useState<string | null>(null)
 
   // List container custom width states
-  const [listWidth, setListWidth] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('accounts_list_width')
-      return saved ? parseInt(saved, 10) : 320
-    } catch {
-      return 320
-    }
-  })
+  const [listWidth, setListWidth] = useState(320)
+
+  useEffect(() => {
+    let mounted = true
+    window.electronAPI.getAppPreferences().then((preferences) => {
+      if (!mounted) return
+      let savedWidth = preferences.accountsListWidth
+      if (typeof savedWidth !== 'number') {
+        const legacyWidthValue = localStorage.getItem('accounts_list_width')
+        const legacyWidth = legacyWidthValue === null ? Number.NaN : Number(legacyWidthValue)
+        if (Number.isFinite(legacyWidth)) {
+          savedWidth = Math.max(300, Math.min(560, legacyWidth))
+          void window.electronAPI.updateAppPreferences({ accountsListWidth: savedWidth })
+          localStorage.removeItem('accounts_list_width')
+        }
+      }
+      if (typeof savedWidth === 'number') {
+        const normalizedWidth = Math.max(300, Math.min(560, savedWidth))
+        setListWidth(normalizedWidth)
+        if (normalizedWidth !== savedWidth) {
+          void window.electronAPI.updateAppPreferences({ accountsListWidth: normalizedWidth })
+        }
+      }
+    }).catch(() => undefined)
+    return () => { mounted = false }
+  }, [])
 
   const handleListResizeStart = (e: React.MouseEvent) => {
     e.preventDefault()
     const startX = e.clientX
     const startWidth = listWidth
+    let latestWidth = startWidth
 
     const doDrag = (moveEvent: MouseEvent) => {
       const newWidth = Math.max(300, Math.min(560, startWidth + (moveEvent.clientX - startX)))
+      latestWidth = newWidth
       setListWidth(newWidth)
-      try {
-        localStorage.setItem('accounts_list_width', newWidth.toString())
-      } catch {}
     }
 
     const stopDrag = () => {
       window.removeEventListener('mousemove', doDrag)
       window.removeEventListener('mouseup', stopDrag)
+      void window.electronAPI.updateAppPreferences({ accountsListWidth: latestWidth })
     }
 
     window.addEventListener('mousemove', doDrag)
@@ -1083,11 +1310,80 @@ export default function AccountsView() {
     loadTotpAccounts()
   }, [accountPlatformFilter, accountSearchQuery])
 
-  const handleCreate = async (platform: AccountPlatform) => {
-    const id = await createAccount(platform === 'google' ? 'Google 账号' : 'Microsoft 账号', platform)
+  const selectAccount = (accountId: string | null, edit = false) => {
+    setSelectedAccount(accountId)
+    if (edit && accountId) {
+      setEditSignal(Date.now())
+    }
+  }
+
+  const requestAccountSelection = (accountId: string | null, edit = false) => {
+    if (accountId === selectedAccountId) {
+      if (edit && accountId) setEditSignal(Date.now())
+      return
+    }
+    if (navigationBlockReason) {
+      setPendingAccountAction({ kind: 'select', accountId, edit })
+      return
+    }
+    selectAccount(accountId, edit)
+  }
+
+  const createAccountForPlatform = async (platform: AccountPlatform) => {
+    const defaultName = platform === 'google'
+      ? 'Google 账号'
+      : platform === 'microsoft'
+        ? 'Microsoft 账号'
+        : '新账号'
+    const id = await createAccount(defaultName, platform)
     setSelectedAccount(id)
     setEditSignal(Date.now())
     setPlatformDialogOpen(false)
+  }
+
+  const handleCreate = async (platform: AccountPlatform) => {
+    if (navigationBlockReason) {
+      setPlatformDialogOpen(false)
+      setPendingAccountAction({ kind: 'create', platform })
+      return
+    }
+    await createAccountForPlatform(platform)
+  }
+
+  const discardAndContinue = async () => {
+    const action = pendingAccountAction
+    if (!action) return
+    setPendingAccountAction(null)
+    setNavigationBlockReason(null)
+
+    if (action.kind === 'create') {
+      await createAccountForPlatform(action.platform)
+      return
+    }
+    selectAccount(action.accountId, action.edit)
+  }
+
+  const handleImportCsv = async () => {
+    try {
+      const result = await importCsvAccounts()
+      const warnings = [
+        result.invalidTotpCount > 0 ? `${result.invalidTotpCount} 个无效 OTP URI 已跳过` : '',
+        result.skippedRowCount > 0 ? `${result.skippedRowCount} 行没有可识别字段` : '',
+      ].filter(Boolean)
+      setNotice(result.count > 0
+        ? {
+            severity: warnings.length > 0 ? 'info' : 'success',
+            text: `已导入 ${result.count} 个账号${warnings.length > 0 ? `；${warnings.join('；')}` : ''}`,
+          }
+        : {
+            severity: 'info',
+            text: warnings.length > 0
+              ? `未导入账号：${warnings.join('；')}`
+              : '未导入账号：已取消选择或文件中没有有效记录',
+          })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `CSV 导入失败：${error instanceof Error ? error.message : String(error)}` })
+    }
   }
 
   const handleContextMenu = (event: React.MouseEvent, id: string) => {
@@ -1101,8 +1397,7 @@ export default function AccountsView() {
 
   const handleQuickEdit = () => {
     if (contextMenu) {
-      setSelectedAccount(contextMenu.accountId)
-      setEditSignal(Date.now())
+      requestAccountSelection(contextMenu.accountId, true)
     }
     setContextMenu(null)
   }
@@ -1153,6 +1448,7 @@ export default function AccountsView() {
                 label={label}
                 variant={accountPlatformFilter === value ? 'filled' : 'outlined'}
                 color={accountPlatformFilter === value ? 'primary' : 'default'}
+                disabled={Boolean(navigationBlockReason)}
                 onClick={() => setAccountPlatformFilter(value)}
               />
             ))}
@@ -1164,6 +1460,7 @@ export default function AccountsView() {
             size="small"
             placeholder="搜索主账号..."
             value={accountSearchQuery}
+            disabled={Boolean(navigationBlockReason)}
             onChange={(event) => setAccountSearchQuery(event.target.value)}
             InputProps={{
               startAdornment: (
@@ -1175,7 +1472,7 @@ export default function AccountsView() {
             sx={{ flex: 1 }}
           />
           <Tooltip title="导入 CSV" arrow>
-            <IconButton onClick={importCsvAccounts} sx={{ color: 'text.secondary', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}>
+            <IconButton onClick={handleImportCsv} sx={{ color: 'text.secondary', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}>
               <FileUploadOutlinedIcon />
             </IconButton>
           </Tooltip>
@@ -1206,7 +1503,7 @@ export default function AccountsView() {
                 onDragOver={(e) => handleDragOver(e, account.id)}
                 onDrop={(e) => handleDrop(e, account.id)}
                 onDragEnd={handleDragEnd}
-                onClick={() => setSelectedAccount(account.id)}
+                onClick={() => requestAccountSelection(account.id)}
                 onContextMenu={(event) => handleContextMenu(event, account.id)}
                 onMouseEnter={() => setHoveredId(account.id)}
                 onMouseLeave={() => setHoveredId(null)}
@@ -1356,8 +1653,9 @@ export default function AccountsView() {
 
       {selectedAccountId ? (
         <AccountDetail
+          key={selectedAccountId}
           accountId={selectedAccountId}
-          onClose={() => setSelectedAccount(null)}
+          onClose={() => requestAccountSelection(null)}
           editSignal={editSignal}
           isPinned={accountsPinnedIds.includes(selectedAccountId)}
           onTogglePin={(e) => { e.stopPropagation(); togglePinAccount(selectedAccountId) }}
@@ -1427,11 +1725,31 @@ export default function AccountsView() {
         </DialogActions>
       </Dialog>
 
+      <Dialog open={pendingAccountAction !== null} onClose={() => setPendingAccountAction(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>放弃未保存修改？</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            {navigationBlockReason || '当前账号修改尚未保存'}。继续操作会丢失这些修改。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingAccountAction(null)}>继续编辑</Button>
+          <Button color="error" variant="contained" onClick={() => void discardAndContinue()}>
+            放弃并继续
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <AccountPlatformDialog
         open={platformDialogOpen}
         onClose={() => setPlatformDialogOpen(false)}
         onSelect={handleCreate}
       />
+      <Snackbar open={notice !== null} autoHideDuration={4500} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={notice?.severity || 'info'} variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>
+          {notice?.text}
+        </Alert>
+      </Snackbar>
     </Box>
   )
 }

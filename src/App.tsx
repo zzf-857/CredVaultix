@@ -1,18 +1,20 @@
-import React, { useEffect, useState } from 'react'
-import { ThemeProvider, CssBaseline, Box } from '@mui/material'
+import React, { lazy, Suspense, useEffect, useState } from 'react'
+import { ThemeProvider, CssBaseline, Box, CircularProgress } from '@mui/material'
 import { darkTheme, lightTheme } from './theme'
 import { useStore } from './stores/useStore'
 import TitleBar from './components/TitleBar'
 import Sidebar from './components/Sidebar'
-import TwoFactorPanel from './components/TwoFactorPanel'
-import AccountsView from './components/AccountsView'
-import TrashManager from './components/TrashManager'
-import ServiceInfoManager from './components/service-info/ServiceInfoManager'
 import ResizableSidebar from './components/common/ResizableSidebar'
+
+const AccountsView = lazy(() => import('./components/AccountsView'))
+const ServiceInfoManager = lazy(() => import('./components/service-info/ServiceInfoManager'))
+const TwoFactorPanel = lazy(() => import('./components/TwoFactorPanel'))
+const TrashManager = lazy(() => import('./components/TrashManager'))
 
 export default function App() {
   const themeMode = useStore((s) => s.themeMode)
   const activeView = useStore((s) => s.activeView)
+  const loadAppPreferences = useStore((s) => s.loadAppPreferences)
 
   const [sidebarWidth, setSidebarWidth] = useState(240)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -20,19 +22,23 @@ export default function App() {
   useEffect(() => {
     let mounted = true
 
-    window.electronAPI.getAppPreferences().then((preferences) => {
+    void loadAppPreferences().then((preferences) => {
       if (!mounted) return
       const savedWidth = typeof preferences.sidebarWidth === 'number' ? preferences.sidebarWidth : 240
-      setSidebarWidth(Math.max(200, Math.min(420, savedWidth)))
+      const normalizedWidth = Math.max(200, Math.min(420, savedWidth))
+      setSidebarWidth(normalizedWidth)
+      if (normalizedWidth !== savedWidth) {
+        void window.electronAPI.updateAppPreferences({ sidebarWidth: normalizedWidth })
+      }
       setSidebarCollapsed(preferences.sidebarCollapsed === true)
     }).catch((error) => {
-      console.error('Failed to load app preferences:', error)
+      console.error('Failed to load shared app preferences:', error)
     })
 
     return () => {
       mounted = false
     }
-  }, [])
+  }, [loadAppPreferences])
 
   const persistSidebarWidth = (width: number) => {
     setSidebarWidth(width)
@@ -71,10 +77,18 @@ export default function App() {
             className="fade-in-up" 
             sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}
           >
-            {activeView === 'accounts' && <AccountsView />}
-            {activeView === 'service-info' && <ServiceInfoManager />}
-            {activeView === '2fa' && <TwoFactorPanel />}
-            {activeView === 'trash' && <TrashManager />}
+            <Suspense
+              fallback={(
+                <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+                  <CircularProgress size={28} />
+                </Box>
+              )}
+            >
+              {activeView === 'accounts' && <AccountsView />}
+              {activeView === 'service-info' && <ServiceInfoManager />}
+              {activeView === '2fa' && <TwoFactorPanel />}
+              {activeView === 'trash' && <TrashManager />}
+            </Suspense>
           </Box>
         </Box>
       </Box>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Box, Typography, LinearProgress, IconButton, Tooltip, Fade } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
+import RefreshIcon from '@mui/icons-material/Refresh'
 import * as OTPAuth from 'otpauth'
 
 /**
@@ -11,40 +12,60 @@ import * as OTPAuth from 'otpauth'
 export default function TotpCodeDisplay({
   secret,
   compact = false,
+  algorithm = 'SHA1',
+  digits = 6,
+  period = 30,
+  otpType = 'totp',
+  counter = 0,
+  onIncrementCounter,
 }: {
   secret: string
   compact?: boolean
+  algorithm?: string
+  digits?: number
+  period?: number
+  otpType?: string
+  counter?: number
+  onIncrementCounter?: () => void
 }) {
-  const [code, setCode] = useState('------')
-  const [remaining, setRemaining] = useState(30)
+  const [code, setCode] = useState('-'.repeat(digits))
+  const [remaining, setRemaining] = useState(period)
   const [copied, setCopied] = useState(false)
+  const isHotp = otpType === 'hotp'
 
   useEffect(() => {
-    if (!secret || !secret.trim()) return
+    if (!secret || !secret.trim()) {
+      setCode('-'.repeat(digits))
+      return
+    }
 
     const generate = () => {
       try {
-        const totp = new OTPAuth.TOTP({
-          algorithm: 'SHA1',
-          digits: 6,
-          period: 30,
-          secret: OTPAuth.Secret.fromBase32(secret.replace(/\s/g, '').toUpperCase()),
-        })
-        setCode(totp.generate())
-        const now = Math.floor(Date.now() / 1000)
-        setRemaining(30 - (now % 30))
+        const secretValue = OTPAuth.Secret.fromBase32(secret.replace(/\s/g, '').toUpperCase())
+        if (isHotp) {
+          const hotp = new OTPAuth.HOTP({ algorithm, digits, counter, secret: secretValue })
+          setCode(hotp.generate({ counter }))
+          setRemaining(-1)
+        } else {
+          const totp = new OTPAuth.TOTP({ algorithm, digits, period, secret: secretValue })
+          setCode(totp.generate())
+          const now = Math.floor(Date.now() / 1000)
+          setRemaining(period - (now % period))
+        }
       } catch {
-        setCode('------')
+        setCode('-'.repeat(digits))
         setRemaining(0)
       }
     }
 
     generate()
+    if (isHotp) return
     const timer = setInterval(generate, 1000)
     return () => clearInterval(timer)
-  }, [secret])
+  }, [algorithm, counter, digits, isHotp, period, secret])
 
   const handleCopy = async () => {
+    if (/^-+$/.test(code)) return
     await navigator.clipboard.writeText(code)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
@@ -52,9 +73,10 @@ export default function TotpCodeDisplay({
 
   if (!secret || !secret.trim()) return null
 
-  const progress = (remaining / 30) * 100
-  const isUrgent = remaining <= 5
-  const formattedCode = code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code
+  const progress = isHotp ? 100 : (remaining / period) * 100
+  const isUrgent = !isHotp && remaining <= 5
+  const splitAt = Math.ceil(code.length / 2)
+  const formattedCode = code.length >= 6 ? `${code.slice(0, splitAt)} ${code.slice(splitAt)}` : code
 
   if (compact) {
     return (
@@ -73,6 +95,7 @@ export default function TotpCodeDisplay({
           bgcolor: 'background.default',
           '&:hover': { bgcolor: 'action.selected' },
           transition: 'all 0.2s',
+          position: 'relative',
         }}
       >
         <Typography
@@ -88,39 +111,51 @@ export default function TotpCodeDisplay({
         >
           {formattedCode}
         </Typography>
-        <Typography
-          variant="caption"
-          sx={{
-            color: isUrgent ? 'error.main' : 'text.secondary',
-            fontWeight: 600,
-            fontSize: '0.75rem',
-            minWidth: 18,
-          }}
-        >
-          {remaining}s
-        </Typography>
+        {isHotp ? (
+          <Tooltip title="生成下一个验证码" arrow TransitionComponent={Fade}>
+            <IconButton
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation()
+                onIncrementCounter?.()
+              }}
+              sx={{ color: 'primary.main', p: 0.25 }}
+            >
+              <RefreshIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Typography
+            variant="caption"
+            sx={{ color: isUrgent ? 'error.main' : 'text.secondary', fontWeight: 600, fontSize: '0.75rem', minWidth: 18 }}
+          >
+            {remaining}s
+          </Typography>
+        )}
         <Tooltip title={copied ? '已复制!' : '复制验证码'} arrow TransitionComponent={Fade}>
           <IconButton size="small" sx={{ color: copied ? 'success.main' : 'text.secondary', p: 0.25 }}>
             {copied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
           </IconButton>
         </Tooltip>
-        <LinearProgress
-          variant="determinate"
-          value={progress}
-          sx={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 2,
-            borderRadius: '0 0 8px 8px',
-            bgcolor: 'transparent',
-            '& .MuiLinearProgress-bar': {
-              bgcolor: isUrgent ? 'error.main' : 'primary.main',
-              transition: 'width 1s linear',
-            },
-          }}
-        />
+        {!isHotp && (
+          <LinearProgress
+            variant="determinate"
+            value={progress}
+            sx={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 2,
+              borderRadius: '0 0 8px 8px',
+              bgcolor: 'transparent',
+              '& .MuiLinearProgress-bar': {
+                bgcolor: isUrgent ? 'error.main' : 'primary.main',
+                transition: 'width 1s linear',
+              },
+            }}
+          />
+        )}
       </Box>
     )
   }
@@ -157,18 +192,27 @@ export default function TotpCodeDisplay({
       >
         {formattedCode}
       </Typography>
-      <Typography
-        variant="caption"
-        sx={{
-          color: isUrgent ? 'error.main' : 'text.secondary',
-          fontWeight: 600,
-          fontSize: '0.8rem',
-          minWidth: 20,
-          textAlign: 'right',
-        }}
-      >
-        {remaining}s
-      </Typography>
+      {isHotp ? (
+        <Tooltip title="生成下一个验证码" arrow TransitionComponent={Fade}>
+          <IconButton
+            size="small"
+            onClick={(event) => {
+              event.stopPropagation()
+              onIncrementCounter?.()
+            }}
+            sx={{ color: 'primary.main' }}
+          >
+            <RefreshIcon sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Tooltip>
+      ) : (
+        <Typography
+          variant="caption"
+          sx={{ color: isUrgent ? 'error.main' : 'text.secondary', fontWeight: 600, fontSize: '0.8rem', minWidth: 20, textAlign: 'right' }}
+        >
+          {remaining}s
+        </Typography>
+      )}
       <Tooltip title={copied ? '已复制!' : '点击复制'} arrow TransitionComponent={Fade}>
         <IconButton size="small" sx={{ color: copied ? 'success.main' : 'text.secondary' }}>
           {copied ? <CheckIcon sx={{ fontSize: 18 }} /> : <ContentCopyIcon sx={{ fontSize: 18 }} />}

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Box, Button, Divider, List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Typography } from '@mui/material'
 import AccountBoxIcon from '@mui/icons-material/AccountBox'
 import SecurityIcon from '@mui/icons-material/Security'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -33,16 +33,33 @@ const navItems = [
   },
   {
     view: 'trash' as const,
-    label: '废纸篓',
-    helper: '恢复或彻底删除账号',
+    label: '回收站',
+    helper: '恢复或彻底删除账号与服务',
     icon: DeleteOutlineIcon,
     color: '#ffb4ab',
   },
 ]
 
 export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) {
-  const { activeView, setActiveView } = useStore()
+  const { activeView, setActiveView, navigationBlockReason, setNavigationBlockReason } = useStore()
   const [settingsOpen, setSettingsOpen] = React.useState(false)
+  const [pendingView, setPendingView] = React.useState<(typeof navItems)[number]['view'] | null>(null)
+
+  const requestViewChange = (view: (typeof navItems)[number]['view']) => {
+    if (view === activeView) return
+    if (navigationBlockReason) {
+      setPendingView(view)
+      return
+    }
+    setActiveView(view)
+  }
+
+  const discardAndNavigate = () => {
+    if (!pendingView) return
+    setNavigationBlockReason(null)
+    setActiveView(pendingView)
+    setPendingView(null)
+  }
 
   return (
     <Box
@@ -117,7 +134,7 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
             <Tooltip key={item.view} title={collapsed ? item.label : ''} placement="right">
               <ListItemButton
                 selected={selected}
-                onClick={() => setActiveView(item.view)}
+                onClick={() => requestViewChange(item.view)}
                 sx={{
                   minHeight: collapsed ? 44 : 52,
                   borderRadius: 2,
@@ -175,6 +192,18 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
       </Box>
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <Dialog open={pendingView !== null} onClose={() => setPendingView(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>放弃未保存修改？</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            {navigationBlockReason || '当前页面存在未保存修改'}。切换页面会丢失这些内容。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingView(null)}>继续编辑</Button>
+          <Button color="error" variant="contained" onClick={discardAndNavigate}>放弃并切换</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

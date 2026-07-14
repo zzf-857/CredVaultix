@@ -16,6 +16,8 @@ export default function ServiceFieldRow({
   onEdit,
   onDelete,
   onDragStart,
+  onDragEnd,
+  onDropBefore,
 }: {
   field: SecretFieldRow
   checked: boolean
@@ -23,6 +25,8 @@ export default function ServiceFieldRow({
   onEdit: () => void
   onDelete: () => void
   onDragStart: (fieldId: string) => void
+  onDragEnd: () => void
+  onDropBefore: (targetFieldId: string, droppedFieldId: string) => void
 }) {
   const [visible, setVisible] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -42,6 +46,20 @@ export default function ServiceFieldRow({
         event.dataTransfer.setData('text/plain', field.id)
         event.dataTransfer.effectAllowed = 'move'
         onDragStart(field.id)
+      }}
+      onDragEnd={onDragEnd}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        event.dataTransfer.dropEffect = 'move'
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const droppedId = event.dataTransfer.getData('text/plain')
+        if (droppedId && droppedId !== field.id) {
+          onDropBefore(field.id, droppedId)
+        }
       }}
       sx={{
         display: 'grid',

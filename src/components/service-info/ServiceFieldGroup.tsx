@@ -21,6 +21,8 @@ export default function ServiceFieldGroup({
   onDeleteGroup,
   onDropToGroup,
   onDragStart,
+  onDragEnd,
+  onDropBefore,
 }: {
   title: string
   color?: string
@@ -36,6 +38,8 @@ export default function ServiceFieldGroup({
   onDeleteGroup: (group: SecretFieldGroupRow) => void
   onDropToGroup: (groupId: string | null, fieldId: string) => void
   onDragStart: (fieldId: string) => void
+  onDragEnd: () => void
+  onDropBefore: (targetFieldId: string, droppedFieldId: string) => void
 }) {
   const [menuAnchor, setMenuAnchor] = React.useState<HTMLElement | null>(null)
   const collapsed = Boolean(group?.is_collapsed)
@@ -131,6 +135,8 @@ export default function ServiceFieldGroup({
                 onEdit={() => onEditField(field)}
                 onDelete={() => onDeleteField(field)}
                 onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+                onDropBefore={onDropBefore}
               />
             ))
           )}

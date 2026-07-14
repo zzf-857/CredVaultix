@@ -3,6 +3,7 @@ import {
   getGroupedItems,
   moveItemsToGroup,
   reorderItems,
+  moveIdsBefore,
   sortServiceInfoItems,
 } from './serviceInfoGrouping'
 
@@ -49,6 +50,11 @@ describe('serviceInfoGrouping', () => {
       ['b', 2],
       ['c', 1],
     ])
+  })
+
+  it('moves one or more selected ids before the drop target without duplicates', () => {
+    expect(moveIdsBefore(['a', 'b', 'c', 'd'], ['d', 'b'], 'c')).toEqual(['a', 'b', 'd', 'c'])
+    expect(moveIdsBefore(['a', 'b', 'c'], ['b'], 'b')).toEqual(['a', 'b', 'c'])
   })
 
   it('sorts services by favorite first', () => {

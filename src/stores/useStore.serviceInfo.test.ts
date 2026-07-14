@@ -34,6 +34,14 @@ const detail = {
   ],
 }
 
+const deletedService = {
+  ...service,
+  id: 'svc-deleted',
+  name: 'Deleted service',
+  is_deleted: 1,
+  deleted_at: '2026-07-02T00:00:00.000Z',
+}
+
 describe('service info store slice', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -41,6 +49,9 @@ describe('service info store slice', () => {
       electronAPI: {
         getServiceInfo: vi.fn().mockResolvedValue({ groups: [], services: [service] }),
         getServiceDetail: vi.fn().mockResolvedValue(detail),
+        getDeletedSecretServices: vi.fn().mockResolvedValue([deletedService]),
+        restoreSecretService: vi.fn().mockResolvedValue({ success: true }),
+        hardDeleteSecretService: vi.fn().mockResolvedValue({ success: true }),
       },
     })
   })
@@ -72,5 +83,22 @@ describe('service info store slice', () => {
     useStore.getState().toggleSelectedFieldId('field-1')
     useStore.getState().toggleSelectedFieldId('field-1')
     expect(useStore.getState().selectedFieldIds).toEqual([])
+  })
+
+  it('loads, restores, and permanently deletes service recycle-bin entries', async () => {
+    const { useStore } = await import('./useStore')
+    const api = window.electronAPI
+
+    await useStore.getState().loadTrashServices()
+    expect(useStore.getState().trashServices).toEqual([deletedService])
+
+    vi.mocked(api.getDeletedSecretServices).mockResolvedValueOnce([])
+    await useStore.getState().restoreSecretService(deletedService.id)
+    expect(api.restoreSecretService).toHaveBeenCalledWith(deletedService.id)
+    expect(useStore.getState().trashServices).toEqual([])
+
+    vi.mocked(api.getDeletedSecretServices).mockResolvedValueOnce([])
+    await useStore.getState().hardDeleteSecretService(deletedService.id)
+    expect(api.hardDeleteSecretService).toHaveBeenCalledWith(deletedService.id)
   })
 })
