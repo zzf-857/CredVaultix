@@ -2,5 +2,42 @@ node_modules/
 dist/
 dist-electron/
 release/
+.temp/
+.cache/
+.codex-runlogs/
+
+# Local databases and backup material
 *.db
+*.db-wal
+*.db-shm
+AccountManager_backup_*.json
+CredVaultix_backup_*.json
+backups/
+EXE/
+
+# Local design drafts and investigation output
+New设计/
+diff*.txt
+*_build_log.txt
+*_log.txt
+build_log*.txt
+build_output.txt
+debug_*.txt
+*_output.txt
+portable_build_log.txt
+rebuild_log.txt
+super_final_log.txt
+vite_build_log.txt
+zip_build_log.txt
+release-notes.md
+
+# TypeScript project-reference output
+*.tsbuildinfo
+electron/*.d.ts
+vite.config.d.ts
+
+# Local worktrees and environment files
 .worktrees/
+.env
+.env.*
+!.env.example
