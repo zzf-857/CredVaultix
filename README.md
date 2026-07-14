@@ -1,115 +1,156 @@
-# CredVaultix / 本地账号与服务信息库
+<p align="center">
+  <img src="assets/app.png" alt="CredVaultix Logo" width="120" />
+</p>
 
-一个基于 **Electron + React + Vite** 的本地桌面账号管家，聚焦本地账号、2FA 与服务密钥资料管理：
+<h1 align="center">CredVaultix</h1>
 
-1. 管理 `Google` 和 `Microsoft` 主账号
-2. 用标签记录这些主账号登录过的平台
-3. 管理并查看关联的 `2FA` 动态口令
-4. 整理 API Key、AppID、SecretKey、服务器信息、MCP 服务配置等自定义服务资料
+<p align="center">
+  <strong>离线优先的 Windows 账号、2FA 与 API 密钥资料库</strong>
+</p>
 
-![演示视频](myFolder/v.beta.0.1演示.gif)
+<p align="center">
+  <img src="https://img.shields.io/badge/Electron-43-47848F?logo=electron" alt="Electron 43" />
+  <img src="https://img.shields.io/badge/React-18-61DAFB?logo=react" alt="React 18" />
+  <img src="https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript" alt="TypeScript 6" />
+  <img src="https://img.shields.io/badge/SQLite-local-003B57?logo=sqlite" alt="SQLite" />
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
+</p>
 
----
+CredVaultix 用于集中整理 Google / Microsoft 主账号、密码、恢复资料、TOTP/HOTP 验证码，以及 API Key、服务器、MCP、云厂商等自由结构的服务信息。应用不依赖自建服务器，不加载第三方字体或统计脚本，不包含遥测，数据保存在当前 Windows 用户目录。
 
-## 核心特性
+## 界面预览
 
-### 1. 主账号管理
+以下截图使用纯演示数据生成，不包含真实账号或密钥。
 
-- 完全离线运行，数据存放在本地 SQLite
-- 重点管理 `Google` / `Microsoft` 主账号
-- 支持保存登录账号、密码、手机号、备用邮箱、备注
-- 支持自定义字段，方便记录恢复信息、购买来源、环境说明等
-- 提供回收站，账号先软删除，再决定是否彻底清理
+| 主账号与恢复资料 | 服务信息与 API Key |
+|---|---|
+| ![主账号管理](docs/images/01_accounts.png) | ![服务信息管理](docs/images/02_service_info.png) |
 
-### 2. 平台标签
+| TOTP / HOTP 验证器 | 账号与服务统一回收站 |
+|---|---|
+| ![2FA 验证器](docs/images/03_two_factor.png) | ![统一回收站](docs/images/04_recycle_bin.png) |
 
-- 用全局复用标签记录“这个 Google / Microsoft 账号注册过哪些平台”
-- 标签适合记录 `GitHub`、`Discord`、`Notion`、`Figma`、`OpenAI` 等第三方平台
-- 新建或维护标签时不需要额外建独立账号
+## 功能
 
-### 3. 2FA 验证器
+### 主账号管理
 
-- 内建 `TOTP / HOTP` 认证器
-- 支持把账号里的 2FA 密钥联动生成到独立验证器面板
-- 2FA 卡片可以反向跳转到所属账号
-- 删除主账号后，关联的 2FA 会保留为孤立提醒状态，避免误删
+- 保存账号名称、登录邮箱、密码、手机号、备用邮箱、2FA 密钥和备注。
+- 使用全局复用标签记录 GitHub、Discord、Notion、OpenAI 等注册平台。
+- 自定义字段支持普通值与敏感值、编辑、复制和默认遮罩。
+- 支持平台筛选、解密后搜索、置顶、自定义排序和 CSV 导入（兼容常见账号列与 OTP URI）。
+- 删除账号先进入回收站，可恢复或彻底删除。
 
-### 4. 本地备份
+### 服务信息与 API 密钥
 
-- 支持导入 / 导出本地数据库
-- 支持 CSV 导入旧账号数据
-- 涉及数据库结构升级或导入覆盖前，会优先备份当前 SQLite 数据库
+- 自由创建 API Key、服务器、MCP、云厂商或项目环境记录，不绑定厂商模板。
+- 每项服务可以保存用途、URL、备注、关联主账号和任意自定义字段。
+- 敏感字段加密保存并默认隐藏；普通字段直接展示。
+- 支持收藏、搜索、外部分组、内部字段组、多选移动和持久化拖拽排序。
+- 删除服务进入统一回收站，不再产生无法恢复的隐藏记录。
 
-### 5. 服务信息库
+### 2FA 验证器
 
-- 用完全自定义的服务记录保存 API Key、服务器信息、MCP 配置、云厂商凭证和其他重要资料
-- 支持外部分组与服务内部字段分组，分组可以重命名、折叠、删除，删除分组不会删除其中内容
-- 字段名称完全自定义，适配不同厂商的 `SecretId`、`SecretKey`、`AppID`、`Token` 等叫法
-- 敏感字段默认隐藏并加密保存，可以按需显示或复制
-- 升级前会自动备份本地数据库，优先保护已有账号、标签、2FA 与自定义字段数据
+- 支持 TOTP 与 HOTP，能够粘贴标准 `otpauth://` URI。
+- 保留 SHA1 / SHA256 / SHA512、6/8 位验证码、刷新周期和 HOTP 计数器。
+- 支持编辑、复制、临时内存验证器，以及从验证码跳转到关联主账号。
+- 账号彻底删除后，关联验证码保留为孤立提醒，避免误删登录能力。
 
----
+### 数据与更新
 
-## 技术栈
+- JSON 与 SQLite 备份导入/导出；SQLite 导出使用一致性备份 API。
+- 导入前验证 JSON 结构或 SQLite 完整性，并自动备份当前数据库。
+- 设置页支持检查、下载并安装 GitHub Release 更新。
+- 主题、侧栏、列表宽度、排序、置顶和 2FA 对齐偏好统一持久化。
 
-- **构建系统**: Vite
-- **底层架构**: Electron
-- **前端框架**: React 18 + TypeScript
-- **状态管理**: Zustand
-- **本地数据库**: better-sqlite3
-- **组件库**: Material UI v5
-- **2FA**: otpauth
+## 安全说明
 
----
+敏感账号字段、敏感服务字段和 2FA 密钥会使用 AES-256-GCM 加密后写入 SQLite；Electron 开启渲染沙箱与上下文隔离、关闭渲染进程 Node.js 集成，并阻止应用页面跳转到外部内容。
 
-## 安装与运行
+当前版本尚未提供主密码。现有本地加密主要避免数据库中的直接明文暴露，不能抵御已经取得当前 Windows 用户权限的攻击者。跨设备密码备份、自动锁定和剪贴板自动清理仍需要产品范围确认。
 
-### 依赖环境
+请在保存真实生产凭据前阅读 [安全模型](docs/SECURITY.md)。
 
-- Node.js 20+
-- 由于使用了 SQLite 原生依赖，开发机需要可用的 node-gyp 编译环境
+## 安装
 
-### 开发
+从 [GitHub Releases](https://github.com/zzf-857/CredVaultix/releases) 下载最新的 `CredVaultix-Setup-X.Y.Z.exe`。
 
-```bash
-npm install
+当前安装包尚未配置 Windows 代码签名证书，首次运行可能出现 SmartScreen 提示。请只从本项目 Releases 页面下载安装包并核对发布来源。
+
+## 本地开发
+
+环境要求：
+
+- Node.js 22.12 或更高版本
+- Windows 10/11 x64
+- Git
+
+```powershell
+git clone https://github.com/zzf-857/CredVaultix.git
+cd CredVaultix
+npm ci
 npm run electron:dev
 ```
 
-### 测试
+常用命令：
 
-```bash
-npm test
+```powershell
+npm test                 # 运行行为与组件测试
+npm run typecheck        # 检查渲染进程和 Electron 类型
+npm run verify           # 测试 + 类型检查 + 生产前端构建
+npm run electron:build   # 构建 Windows NSIS 安装包
 ```
 
-### 打包
+## 数据位置与备份
 
-```bash
-npm run build
+默认数据目录：
+
+```text
+%APPDATA%\CredVaultix\
+├── credvaultix.db
+├── credvaultix.db-wal
+├── credvaultix.db-shm
+├── preferences.json
+└── credvaultix-before-*.db
 ```
 
-构建产物会输出到 `release/win-unpacked`。
+不要只复制正在运行时的单个 `credvaultix.db`。优先使用设置中的“导出数据库”，它会创建一致性 SQLite 备份或结构化 JSON 备份。
 
----
-
-## 目录结构
+## 项目结构
 
 ```text
 CredVaultix/
-├── electron/                 # Electron 主线程与 SQLite / IPC
+├── .github/workflows/       # main CI 与标签发布流程
+├── electron/                # 主进程、SQLite、加密、备份和 IPC
+├── scripts/                 # 版本校验与 Release Notes 工具
+├── shared/                  # 主进程与渲染进程共用的 OTP URI 解析
 ├── src/
-│   ├── components/           # 账号、2FA、回收站等界面
-│   │   └── service-info/      # 服务信息库界面
-│   ├── stores/               # Zustand 状态
-│   ├── utils/                # 平台与标签辅助逻辑
-│   ├── theme/                # MUI 主题
-│   ├── App.tsx               # 应用外壳
-│   └── main.tsx              # React 入口
+│   ├── components/          # 账号、2FA、回收站、设置
+│   │   └── service-info/    # 服务与 API 密钥管理
+│   ├── stores/              # Zustand 应用状态
+│   ├── theme/               # Material UI 深浅主题
+│   └── utils/               # OTP、排序、搜索和安全密码工具
+├── CHANGELOG.md
 └── package.json
 ```
 
----
+## 发布维护
 
-## 隐私说明
+- [提交、发布与自动更新手册](docs/release_and_updater_manual.md)
+- [更新日志](CHANGELOG.md)
+- [安全模型](docs/SECURITY.md)
 
-应用不包含自建云同步或分析埋点。账号记录、标签、2FA 种子、服务信息与数据库备份均由本机 `credvaultix.db` 管理，你可以在应用内打开数据目录并自行备份和迁移。
+正式发布必须使用与 `package.json` 一致的 annotated tag。标签推送后，GitHub Actions 会重新运行校验并上传安装包、blockmap 与 `latest.yml`。
+
+## 规划中的候选能力
+
+- 主密码、自动锁定和 Windows Hello / DPAPI 辅助解锁
+- 带独立密码的可移植加密备份
+- 剪贴板定时清理
+- 密码强度、重复密码和过期 API Key 检查
+- 2FA 二维码识别与安全检查中心
+
+浏览器自动填充和云同步暂不进入当前实现范围。
+
+## License
+
+[MIT](LICENSE)
