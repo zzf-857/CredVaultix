@@ -72,6 +72,24 @@ describe('service info store slice', () => {
     expect(useStore.getState().selectedServiceDetail).toBeNull()
   })
 
+  it('refreshes the selected detail service from the latest list snapshot', async () => {
+    const { useStore } = await import('./useStore')
+
+    useStore.getState().setSelectedService('svc-1')
+    await vi.waitFor(() => {
+      expect(useStore.getState().selectedServiceDetail).toEqual(detail)
+    })
+
+    const favoriteService = { ...service, is_favorite: 1, updated_at: '2026-07-02T00:00:00.000Z' }
+    vi.mocked(window.electronAPI.getServiceInfo).mockResolvedValueOnce({ groups: [], services: [favoriteService] })
+    await useStore.getState().loadServiceInfo()
+
+    expect(useStore.getState().selectedServiceDetail).toEqual({
+      ...detail,
+      service: favoriteService,
+    })
+  })
+
   it('toggles service and field multi-selection independently', async () => {
     const { useStore } = await import('./useStore')
 
@@ -83,6 +101,21 @@ describe('service info store slice', () => {
     useStore.getState().toggleSelectedFieldId('field-1')
     useStore.getState().toggleSelectedFieldId('field-1')
     expect(useStore.getState().selectedFieldIds).toEqual([])
+  })
+
+  it('keeps a selected service visible when loading its detail fails', async () => {
+    vi.mocked(window.electronAPI.getServiceDetail).mockRejectedValueOnce(new Error('simulated read failure'))
+    const { useStore } = await import('./useStore')
+
+    useStore.getState().setSelectedService('svc-1')
+
+    await vi.waitFor(() => {
+      expect(useStore.getState()).toMatchObject({
+        selectedServiceId: 'svc-1',
+        selectedServiceDetail: null,
+        serviceDetailLoadError: '读取服务详情失败：simulated read failure',
+      })
+    })
   })
 
   it('loads, restores, and permanently deletes service recycle-bin entries', async () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -13,6 +13,7 @@ import {
   IconButton,
   InputAdornment,
   InputLabel,
+  LinearProgress,
   MenuItem,
   Select,
   Snackbar,
@@ -55,7 +56,9 @@ export default function ServiceDetail() {
     loadServiceDetail,
     loadServiceInfo,
     selectedFieldIds,
+    selectedServiceId,
     selectedServiceDetail,
+    serviceDetailLoadError,
     setSelectedService,
     toggleSelectedFieldId,
     navigateToAccount,
@@ -81,8 +84,9 @@ export default function ServiceDetail() {
   const [groupColor, setGroupColor] = useState(GROUP_COLORS[0])
   const [targetGroupId, setTargetGroupId] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
-  const [deleteBusy, setDeleteBusy] = useState(false)
-  const [notice, setNotice] = useState<{ severity: 'success' | 'error'; text: string } | null>(null)
+  const mutationBusyRef = useRef(false)
+  const [mutationBusy, setMutationBusy] = useState(false)
+  const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   const fields = selectedServiceDetail?.fields || []
   const fieldGroups = selectedServiceDetail?.fieldGroups || []
@@ -90,11 +94,33 @@ export default function ServiceDetail() {
 
   useEffect(() => {
     if (accounts.length === 0) {
-      void loadAllAccounts()
+      void loadAllAccounts().catch((error) => {
+        setNotice({
+          severity: 'error',
+          text: `账号列表加载失败：${error instanceof Error ? error.message : String(error)}`,
+        })
+      })
     }
   }, [accounts.length, loadAllAccounts])
 
   if (!selectedServiceDetail) {
+    if (selectedServiceId) {
+      return (
+        <Box sx={{ flex: 1, minWidth: 0, p: 3, bgcolor: 'background.default' }}>
+          {serviceDetailLoadError ? (
+            <Alert
+              severity="error"
+              action={<Button color="inherit" size="small" onClick={() => { void loadServiceDetail(selectedServiceId).catch(() => undefined) }}>重试</Button>}
+            >
+              {serviceDetailLoadError}
+            </Alert>
+          ) : (
+            <LinearProgress aria-label="正在读取服务详情" />
+          )}
+        </Box>
+      )
+    }
+
     return (
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3, bgcolor: 'background.default' }}>
         <Box sx={{ textAlign: 'center', px: 4.25, py: 5.25, maxWidth: 420, border: '1px solid', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
@@ -113,11 +139,43 @@ export default function ServiceDetail() {
   const { service } = selectedServiceDetail
   const linkedAccount = accounts.find((account) => account.id === service.linked_account_id)
 
-  const refreshDetail = async () => {
-    await loadServiceDetail(service.id)
+  const beginMutation = () => {
+    if (mutationBusyRef.current) return false
+    mutationBusyRef.current = true
+    setMutationBusy(true)
+    return true
+  }
+
+  const endMutation = () => {
+    mutationBusyRef.current = false
+    setMutationBusy(false)
+  }
+
+  const assertMutationSucceeded = (result: { success: boolean }, message: string) => {
+    if (!result.success) throw new Error(message)
+  }
+
+  const refreshServiceData = async (serviceId: string) => {
+    const results = await Promise.allSettled([
+      Promise.resolve().then(() => loadServiceInfo()),
+      Promise.resolve().then(() => loadServiceDetail(serviceId)),
+    ])
+    return results.some((result) => result.status === 'rejected')
+  }
+
+  const reportCommittedMutation = (
+    successText: string,
+    refreshFailed: boolean,
+    refreshFailureText = `${successText}但刷新失败`
+  ) => {
+    setNotice({
+      severity: refreshFailed ? 'info' : 'success',
+      text: refreshFailed ? refreshFailureText : successText,
+    })
   }
 
   const openEditServiceDialog = () => {
+    if (mutationBusyRef.current) return
     setServiceName(service.name)
     setServiceDescription(service.description || '')
     setServiceUrl(service.url || '')
@@ -128,21 +186,33 @@ export default function ServiceDetail() {
 
   const saveService = async () => {
     const name = serviceName.trim()
-    if (!name) return
+    if (!name || !beginMutation()) return
 
-    await window.electronAPI.updateSecretService(service.id, {
-      name,
-      description: serviceDescription.trim(),
-      url: serviceUrl.trim(),
-      notes: serviceNotes.trim(),
-      linkedAccountId: serviceLinkedAccountId || null,
-    })
-    setServiceDialogOpen(false)
-    await loadServiceInfo()
-    await refreshDetail()
+    try {
+      const result = await window.electronAPI.updateSecretService(service.id, {
+        name,
+        description: serviceDescription.trim(),
+        url: serviceUrl.trim(),
+        notes: serviceNotes.trim(),
+        linkedAccountId: serviceLinkedAccountId || null,
+      })
+      assertMutationSucceeded(result, '服务不存在或已被删除')
+
+      setServiceDialogOpen(false)
+      const refreshFailed = await refreshServiceData(service.id)
+      reportCommittedMutation('服务信息已保存', refreshFailed, '服务信息已保存但刷新失败')
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `服务信息保存失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      endMutation()
+    }
   }
 
   const openCreateFieldDialog = () => {
+    if (mutationBusyRef.current) return
     setEditingField(null)
     setFieldName('')
     setFieldValue('')
@@ -152,6 +222,7 @@ export default function ServiceDetail() {
   }
 
   const openEditFieldDialog = (field: SecretFieldRow) => {
+    if (mutationBusyRef.current) return
     setEditingField(field)
     setFieldName(field.field_name)
     setFieldValue(field.field_value)
@@ -162,34 +233,48 @@ export default function ServiceDetail() {
 
   const saveField = async () => {
     const name = fieldName.trim()
-    if (!name) return
+    if (!name || !beginMutation()) return
 
-    if (editingField) {
-      await window.electronAPI.updateSecretField(editingField.id, {
-        fieldName: name,
-        fieldValue,
-        isSecret: fieldIsSecret,
+    try {
+      if (editingField) {
+        const result = await window.electronAPI.updateSecretField(editingField.id, {
+          fieldName: name,
+          fieldValue,
+          isSecret: fieldIsSecret,
+        })
+        assertMutationSucceeded(result, '字段不存在或已被删除')
+      } else {
+        await window.electronAPI.createSecretField({
+          id: uuidv4(),
+          serviceId: service.id,
+          fieldName: name,
+          fieldValue,
+          isSecret: fieldIsSecret,
+        })
+      }
+
+      const action = editingField ? '更新' : '创建'
+      setFieldDialogOpen(false)
+      setEditingField(null)
+      const refreshFailed = await refreshServiceData(service.id)
+      reportCommittedMutation(`字段已${action}`, refreshFailed, `字段已${action}但刷新失败`)
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `字段保存失败：${error instanceof Error ? error.message : String(error)}`,
       })
-    } else {
-      await window.electronAPI.createSecretField({
-        id: uuidv4(),
-        serviceId: service.id,
-        fieldName: name,
-        fieldValue,
-        isSecret: fieldIsSecret,
-      })
+    } finally {
+      endMutation()
     }
-
-    setFieldDialogOpen(false)
-    setEditingField(null)
-    await refreshDetail()
   }
 
   const deleteField = (field: SecretFieldRow) => {
+    if (mutationBusyRef.current) return
     setDeleteTarget({ kind: 'field', id: field.id, name: field.field_name })
   }
 
   const openCreateGroupDialog = () => {
+    if (mutationBusyRef.current) return
     setEditingGroup(null)
     setGroupName('')
     setGroupColor(GROUP_COLORS[0])
@@ -197,6 +282,7 @@ export default function ServiceDetail() {
   }
 
   const openRenameGroupDialog = (group: SecretFieldGroupRow) => {
+    if (mutationBusyRef.current) return
     setEditingGroup(group)
     setGroupName(group.name)
     setGroupColor(group.color || GROUP_COLORS[0])
@@ -205,94 +291,199 @@ export default function ServiceDetail() {
 
   const saveGroup = async () => {
     const name = groupName.trim()
-    if (!name) return
+    if (!name || !beginMutation()) return
 
-    if (editingGroup) {
-      await window.electronAPI.updateSecretFieldGroup(editingGroup.id, { name, color: groupColor })
-    } else {
-      const result = await window.electronAPI.createSecretFieldGroup({
-        id: uuidv4(),
-        serviceId: service.id,
-        name,
-        color: groupColor,
-      })
-      if (selectedFieldIds.length > 0) {
-        await window.electronAPI.moveSecretFields({ ids: selectedFieldIds, groupId: result.id })
-        clearSelectedFieldIds()
+    try {
+      const selectedIds = [...selectedFieldIds]
+      let moveError: unknown = null
+
+      if (editingGroup) {
+        const result = await window.electronAPI.updateSecretFieldGroup(editingGroup.id, { name, color: groupColor })
+        assertMutationSucceeded(result, '字段组不存在或已被删除')
+      } else {
+        const newGroupId = uuidv4()
+        await window.electronAPI.createSecretFieldGroup({
+          id: newGroupId,
+          serviceId: service.id,
+          name,
+          color: groupColor,
+        })
+
+        // The group is committed at this point. Close the dialog before any follow-up move or refresh.
+        setGroupDialogOpen(false)
+        setEditingGroup(null)
+
+        if (selectedIds.length > 0) {
+          try {
+            const moveResult = await window.electronAPI.moveSecretFields({ ids: selectedIds, groupId: newGroupId })
+            assertMutationSucceeded(moveResult, '所选字段已变化，请刷新后重试移动')
+            clearSelectedFieldIds()
+          } catch (error) {
+            moveError = error
+          }
+        }
       }
-    }
 
-    setGroupDialogOpen(false)
-    setEditingGroup(null)
-    await refreshDetail()
+      setGroupDialogOpen(false)
+      setEditingGroup(null)
+      const refreshFailed = await refreshServiceData(service.id)
+
+      if (moveError) {
+        setNotice({
+          severity: 'error',
+          text: `字段组已创建，但移动所选字段失败：${moveError instanceof Error ? moveError.message : String(moveError)}${refreshFailed ? '；界面刷新也失败' : ''}`,
+        })
+      } else {
+        const action = editingGroup ? '更新' : '创建'
+        reportCommittedMutation(`字段组已${action}`, refreshFailed, `字段组已${action}但刷新失败`)
+      }
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `字段组保存失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      endMutation()
+    }
   }
 
   const deleteGroup = (group: SecretFieldGroupRow) => {
+    if (mutationBusyRef.current) return
     setDeleteTarget({ kind: 'field-group', id: group.id, name: group.name })
   }
 
   const toggleGroupCollapsed = async (group: SecretFieldGroupRow) => {
-    await window.electronAPI.updateSecretFieldGroup(group.id, { isCollapsed: group.is_collapsed ? 0 : 1 })
-    await refreshDetail()
+    if (!beginMutation()) return
+    try {
+      const result = await window.electronAPI.updateSecretFieldGroup(group.id, { isCollapsed: group.is_collapsed ? 0 : 1 })
+      assertMutationSucceeded(result, '字段组不存在或已被删除')
+      const refreshFailed = await refreshServiceData(service.id)
+      if (refreshFailed) {
+        setNotice({ severity: 'info', text: '字段组折叠状态已保存但刷新失败' })
+      }
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `字段组状态更新失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      endMutation()
+    }
   }
 
   const moveSelectedToExistingGroup = async () => {
-    if (selectedFieldIds.length === 0 || !targetGroupId) return
-    await window.electronAPI.moveSecretFields({ ids: selectedFieldIds, groupId: targetGroupId })
-    setMoveDialogOpen(false)
-    setTargetGroupId('')
-    clearSelectedFieldIds()
-    await refreshDetail()
+    if (selectedFieldIds.length === 0 || !targetGroupId || !beginMutation()) return
+    try {
+      const result = await window.electronAPI.moveSecretFields({ ids: [...selectedFieldIds], groupId: targetGroupId })
+      assertMutationSucceeded(result, '所选字段已变化，请刷新后重试')
+
+      setMoveDialogOpen(false)
+      setTargetGroupId('')
+      clearSelectedFieldIds()
+      const refreshFailed = await refreshServiceData(service.id)
+      reportCommittedMutation('所选字段已移动', refreshFailed, '所选字段已移动但刷新失败')
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `字段移动失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      endMutation()
+    }
   }
 
   const ungroupSelected = async () => {
-    if (selectedFieldIds.length === 0) return
-    await window.electronAPI.moveSecretFields({ ids: selectedFieldIds, groupId: null })
-    clearSelectedFieldIds()
-    await refreshDetail()
+    if (selectedFieldIds.length === 0 || !beginMutation()) return
+    try {
+      const result = await window.electronAPI.moveSecretFields({ ids: [...selectedFieldIds], groupId: null })
+      assertMutationSucceeded(result, '所选字段已变化，请刷新后重试')
+
+      clearSelectedFieldIds()
+      const refreshFailed = await refreshServiceData(service.id)
+      reportCommittedMutation('所选字段已移出分组', refreshFailed, '所选字段已移出分组但刷新失败')
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `移出分组失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      endMutation()
+    }
   }
 
   const dropToGroup = async (groupId: string | null, fieldId: string) => {
+    if (!beginMutation()) return
     const ids = selectedFieldIds.includes(fieldId) ? selectedFieldIds : [fieldId]
-    await window.electronAPI.moveSecretFields({ ids, groupId })
-    setDraggingFieldId(null)
-    await refreshDetail()
+    try {
+      const result = await window.electronAPI.moveSecretFields({ ids: [...ids], groupId })
+      assertMutationSucceeded(result, '字段已变化，请刷新后重试')
+
+      setDraggingFieldId(null)
+      const refreshFailed = await refreshServiceData(service.id)
+      if (refreshFailed) {
+        setNotice({ severity: 'info', text: '字段位置已保存但刷新失败' })
+      }
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `字段移动失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      setDraggingFieldId(null)
+      endMutation()
+    }
   }
 
   const deleteService = () => {
+    if (mutationBusyRef.current) return
     setDeleteTarget({ kind: 'service', id: service.id, name: service.name })
   }
 
   const confirmDelete = async () => {
-    if (!deleteTarget || deleteBusy) return
-    setDeleteBusy(true)
+    if (!deleteTarget || !beginMutation()) return
+    const target = deleteTarget
 
     try {
-      if (deleteTarget.kind === 'field') {
-        await window.electronAPI.deleteSecretField(deleteTarget.id)
-        await refreshDetail()
-      } else if (deleteTarget.kind === 'field-group') {
-        await window.electronAPI.deleteSecretFieldGroup(deleteTarget.id)
-        await refreshDetail()
+      if (target.kind === 'field') {
+        const result = await window.electronAPI.deleteSecretField(target.id)
+        assertMutationSucceeded(result, '字段不存在或已经删除')
+        setDeleteTarget(null)
+        const refreshFailed = await refreshServiceData(service.id)
+        reportCommittedMutation('字段已删除', refreshFailed, '字段已删除但刷新失败')
+      } else if (target.kind === 'field-group') {
+        const result = await window.electronAPI.deleteSecretFieldGroup(target.id)
+        assertMutationSucceeded(result, '字段组不存在或已经删除')
+        setDeleteTarget(null)
+        const refreshFailed = await refreshServiceData(service.id)
+        reportCommittedMutation('字段组已删除', refreshFailed, '字段组已删除但刷新失败')
       } else {
-        await window.electronAPI.deleteSecretService(deleteTarget.id)
+        const result = await window.electronAPI.deleteSecretService(target.id)
+        assertMutationSucceeded(result, '服务不存在或已经移入回收站')
+        setDeleteTarget(null)
         setSelectedService(null)
-        await loadServiceInfo()
+        const refreshResults = await Promise.allSettled([
+          Promise.resolve().then(() => loadServiceInfo()),
+        ])
+        const refreshFailed = refreshResults.some((refreshResult) => refreshResult.status === 'rejected')
+        reportCommittedMutation('服务已移入回收站', refreshFailed, '服务已移入回收站但刷新失败')
       }
-      setDeleteTarget(null)
     } catch (error) {
       setNotice({
         severity: 'error',
         text: `删除失败：${error instanceof Error ? error.message : String(error)}`,
       })
     } finally {
-      setDeleteBusy(false)
+      endMutation()
     }
   }
 
   const dropBeforeField = async (targetFieldId: string, droppedFieldId: string) => {
+    if (!beginMutation()) return
     const target = fields.find((field) => field.id === targetFieldId)
-    if (!target) return
+    if (!target) {
+      endMutation()
+      return
+    }
 
     const movingIds = selectedFieldIds.includes(droppedFieldId)
       ? selectedFieldIds
@@ -307,18 +498,46 @@ export default function ServiceDetail() {
       targetFieldId
     )
 
-    await window.electronAPI.reorderSecretFields({ orderedIds, groupId: target.group_id })
-    setDraggingFieldId(null)
-    clearSelectedFieldIds()
-    await refreshDetail()
+    try {
+      const result = await window.electronAPI.reorderSecretFields({ orderedIds, groupId: target.group_id })
+      assertMutationSucceeded(result, '字段顺序已变化，请刷新后重试')
+
+      setDraggingFieldId(null)
+      clearSelectedFieldIds()
+      const refreshFailed = await refreshServiceData(service.id)
+      if (refreshFailed) {
+        setNotice({ severity: 'info', text: '字段顺序已保存但刷新失败' })
+      }
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `字段排序失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      setDraggingFieldId(null)
+      endMutation()
+    }
   }
 
   const toggleFavorite = async () => {
-    await window.electronAPI.updateSecretService(service.id, {
-      isFavorite: service.is_favorite ? 0 : 1,
-    })
-    await loadServiceInfo()
-    await refreshDetail()
+    if (!beginMutation()) return
+    try {
+      const result = await window.electronAPI.updateSecretService(service.id, {
+        isFavorite: service.is_favorite ? 0 : 1,
+      })
+      assertMutationSucceeded(result, '服务不存在或已被删除')
+      const refreshFailed = await refreshServiceData(service.id)
+      if (refreshFailed) {
+        setNotice({ severity: 'info', text: '收藏状态已保存但刷新失败' })
+      }
+    } catch (error) {
+      setNotice({
+        severity: 'error',
+        text: `收藏状态更新失败：${error instanceof Error ? error.message : String(error)}`,
+      })
+    } finally {
+      endMutation()
+    }
   }
 
   const openServiceUrl = async () => {
@@ -336,7 +555,7 @@ export default function ServiceDetail() {
   }
 
   return (
-    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
+    <Box aria-busy={mutationBusy} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
       <Box sx={{ px: 3.1, py: 2.55, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
         <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2.2 }}>
           <Box sx={{ minWidth: 0, display: 'flex', gap: 1.95 }}>
@@ -387,19 +606,19 @@ export default function ServiceDetail() {
           </Box>
           <Box sx={{ display: 'flex', gap: 0.75, WebkitAppRegion: 'no-drag', position: 'relative', zIndex: 2 }}>
             <Tooltip title={service.is_favorite ? '取消收藏' : '收藏'}>
-              <IconButton size="small" onClick={toggleFavorite}>
+              <IconButton size="small" onClick={toggleFavorite} disabled={mutationBusy}>
                 {service.is_favorite
                   ? <StarIcon fontSize="small" sx={{ color: '#fdd663' }} />
                   : <StarBorderIcon fontSize="small" />}
               </IconButton>
             </Tooltip>
             <Tooltip title="编辑服务">
-              <IconButton size="small" onClick={openEditServiceDialog}>
+              <IconButton size="small" onClick={openEditServiceDialog} disabled={mutationBusy}>
                 <EditOutlinedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <Tooltip title="删除服务">
-              <IconButton size="small" onClick={deleteService}>
+              <IconButton size="small" onClick={deleteService} disabled={mutationBusy}>
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -409,10 +628,10 @@ export default function ServiceDetail() {
 
       <Box sx={{ px: 2.65, py: 1.65, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', gap: 1.35, flexWrap: 'wrap', bgcolor: 'background.paper' }}>
         <Box sx={{ display: 'flex', gap: 1.2 }}>
-          <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateFieldDialog}>
+          <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateFieldDialog} disabled={mutationBusy}>
             新建字段
           </Button>
-          <Button size="small" startIcon={<CreateNewFolderIcon />} onClick={openCreateGroupDialog}>
+          <Button size="small" startIcon={<CreateNewFolderIcon />} onClick={openCreateGroupDialog} disabled={mutationBusy}>
             新建字段组
           </Button>
         </Box>
@@ -425,7 +644,7 @@ export default function ServiceDetail() {
         count={selectedFieldIds.length}
         onClear={clearSelectedFieldIds}
         onCreateGroup={openCreateGroupDialog}
-        onMoveToGroup={() => setMoveDialogOpen(true)}
+        onMoveToGroup={() => { if (!mutationBusyRef.current) setMoveDialogOpen(true) }}
         onUngroup={ungroupSelected}
       />
 
@@ -478,7 +697,7 @@ export default function ServiceDetail() {
         )}
       </Box>
 
-      <Dialog open={serviceDialogOpen} onClose={() => setServiceDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={serviceDialogOpen} onClose={() => { if (!mutationBusy) setServiceDialogOpen(false) }} fullWidth maxWidth="sm">
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <EditOutlinedIcon sx={{ color: 'primary.main' }} />
           编辑服务
@@ -490,12 +709,14 @@ export default function ServiceDetail() {
             label="服务名称"
             value={serviceName}
             onChange={(event) => setServiceName(event.target.value)}
+            disabled={mutationBusy}
           />
           <TextField
             fullWidth
             label="用途"
             value={serviceDescription}
             onChange={(event) => setServiceDescription(event.target.value)}
+            disabled={mutationBusy}
             sx={{ mt: 2 }}
           />
           <TextField
@@ -504,6 +725,7 @@ export default function ServiceDetail() {
             placeholder="https://example.com"
             value={serviceUrl}
             onChange={(event) => setServiceUrl(event.target.value)}
+            disabled={mutationBusy}
             sx={{ mt: 2 }}
           />
           <TextField
@@ -512,6 +734,7 @@ export default function ServiceDetail() {
             label="关联主账号"
             value={serviceLinkedAccountId}
             onChange={(event) => setServiceLinkedAccountId(event.target.value)}
+            disabled={mutationBusy}
             sx={{ mt: 2 }}
           >
             <MenuItem value="">不关联账号</MenuItem>
@@ -526,18 +749,19 @@ export default function ServiceDetail() {
             label="备注"
             value={serviceNotes}
             onChange={(event) => setServiceNotes(event.target.value)}
+            disabled={mutationBusy}
             sx={{ mt: 2 }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setServiceDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={saveService} disabled={!serviceName.trim()}>
-            保存
+          <Button onClick={() => setServiceDialogOpen(false)} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" onClick={saveService} disabled={mutationBusy || !serviceName.trim()}>
+            {mutationBusy ? '保存中…' : '保存'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={fieldDialogOpen} onClose={() => setFieldDialogOpen(false)} fullWidth maxWidth="sm">
+      <Dialog open={fieldDialogOpen} onClose={() => { if (!mutationBusy) setFieldDialogOpen(false) }} fullWidth maxWidth="sm">
         <DialogTitle>{editingField ? '编辑字段' : '新建字段'}</DialogTitle>
         <DialogContent>
           <TextField
@@ -546,6 +770,7 @@ export default function ServiceDetail() {
             label="字段名称"
             value={fieldName}
             onChange={(event) => setFieldName(event.target.value)}
+            disabled={mutationBusy}
           />
           <TextField
             fullWidth
@@ -555,11 +780,12 @@ export default function ServiceDetail() {
             label="字段值"
             value={fieldValue}
             onChange={(event) => setFieldValue(event.target.value)}
+            disabled={mutationBusy}
             InputProps={{
               endAdornment: fieldIsSecret ? (
                 <InputAdornment position="end">
                   <Tooltip title={fieldValueVisible ? '隐藏敏感值' : '显示敏感值'}>
-                    <IconButton size="small" onClick={() => setFieldValueVisible((current) => !current)} edge="end">
+                    <IconButton size="small" onClick={() => setFieldValueVisible((current) => !current)} edge="end" disabled={mutationBusy}>
                       {fieldValueVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
                     </IconButton>
                   </Tooltip>
@@ -570,7 +796,7 @@ export default function ServiceDetail() {
           />
           <FormControlLabel
             sx={{ mt: 1 }}
-            control={<Checkbox checked={fieldIsSecret} onChange={(event) => {
+            control={<Checkbox checked={fieldIsSecret} disabled={mutationBusy} onChange={(event) => {
               setFieldIsSecret(event.target.checked)
               if (event.target.checked) setFieldValueVisible(false)
             }} />}
@@ -578,14 +804,14 @@ export default function ServiceDetail() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setFieldDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={saveField} disabled={!fieldName.trim()}>
-            保存
+          <Button onClick={() => setFieldDialogOpen(false)} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" onClick={saveField} disabled={mutationBusy || !fieldName.trim()}>
+            {mutationBusy ? '保存中…' : '保存'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={groupDialogOpen} onClose={() => setGroupDialogOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={groupDialogOpen} onClose={() => { if (!mutationBusy) setGroupDialogOpen(false) }} fullWidth maxWidth="xs">
         <DialogTitle>{editingGroup ? '重命名字段组' : '新建字段组'}</DialogTitle>
         <DialogContent>
           <TextField
@@ -594,6 +820,7 @@ export default function ServiceDetail() {
             label="字段组名称"
             value={groupName}
             onChange={(event) => setGroupName(event.target.value)}
+            disabled={mutationBusy}
           />
           <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
             {GROUP_COLORS.map((color) => (
@@ -601,6 +828,7 @@ export default function ServiceDetail() {
                 key={color}
                 size="small"
                 onClick={() => setGroupColor(color)}
+                disabled={mutationBusy}
                 sx={{
                   width: 30,
                   height: 30,
@@ -616,14 +844,14 @@ export default function ServiceDetail() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setGroupDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={saveGroup} disabled={!groupName.trim()}>
-            保存
+          <Button onClick={() => setGroupDialogOpen(false)} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" onClick={saveGroup} disabled={mutationBusy || !groupName.trim()}>
+            {mutationBusy ? '保存中…' : '保存'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={moveDialogOpen} onClose={() => setMoveDialogOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={moveDialogOpen} onClose={() => { if (!mutationBusy) setMoveDialogOpen(false) }} fullWidth maxWidth="xs">
         <DialogTitle>移入字段组</DialogTitle>
         <DialogContent>
           <FormControl fullWidth>
@@ -633,6 +861,7 @@ export default function ServiceDetail() {
               label="目标字段组"
               value={targetGroupId}
               onChange={(event) => setTargetGroupId(event.target.value)}
+              disabled={mutationBusy}
             >
               {fieldGroups.map((group) => (
                 <MenuItem key={group.id} value={group.id}>
@@ -643,16 +872,16 @@ export default function ServiceDetail() {
           </FormControl>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setMoveDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={moveSelectedToExistingGroup} disabled={!targetGroupId}>
-            移动
+          <Button onClick={() => setMoveDialogOpen(false)} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" onClick={moveSelectedToExistingGroup} disabled={mutationBusy || !targetGroupId}>
+            {mutationBusy ? '移动中…' : '移动'}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog
         open={deleteTarget !== null}
-        onClose={() => { if (!deleteBusy) setDeleteTarget(null) }}
+        onClose={() => { if (!mutationBusy) setDeleteTarget(null) }}
         fullWidth
         maxWidth="xs"
       >
@@ -675,9 +904,9 @@ export default function ServiceDetail() {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>取消</Button>
-          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleteBusy}>
-            {deleteBusy ? '删除中…' : deleteTarget?.kind === 'service' ? '移入回收站' : '确认删除'}
+          <Button onClick={() => setDeleteTarget(null)} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" color="error" onClick={confirmDelete} disabled={mutationBusy}>
+            {mutationBusy ? '删除中…' : deleteTarget?.kind === 'service' ? '移入回收站' : '确认删除'}
           </Button>
         </DialogActions>
       </Dialog>

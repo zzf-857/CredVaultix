@@ -18,6 +18,7 @@ export default function TotpCodeDisplay({
   otpType = 'totp',
   counter = 0,
   onIncrementCounter,
+  incrementBusy = false,
 }: {
   secret: string
   compact?: boolean
@@ -27,6 +28,7 @@ export default function TotpCodeDisplay({
   otpType?: string
   counter?: number
   onIncrementCounter?: () => void
+  incrementBusy?: boolean
 }) {
   const [code, setCode] = useState('-'.repeat(digits))
   const [remaining, setRemaining] = useState(period)
@@ -119,6 +121,7 @@ export default function TotpCodeDisplay({
                 event.stopPropagation()
                 onIncrementCounter?.()
               }}
+              disabled={incrementBusy}
               sx={{ color: 'primary.main', p: 0.25 }}
             >
               <RefreshIcon sx={{ fontSize: 16 }} />
@@ -200,6 +203,7 @@ export default function TotpCodeDisplay({
               event.stopPropagation()
               onIncrementCounter?.()
             }}
+            disabled={incrementBusy}
             sx={{ color: 'primary.main' }}
           >
             <RefreshIcon sx={{ fontSize: 18 }} />

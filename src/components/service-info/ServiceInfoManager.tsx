@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Autocomplete,
@@ -12,6 +12,7 @@ import {
   IconButton,
   InputAdornment,
   InputLabel,
+  LinearProgress,
   MenuItem,
   Select,
   Snackbar,
@@ -45,6 +46,21 @@ const sortOptions: { value: ServiceInfoSortMode; label: string }[] = [
   { value: 'updated-asc', label: '最早更新' },
   { value: 'random', label: '随机排序' },
 ]
+
+type Notice = {
+  severity: 'error' | 'warning'
+  text: string
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function assertMutationSucceeded(result: { success: boolean }, failureMessage: string) {
+  if (!result.success) {
+    throw new Error(failureMessage)
+  }
+}
 
 function serviceMatches(service: SecretServiceRow, query: string) {
   const keyword = query.trim().toLowerCase()
@@ -82,11 +98,28 @@ export default function ServiceInfoManager() {
   const [groupColor, setGroupColor] = useState(GROUP_COLORS[0])
   const [targetGroupId, setTargetGroupId] = useState<string>('')
   const [groupToDelete, setGroupToDelete] = useState<SecretGroupRow | null>(null)
+  const [pendingServiceGroup, setPendingServiceGroup] = useState<{ id: string; name: string } | null>(null)
+  const [mutationBusy, setMutationBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
-  const [notice, setNotice] = useState<{ severity: 'error'; text: string } | null>(null)
+  const [notice, setNotice] = useState<Notice | null>(null)
+  const [listLoadState, setListLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [listLoadError, setListLoadError] = useState('')
+  const mutationLockRef = useRef(false)
+
+  const loadInitialServiceInfo = async () => {
+    setListLoadState('loading')
+    setListLoadError('')
+    try {
+      await loadServiceInfo()
+      setListLoadState('ready')
+    } catch (error) {
+      setListLoadError(`读取服务信息失败：${errorMessage(error)}`)
+      setListLoadState('error')
+    }
+  }
 
   useEffect(() => {
-    void loadServiceInfo()
+    void loadInitialServiceInfo()
   }, [loadServiceInfo])
 
   const visibleServices = useMemo(() => {
@@ -102,14 +135,66 @@ export default function ServiceInfoManager() {
     [serviceGroups]
   )
 
-  const reloadAfterChange = async () => {
-    await loadServiceInfo()
+  const beginMutation = () => {
+    if (mutationLockRef.current) return false
+    mutationLockRef.current = true
+    setMutationBusy(true)
+    setNotice(null)
+    return true
+  }
+
+  const finishMutation = () => {
+    mutationLockRef.current = false
+    setMutationBusy(false)
+  }
+
+  const reportMutationFailure = (action: string, error: unknown) => {
+    setNotice({ severity: 'error', text: `${action}失败：${errorMessage(error)}` })
+  }
+
+  const reloadAfterSuccessfulChange = async (completedAction: string) => {
+    try {
+      await loadServiceInfo()
+      setListLoadState('ready')
+      setListLoadError('')
+      return true
+    } catch (error) {
+      setNotice({
+        severity: 'warning',
+        text: `${completedAction}，但列表刷新失败：${errorMessage(error)}。请稍后重新进入此页面确认最新状态。`,
+      })
+      return false
+    }
+  }
+
+  const reportPartialFailure = async (completedAction: string, failedAction: string, error: unknown) => {
+    let refreshFailure = ''
+    try {
+      await loadServiceInfo()
+      setListLoadState('ready')
+      setListLoadError('')
+    } catch (refreshError) {
+      refreshFailure = `；列表刷新也失败：${errorMessage(refreshError)}`
+    }
+
+    setNotice({
+      severity: 'error',
+      text: `${completedAction}，但${failedAction}：${errorMessage(error)}${refreshFailure}`,
+    })
   }
 
   const openCreateServiceDialog = () => {
+    if (mutationLockRef.current) return
     setServiceName('')
     setGroupInputValue('')
+    setPendingServiceGroup(null)
     setServiceDialogOpen(true)
+  }
+
+  const closeServiceDialog = () => {
+    if (mutationLockRef.current) return
+    setServiceDialogOpen(false)
+    setPendingServiceGroup(null)
   }
 
   const findGroupByName = (name: string) => {
@@ -119,40 +204,74 @@ export default function ServiceInfoManager() {
 
   const createService = async () => {
     const name = serviceName.trim()
-    if (!name) return
+    if (!name || !beginMutation()) return
 
-    const trimmedGroupName = groupInputValue.trim()
-    const existingGroup = trimmedGroupName ? findGroupByName(trimmedGroupName) : undefined
-    const groupId = existingGroup
-      ? existingGroup.id
-      : trimmedGroupName
-        ? (await window.electronAPI.createSecretGroup({
-            id: uuidv4(),
-            name: trimmedGroupName,
-            color: GROUP_COLORS[0],
-          })).id
+    let createdGroup: { id: string; name: string } | null = null
+    try {
+      const trimmedGroupName = groupInputValue.trim()
+      const existingGroup = trimmedGroupName ? findGroupByName(trimmedGroupName) : undefined
+      const reusablePendingGroup = pendingServiceGroup
+        && pendingServiceGroup.name.trim().toLowerCase() === trimmedGroupName.toLowerCase()
+        ? pendingServiceGroup
         : null
+      let groupId = existingGroup?.id || reusablePendingGroup?.id || null
 
-    const result = await window.electronAPI.createSecretService({
-      id: uuidv4(),
-      name,
-      groupId: groupId,
-    })
-    setServiceDialogOpen(false)
-    setServiceName('')
-    setGroupInputValue('')
-    await reloadAfterChange()
-    setSelectedService(result.id)
+      if (!groupId && trimmedGroupName) {
+        const groupResult = await window.electronAPI.createSecretGroup({
+          id: uuidv4(),
+          name: trimmedGroupName,
+          color: GROUP_COLORS[0],
+        })
+        if (!groupResult?.id) throw new Error('新分组未返回有效结果')
+        createdGroup = { id: groupResult.id, name: trimmedGroupName }
+        groupId = groupResult.id
+        setPendingServiceGroup(createdGroup)
+      }
+
+      const result = await window.electronAPI.createSecretService({
+        id: uuidv4(),
+        name,
+        groupId,
+      })
+      if (!result?.id) throw new Error('新服务未返回有效结果')
+
+      setServiceDialogOpen(false)
+      setServiceName('')
+      setGroupInputValue('')
+      setPendingServiceGroup(null)
+      await reloadAfterSuccessfulChange('服务已创建')
+      setSelectedService(result.id)
+    } catch (error) {
+      if (createdGroup) {
+        await reportPartialFailure(
+          `分组“${createdGroup.name}”已创建`,
+          '服务创建失败，可直接重试且不会重复创建该分组',
+          error
+        )
+      } else {
+        reportMutationFailure('创建服务', error)
+      }
+    } finally {
+      finishMutation()
+    }
   }
 
   const openCreateGroupDialog = () => {
+    if (mutationLockRef.current) return
     setEditingGroup(null)
     setGroupName('')
     setGroupColor(GROUP_COLORS[0])
     setGroupDialogOpen(true)
   }
 
+  const closeGroupDialog = () => {
+    if (mutationLockRef.current) return
+    setGroupDialogOpen(false)
+    setEditingGroup(null)
+  }
+
   const openRenameGroupDialog = (group: SecretGroupRow) => {
+    if (mutationLockRef.current) return
     setEditingGroup(group)
     setGroupName(group.name)
     setGroupColor(group.color || GROUP_COLORS[0])
@@ -161,76 +280,128 @@ export default function ServiceInfoManager() {
 
   const saveGroup = async () => {
     const name = groupName.trim()
-    if (!name) return
+    if (!name || !beginMutation()) return
 
-    if (editingGroup) {
-      await window.electronAPI.updateSecretGroup(editingGroup.id, { name, color: groupColor })
-    } else {
-      const result = await window.electronAPI.createSecretGroup({ id: uuidv4(), name, color: groupColor })
-      if (selectedServiceIds.length > 0) {
-        await window.electronAPI.moveSecretServices({ ids: selectedServiceIds, groupId: result.id })
-        clearSelectedServiceIds()
+    const selectedIds = [...selectedServiceIds]
+    try {
+      if (editingGroup) {
+        const result = await window.electronAPI.updateSecretGroup(editingGroup.id, { name, color: groupColor })
+        assertMutationSucceeded(result, '分组不存在或未能更新')
+        setGroupDialogOpen(false)
+        setEditingGroup(null)
+        await reloadAfterSuccessfulChange('分组已保存')
+        return
       }
-    }
 
-    setGroupDialogOpen(false)
-    setEditingGroup(null)
-    await reloadAfterChange()
+      const result = await window.electronAPI.createSecretGroup({ id: uuidv4(), name, color: groupColor })
+      if (!result?.id) throw new Error('新分组未返回有效结果')
+      setGroupDialogOpen(false)
+      setEditingGroup(null)
+
+      if (selectedIds.length > 0) {
+        try {
+          const moveResult = await window.electronAPI.moveSecretServices({ ids: selectedIds, groupId: result.id })
+          assertMutationSucceeded(moveResult, '所选服务未能移动')
+          clearSelectedServiceIds()
+        } catch (error) {
+          await reportPartialFailure('分组已创建', '所选服务移动失败', error)
+          return
+        }
+      }
+
+      await reloadAfterSuccessfulChange('分组已创建')
+    } catch (error) {
+      reportMutationFailure(editingGroup ? '保存分组' : '创建分组', error)
+    } finally {
+      finishMutation()
+    }
   }
 
   const deleteGroup = (group: SecretGroupRow) => {
+    if (mutationLockRef.current) return
     setGroupToDelete(group)
   }
 
   const confirmDeleteGroup = async () => {
-    if (!groupToDelete || deleteBusy) return
+    if (!groupToDelete || deleteBusy || !beginMutation()) return
     setDeleteBusy(true)
     try {
-      await window.electronAPI.deleteSecretGroup(groupToDelete.id)
+      const result = await window.electronAPI.deleteSecretGroup(groupToDelete.id)
+      assertMutationSucceeded(result, '分组不存在或未能删除')
       setGroupToDelete(null)
-      await reloadAfterChange()
+      await reloadAfterSuccessfulChange('分组已删除')
     } catch (error) {
-      setNotice({
-        severity: 'error',
-        text: `删除分组失败：${error instanceof Error ? error.message : String(error)}`,
-      })
+      reportMutationFailure('删除分组', error)
     } finally {
       setDeleteBusy(false)
+      finishMutation()
     }
   }
 
   const toggleGroupCollapsed = async (group: SecretGroupRow) => {
-    await window.electronAPI.updateSecretGroup(group.id, { isCollapsed: group.is_collapsed ? 0 : 1 })
-    await reloadAfterChange()
+    if (!beginMutation()) return
+    try {
+      const result = await window.electronAPI.updateSecretGroup(group.id, { isCollapsed: group.is_collapsed ? 0 : 1 })
+      assertMutationSucceeded(result, '分组不存在或未能更新')
+      await reloadAfterSuccessfulChange('分组状态已更新')
+    } catch (error) {
+      reportMutationFailure('更新分组状态', error)
+    } finally {
+      finishMutation()
+    }
   }
 
   const moveSelectedToExistingGroup = async () => {
-    const ids = selectedServiceIds
-    if (ids.length === 0 || !targetGroupId) return
-    await window.electronAPI.moveSecretServices({ ids, groupId: targetGroupId })
-    setMoveDialogOpen(false)
-    setTargetGroupId('')
-    clearSelectedServiceIds()
-    await reloadAfterChange()
+    const ids = [...selectedServiceIds]
+    if (ids.length === 0 || !targetGroupId || !beginMutation()) return
+    try {
+      const result = await window.electronAPI.moveSecretServices({ ids, groupId: targetGroupId })
+      assertMutationSucceeded(result, '所选服务未能移动')
+      setMoveDialogOpen(false)
+      setTargetGroupId('')
+      clearSelectedServiceIds()
+      await reloadAfterSuccessfulChange('所选服务已移动')
+    } catch (error) {
+      reportMutationFailure('移动服务', error)
+    } finally {
+      finishMutation()
+    }
   }
 
   const ungroupSelected = async () => {
-    if (selectedServiceIds.length === 0) return
-    await window.electronAPI.moveSecretServices({ ids: selectedServiceIds, groupId: null })
-    clearSelectedServiceIds()
-    await reloadAfterChange()
+    const ids = [...selectedServiceIds]
+    if (ids.length === 0 || !beginMutation()) return
+    try {
+      const result = await window.electronAPI.moveSecretServices({ ids, groupId: null })
+      assertMutationSucceeded(result, '所选服务未能移出分组')
+      clearSelectedServiceIds()
+      await reloadAfterSuccessfulChange('所选服务已移出分组')
+    } catch (error) {
+      reportMutationFailure('移出分组', error)
+    } finally {
+      finishMutation()
+    }
   }
 
   const dropToGroup = async (groupId: string | null, serviceId: string) => {
     const ids = selectedServiceIds.includes(serviceId) ? selectedServiceIds : [serviceId]
-    await window.electronAPI.moveSecretServices({ ids, groupId })
     setDraggingServiceId(null)
-    await reloadAfterChange()
+    if (!beginMutation()) return
+    try {
+      const result = await window.electronAPI.moveSecretServices({ ids: [...ids], groupId })
+      assertMutationSucceeded(result, '拖放的服务未能移动')
+      await reloadAfterSuccessfulChange('服务已移动')
+    } catch (error) {
+      reportMutationFailure('移动服务', error)
+    } finally {
+      finishMutation()
+    }
   }
 
   const dropBeforeService = async (targetServiceId: string, droppedServiceId: string) => {
     const target = secretServices.find((service) => service.id === targetServiceId)
-    if (!target) return
+    setDraggingServiceId(null)
+    if (!target || !beginMutation()) return
 
     const movingIds = selectedServiceIds.includes(droppedServiceId)
       ? selectedServiceIds
@@ -245,15 +416,29 @@ export default function ServiceInfoManager() {
       targetServiceId
     )
 
-    await window.electronAPI.reorderSecretServices({ orderedIds, groupId: target.group_id })
-    setDraggingServiceId(null)
-    clearSelectedServiceIds()
-    await reloadAfterChange()
+    try {
+      const result = await window.electronAPI.reorderSecretServices({ orderedIds, groupId: target.group_id })
+      assertMutationSucceeded(result, '服务顺序未能保存')
+      clearSelectedServiceIds()
+      await reloadAfterSuccessfulChange('服务顺序已保存')
+    } catch (error) {
+      reportMutationFailure('调整服务顺序', error)
+    } finally {
+      finishMutation()
+    }
   }
 
   const toggleFavorite = async (service: SecretServiceRow) => {
-    await window.electronAPI.updateSecretService(service.id, { isFavorite: service.is_favorite ? 0 : 1 })
-    await reloadAfterChange()
+    if (!beginMutation()) return
+    try {
+      const result = await window.electronAPI.updateSecretService(service.id, { isFavorite: service.is_favorite ? 0 : 1 })
+      assertMutationSucceeded(result, '服务不存在或未能更新')
+      await reloadAfterSuccessfulChange('收藏状态已更新')
+    } catch (error) {
+      reportMutationFailure('更新收藏状态', error)
+    } finally {
+      finishMutation()
+    }
   }
 
   return (
@@ -281,11 +466,11 @@ export default function ServiceInfoManager() {
             </Box>
             <Box sx={{ display: 'flex', gap: 0.9 }}>
               <Tooltip title="新建分组">
-                <IconButton size="small" onClick={openCreateGroupDialog} sx={{ border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+                <IconButton size="small" onClick={openCreateGroupDialog} disabled={mutationBusy} sx={{ border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
                   <CreateNewFolderIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateServiceDialog}>
+              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateServiceDialog} disabled={mutationBusy}>
                 新建服务
               </Button>
             </Box>
@@ -335,12 +520,22 @@ export default function ServiceInfoManager() {
           count={selectedServiceIds.length}
           onClear={clearSelectedServiceIds}
           onCreateGroup={openCreateGroupDialog}
-          onMoveToGroup={() => setMoveDialogOpen(true)}
+          onMoveToGroup={() => { if (!mutationLockRef.current) setMoveDialogOpen(true) }}
           onUngroup={ungroupSelected}
         />
 
         <Box sx={{ flex: 1, overflowY: 'auto', py: 0.75 }}>
-          {visibleServices.length === 0 ? (
+          {listLoadState === 'loading' ? (
+            <LinearProgress aria-label="正在读取服务信息" sx={{ mx: 2, mt: 1 }} />
+          ) : listLoadState === 'error' ? (
+            <Alert
+              severity="error"
+              sx={{ mx: 2, mt: 1 }}
+              action={<Button color="inherit" size="small" onClick={() => { void loadInitialServiceInfo() }}>重试</Button>}
+            >
+              {listLoadError}
+            </Alert>
+          ) : visibleServices.length === 0 ? (
             <Box sx={{ mx: 2, my: 3, px: 2.5, py: 4.25, textAlign: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
               <VpnKeyOutlinedIcon sx={{ fontSize: 40, color: 'text.secondary', opacity: 0.45, mb: 1 }} />
               <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 700, lineHeight: 1.5 }}>
@@ -354,7 +549,7 @@ export default function ServiceInfoManager() {
                 services={groupedServices.ungrouped}
                 selectedServiceId={selectedServiceId}
                 selectedServiceIds={selectedServiceIds}
-                canDrag={serviceSortMode === 'manual'}
+                canDrag={serviceSortMode === 'manual' && !mutationBusy}
                 draggingServiceId={draggingServiceId}
                 onSelectService={setSelectedService}
                 onToggleServiceSelected={toggleSelectedServiceId}
@@ -373,7 +568,7 @@ export default function ServiceInfoManager() {
                   services={groupedServices.groups[group.id] || []}
                   selectedServiceId={selectedServiceId}
                   selectedServiceIds={selectedServiceIds}
-                  canDrag={serviceSortMode === 'manual'}
+                  canDrag={serviceSortMode === 'manual' && !mutationBusy}
                   draggingServiceId={draggingServiceId}
                   onSelectService={setSelectedService}
                   onToggleServiceSelected={toggleSelectedServiceId}
@@ -382,9 +577,9 @@ export default function ServiceInfoManager() {
                   onRenameGroup={openRenameGroupDialog}
                   onDeleteGroup={deleteGroup}
                   onDropToGroup={dropToGroup}
-                    onDragStart={setDraggingServiceId}
-                    onDragEnd={() => setDraggingServiceId(null)}
-                    onDropBefore={dropBeforeService}
+                  onDragStart={setDraggingServiceId}
+                  onDragEnd={() => setDraggingServiceId(null)}
+                  onDropBefore={dropBeforeService}
                 />
               ))}
             </>
@@ -394,7 +589,7 @@ export default function ServiceInfoManager() {
 
       <ServiceDetail />
 
-      <Dialog open={serviceDialogOpen} onClose={() => setServiceDialogOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={serviceDialogOpen} onClose={closeServiceDialog} fullWidth maxWidth="xs">
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <VpnKeyOutlinedIcon sx={{ color: 'primary.main' }} />
           新建服务
@@ -406,6 +601,7 @@ export default function ServiceInfoManager() {
             label="服务名称"
             value={serviceName}
             onChange={(event) => setServiceName(event.target.value)}
+            disabled={mutationBusy}
           />
           <Autocomplete
             freeSolo
@@ -417,6 +613,7 @@ export default function ServiceInfoManager() {
             inputValue={groupInputValue}
             onChange={(_event, value) => setGroupInputValue(value || '')}
             onInputChange={(_event, value) => setGroupInputValue(value)}
+            disabled={mutationBusy}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -429,14 +626,14 @@ export default function ServiceInfoManager() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setServiceDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={createService} disabled={!serviceName.trim()}>
-            创建
+          <Button onClick={closeServiceDialog} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" onClick={createService} disabled={!serviceName.trim() || mutationBusy}>
+            {mutationBusy ? '创建中…' : '创建'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={groupDialogOpen} onClose={() => setGroupDialogOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={groupDialogOpen} onClose={closeGroupDialog} fullWidth maxWidth="xs">
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <CreateNewFolderIcon sx={{ color: 'primary.main' }} />
           {editingGroup ? '重命名分组' : '新建分组'}
@@ -448,6 +645,7 @@ export default function ServiceInfoManager() {
             label="分组名称"
             value={groupName}
             onChange={(event) => setGroupName(event.target.value)}
+            disabled={mutationBusy}
           />
           <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
             {GROUP_COLORS.map((color) => (
@@ -455,6 +653,7 @@ export default function ServiceInfoManager() {
                 key={color}
                 size="small"
                 onClick={() => setGroupColor(color)}
+                disabled={mutationBusy}
                 sx={{
                   width: 30,
                   height: 30,
@@ -470,14 +669,14 @@ export default function ServiceInfoManager() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setGroupDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={saveGroup} disabled={!groupName.trim()}>
-            保存
+          <Button onClick={closeGroupDialog} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" onClick={saveGroup} disabled={!groupName.trim() || mutationBusy}>
+            {mutationBusy ? '保存中…' : '保存'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={moveDialogOpen} onClose={() => setMoveDialogOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={moveDialogOpen} onClose={() => { if (!mutationLockRef.current) setMoveDialogOpen(false) }} fullWidth maxWidth="xs">
         <DialogTitle>移入分组</DialogTitle>
         <DialogContent>
           <FormControl fullWidth>
@@ -487,6 +686,7 @@ export default function ServiceInfoManager() {
               label="目标分组"
               value={targetGroupId}
               onChange={(event) => setTargetGroupId(event.target.value)}
+              disabled={mutationBusy}
             >
               {orderedGroups.map((group) => (
                 <MenuItem key={group.id} value={group.id}>
@@ -497,16 +697,16 @@ export default function ServiceInfoManager() {
           </FormControl>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setMoveDialogOpen(false)}>取消</Button>
-          <Button variant="contained" onClick={moveSelectedToExistingGroup} disabled={!targetGroupId}>
-            移动
+          <Button onClick={() => setMoveDialogOpen(false)} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" onClick={moveSelectedToExistingGroup} disabled={!targetGroupId || mutationBusy}>
+            {mutationBusy ? '移动中…' : '移动'}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog
         open={groupToDelete !== null}
-        onClose={() => { if (!deleteBusy) setGroupToDelete(null) }}
+        onClose={() => { if (!mutationLockRef.current) setGroupToDelete(null) }}
         fullWidth
         maxWidth="xs"
       >
@@ -529,7 +729,7 @@ export default function ServiceInfoManager() {
       </Dialog>
 
       <Snackbar open={notice !== null} autoHideDuration={5000} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
-        <Alert severity="error" variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>
+        <Alert severity={notice?.severity || 'error'} variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>
           {notice?.text}
         </Alert>
       </Snackbar>

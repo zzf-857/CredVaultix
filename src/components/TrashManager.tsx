@@ -6,6 +6,9 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Alert,
+  LinearProgress,
+  Snackbar,
   Typography,
 } from '@mui/material'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -61,19 +64,72 @@ export default function TrashManager() {
     hardDeleteSecretService,
   } = useStore()
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
+  const [mutationKey, setMutationKey] = useState<string | null>(null)
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [loadError, setLoadError] = useState('')
+  const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
+
+  const loadTrash = async () => {
+    setLoadState('loading')
+    setLoadError('')
+    try {
+      await Promise.all([loadTrashAccounts(), loadTrashServices()])
+      setLoadState('ready')
+    } catch (error) {
+      setLoadError(`读取回收站失败：${error instanceof Error ? error.message : String(error)}`)
+      setLoadState('error')
+    }
+  }
+
+  const handleRestore = async (kind: 'account' | 'service', id: string) => {
+    const key = `restore:${kind}:${id}`
+    if (mutationKey) return
+    setMutationKey(key)
+    try {
+      let result: { refreshFailed: boolean }
+      if (kind === 'account') {
+        result = await restoreAccount(id)
+      } else {
+        result = await restoreSecretService(id)
+      }
+      const successText = kind === 'account' ? '账号已恢复' : '服务信息已恢复'
+      setNotice({
+        severity: result.refreshFailed ? 'info' : 'success',
+        text: result.refreshFailed ? `${successText}，但部分列表刷新失败` : successText,
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `恢复失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setMutationKey(null)
+    }
+  }
 
   useEffect(() => {
-    void Promise.all([loadTrashAccounts(), loadTrashServices()])
+    void loadTrash()
   }, [loadTrashAccounts, loadTrashServices])
 
   const handleHardDelete = async () => {
-    if (!deleteTarget) return
-    if (deleteTarget.kind === 'account') {
-      await hardDeleteAccount(deleteTarget.id)
-    } else {
-      await hardDeleteSecretService(deleteTarget.id)
+    if (!deleteTarget || mutationKey) return
+    const target = deleteTarget
+    setMutationKey(`delete:${target.kind}:${target.id}`)
+    try {
+      let result: { refreshFailed: boolean }
+      if (target.kind === 'account') {
+        result = await hardDeleteAccount(target.id)
+      } else {
+        result = await hardDeleteSecretService(target.id)
+      }
+      setDeleteTarget(null)
+      const successText = target.kind === 'account' ? '账号已彻底删除' : '服务信息已彻底删除'
+      setNotice({
+        severity: result.refreshFailed ? 'info' : 'success',
+        text: result.refreshFailed ? `${successText}，但部分列表刷新失败` : successText,
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `彻底删除失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setMutationKey(null)
     }
-    setDeleteTarget(null)
   }
 
   const isEmpty = trashAccounts.length === 0 && trashServices.length === 0
@@ -94,7 +150,16 @@ export default function TrashManager() {
         </Box>
       </Box>
 
-      {isEmpty ? (
+      {loadState === 'loading' ? (
+        <LinearProgress aria-label="正在读取回收站" />
+      ) : loadState === 'error' ? (
+        <Alert
+          severity="error"
+          action={<Button color="inherit" size="small" onClick={() => { void loadTrash() }}>重试</Button>}
+        >
+          {loadError}
+        </Alert>
+      ) : isEmpty ? (
         <Box sx={{ textAlign: 'center', py: 8, px: 4, border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
           <DeleteOutlineIcon sx={{ fontSize: 56, color: 'text.secondary', opacity: 0.35, mb: 2 }} />
           <Typography variant="h6" sx={{ color: 'text.primary', fontWeight: 800 }}>回收站空空如也</Typography>
@@ -116,8 +181,8 @@ export default function TrashManager() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Button size="small" variant="contained" startIcon={<RestoreFromTrashIcon />} onClick={() => restoreAccount(account.id)}>恢复账号</Button>
-                      <Button size="small" color="error" variant="outlined" onClick={() => setDeleteTarget({ kind: 'account', id: account.id, name: account.name })}>彻底删除</Button>
+                      <Button size="small" variant="contained" startIcon={<RestoreFromTrashIcon />} disabled={Boolean(mutationKey)} onClick={() => void handleRestore('account', account.id)}>恢复账号</Button>
+                      <Button size="small" color="error" variant="outlined" disabled={Boolean(mutationKey)} onClick={() => setDeleteTarget({ kind: 'account', id: account.id, name: account.name })}>彻底删除</Button>
                     </Box>
                   </Box>
                 ))}
@@ -139,8 +204,8 @@ export default function TrashManager() {
                       </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Button size="small" variant="contained" startIcon={<RestoreFromTrashIcon />} onClick={() => restoreSecretService(service.id)}>恢复服务</Button>
-                      <Button size="small" color="error" variant="outlined" onClick={() => setDeleteTarget({ kind: 'service', id: service.id, name: service.name })}>彻底删除</Button>
+                      <Button size="small" variant="contained" startIcon={<RestoreFromTrashIcon />} disabled={Boolean(mutationKey)} onClick={() => void handleRestore('service', service.id)}>恢复服务</Button>
+                      <Button size="small" color="error" variant="outlined" disabled={Boolean(mutationKey)} onClick={() => setDeleteTarget({ kind: 'service', id: service.id, name: service.name })}>彻底删除</Button>
                     </Box>
                   </Box>
                 ))}
@@ -150,7 +215,7 @@ export default function TrashManager() {
         </Box>
       )}
 
-      <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} maxWidth="xs" fullWidth>
+      <Dialog open={deleteTarget !== null} onClose={() => { if (!mutationKey) setDeleteTarget(null) }} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningAmberIcon sx={{ color: 'warning.main' }} />
           确认彻底删除
@@ -164,10 +229,17 @@ export default function TrashManager() {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>取消</Button>
-          <Button variant="contained" color="error" onClick={handleHardDelete}>确认删除</Button>
+          <Button onClick={() => setDeleteTarget(null)} disabled={Boolean(mutationKey)}>取消</Button>
+          <Button variant="contained" color="error" onClick={handleHardDelete} disabled={Boolean(mutationKey)}>
+            {mutationKey?.startsWith('delete:') ? '删除中...' : '确认删除'}
+          </Button>
         </DialogActions>
       </Dialog>
+      <Snackbar open={notice !== null} autoHideDuration={4500} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={notice?.severity || 'success'} variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>
+          {notice?.text}
+        </Alert>
+      </Snackbar>
     </Box>
   )
 }

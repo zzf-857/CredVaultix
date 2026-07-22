@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type {
   AccountRow,
   AppPreferences,
+  AccountUpdateResult,
   CreateTotpData,
   CsvImportResult,
   SecretFieldGroupRow,
@@ -12,6 +13,7 @@ import type {
   ServiceInfoSortMode,
   TotpAccountRow,
   UpdateTotpData,
+  UpdateAccountData,
 } from '../types'
 import type { AccountPlatform } from '../utils/accountPlatform'
 import { resolveAppPreferences } from '../utils/appPreferences'
@@ -22,6 +24,19 @@ interface SelectedServiceDetail {
   service: SecretServiceRow
   fieldGroups: SecretFieldGroupRow[]
   fields: SecretFieldRow[]
+}
+
+interface MutationRefreshResult {
+  refreshFailed: boolean
+}
+
+async function settleRefreshes(label: string, refreshes: Promise<unknown>[]) {
+  const results = await Promise.allSettled(refreshes)
+  const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failures.length > 0) {
+    console.error(`${label} committed, but ${failures.length} refresh operation(s) failed`, failures.map((failure) => failure.reason))
+  }
+  return failures.length > 0
 }
 
 interface AppState {
@@ -35,6 +50,7 @@ interface AppState {
   secretServices: SecretServiceRow[]
   selectedServiceId: string | null
   selectedServiceDetail: SelectedServiceDetail | null
+  serviceDetailLoadError: string | null
   serviceSearchQuery: string
   serviceSortMode: ServiceInfoSortMode
   selectedServiceIds: string[]
@@ -46,6 +62,7 @@ interface AppState {
   accountPlatformFilter: AccountPlatform | 'all'
   themeMode: 'dark' | 'light'
   navigationBlockReason: string | null
+  dataRevision: number
 
   accountsPinnedIds: string[]
   accountsCustomOrder: string[]
@@ -77,24 +94,24 @@ interface AppState {
   loadTrashAccounts: () => Promise<void>
   loadTrashServices: () => Promise<void>
 
-  createTotpAccount: (data: Omit<CreateTotpData, 'id'>) => Promise<string>
-  updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<void>
-  deleteTotpAccount: (id: string) => Promise<void>
-  incrementTotpCounter: (id: string) => Promise<number>
+  createTotpAccount: (data: Omit<CreateTotpData, 'id'>) => Promise<{ id: string } & MutationRefreshResult>
+  updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<MutationRefreshResult>
+  deleteTotpAccount: (id: string) => Promise<MutationRefreshResult>
+  incrementTotpCounter: (id: string) => Promise<{ counter: number } & MutationRefreshResult>
 
-  createAccount: (name: string, platform?: AccountPlatform) => Promise<string>
-  updateAccount: (id: string, data: any, reload?: boolean) => Promise<void>
-  deleteAccount: (id: string) => Promise<void>
-  restoreAccount: (id: string) => Promise<void>
-  hardDeleteAccount: (id: string) => Promise<void>
-  restoreSecretService: (id: string) => Promise<void>
-  hardDeleteSecretService: (id: string) => Promise<void>
-  addAccountTag: (accountId: string, tagName: string) => Promise<void>
-  removeAccountTag: (accountId: string, tagId: string) => Promise<void>
+  createAccount: (name: string, platform?: AccountPlatform) => Promise<{ id: string } & MutationRefreshResult>
+  updateAccount: (id: string, data: UpdateAccountData, reload?: boolean) => Promise<AccountUpdateResult>
+  deleteAccount: (id: string) => Promise<MutationRefreshResult>
+  restoreAccount: (id: string) => Promise<MutationRefreshResult>
+  hardDeleteAccount: (id: string) => Promise<MutationRefreshResult>
+  restoreSecretService: (id: string) => Promise<MutationRefreshResult>
+  hardDeleteSecretService: (id: string) => Promise<MutationRefreshResult>
+  addAccountTag: (accountId: string, tagName: string) => Promise<{ tagId: string; linked?: boolean } & MutationRefreshResult>
+  removeAccountTag: (accountId: string, tagId: string) => Promise<{ success: boolean; removed?: boolean; deletedUnusedTag?: boolean } & MutationRefreshResult>
   navigateToAccount: (accountId: string) => void
 
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
-  importDatabase: () => Promise<{ success: boolean }>
+  importDatabase: () => Promise<{ success: boolean; refreshFailed?: boolean }>
   importCsvAccounts: () => Promise<CsvImportResult>
 }
 
@@ -108,6 +125,7 @@ export const useStore = create<AppState>((set, get) => ({
   secretServices: [],
   selectedServiceId: null,
   selectedServiceDetail: null,
+  serviceDetailLoadError: null,
   serviceSearchQuery: '',
   serviceSortMode: 'manual',
   selectedServiceIds: [],
@@ -118,6 +136,7 @@ export const useStore = create<AppState>((set, get) => ({
   accountPlatformFilter: 'all',
   themeMode: 'dark',
   navigationBlockReason: null,
+  dataRevision: 0,
 
   accountsPinnedIds: [],
   accountsCustomOrder: [],
@@ -172,22 +191,38 @@ export const useStore = create<AppState>((set, get) => ({
   loadServiceInfo: async () => {
     const { groups, services } = await window.electronAPI.getServiceInfo()
     const state = get()
-    const selectedServiceExists = state.selectedServiceId
-      ? services.some((service) => service.id === state.selectedServiceId)
-      : false
+    const selectedService = state.selectedServiceId
+      ? services.find((service) => service.id === state.selectedServiceId)
+      : undefined
+    const selectedServiceExists = Boolean(selectedService)
     const serviceIds = new Set(services.map((service) => service.id))
 
     set({
       serviceGroups: groups,
       secretServices: services,
       selectedServiceId: selectedServiceExists ? state.selectedServiceId : null,
-      selectedServiceDetail: selectedServiceExists ? state.selectedServiceDetail : null,
+      selectedServiceDetail: selectedService && state.selectedServiceDetail
+        ? {
+            ...state.selectedServiceDetail,
+            service: { ...state.selectedServiceDetail.service, ...selectedService },
+          }
+        : selectedServiceExists ? state.selectedServiceDetail : null,
+      serviceDetailLoadError: selectedServiceExists ? state.serviceDetailLoadError : null,
       selectedServiceIds: state.selectedServiceIds.filter((id) => serviceIds.has(id)),
     })
   },
 
   loadServiceDetail: async (serviceId) => {
-    const detail = await window.electronAPI.getServiceDetail(serviceId)
+    let detail: SelectedServiceDetail | null
+    try {
+      detail = await window.electronAPI.getServiceDetail(serviceId)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      set((state) => state.selectedServiceId === serviceId
+        ? { serviceDetailLoadError: `读取服务详情失败：${message}` }
+        : {})
+      throw error
+    }
 
     set((state) => {
       if (state.selectedServiceId && state.selectedServiceId !== serviceId) {
@@ -198,15 +233,16 @@ export const useStore = create<AppState>((set, get) => ({
       return {
         selectedServiceId: detail ? serviceId : null,
         selectedServiceDetail: detail,
+        serviceDetailLoadError: null,
         selectedFieldIds: state.selectedFieldIds.filter((id) => fieldIds.has(id)),
       }
     })
   },
 
   setSelectedService: (id) => {
-    set({ selectedServiceId: id, selectedServiceDetail: null, selectedFieldIds: [] })
+    set({ selectedServiceId: id, selectedServiceDetail: null, selectedFieldIds: [], serviceDetailLoadError: null })
     if (id) {
-      void get().loadServiceDetail(id)
+      void get().loadServiceDetail(id).catch(() => undefined)
     }
   },
 
@@ -259,11 +295,15 @@ export const useStore = create<AppState>((set, get) => ({
       isDeleted: false,
     })
 
-    const selectedAccountId = state.selectedAccountId
+    const latestState = get()
+    const selectedAccountId = latestState.selectedAccountId
+    const preserveSelectedDraft = Boolean(latestState.navigationBlockReason)
     set({
       accounts,
       selectedAccountId:
-        selectedAccountId && !accounts.some((account) => account.id === selectedAccountId)
+        selectedAccountId
+        && !preserveSelectedDraft
+        && !accounts.some((account) => account.id === selectedAccountId)
           ? null
           : selectedAccountId,
     })
@@ -292,83 +332,107 @@ export const useStore = create<AppState>((set, get) => ({
 
   createTotpAccount: async (data) => {
     const id = uuidv4()
-    await window.electronAPI.createTotpAccount({
+    const result = await window.electronAPI.createTotpAccount({
       id,
       ...data,
       otpType: data.otpType || 'totp',
     })
-    await get().loadTotpAccounts()
-    return id
+    const refreshFailed = await settleRefreshes('2FA create', [get().loadTotpAccounts(), get().loadAccounts(), get().loadAllAccounts()])
+    return { id: result.id, refreshFailed }
   },
 
   updateTotpAccount: async (id, data) => {
-    await window.electronAPI.updateTotpAccount(id, data)
-    await get().loadTotpAccounts()
+    const result = await window.electronAPI.updateTotpAccount(id, data)
+    if (!result.success) throw new Error('2FA 记录不存在或已经删除')
+    const refreshFailed = await settleRefreshes('2FA update', [get().loadTotpAccounts(), get().loadAccounts(), get().loadAllAccounts()])
+    return { refreshFailed }
   },
 
   deleteTotpAccount: async (id) => {
-    await window.electronAPI.deleteTotpAccount(id)
-    await get().loadTotpAccounts()
+    const result = await window.electronAPI.deleteTotpAccount(id)
+    if (!result.success) throw new Error('2FA 记录不存在或已经删除')
+    const refreshFailed = await settleRefreshes('2FA delete', [get().loadTotpAccounts(), get().loadAccounts(), get().loadAllAccounts()])
+    return { refreshFailed }
   },
 
   incrementTotpCounter: async (id) => {
     const result = await window.electronAPI.incrementTotpCounter(id)
-    await get().loadTotpAccounts()
-    return result.counter
+    if (!result.success) throw new Error('HOTP 记录不存在、已被删除或不是计数器验证码')
+    const refreshFailed = await settleRefreshes('HOTP counter increment', [get().loadTotpAccounts()])
+    return { counter: result.counter, refreshFailed }
   },
 
   createAccount: async (name, platform = 'google') => {
     const id = uuidv4()
     await window.electronAPI.createAccount({ id, name, platform })
-    await Promise.all([get().loadAccounts(), get().loadAllAccounts()])
+    const refreshFailed = await settleRefreshes('account create', [get().loadAccounts(), get().loadAllAccounts()])
     set({ selectedAccountId: id })
-    return id
+    return { id, refreshFailed }
   },
 
   updateAccount: async (id, data, reload = true) => {
-    await window.electronAPI.updateAccount(id, data)
+    const result = await window.electronAPI.updateAccount(id, data)
+    let refreshFailed = false
     if (reload) {
-      await Promise.all([get().loadAccounts(), get().loadAllAccounts()])
+      refreshFailed = await settleRefreshes('account update', [get().loadAccounts(), get().loadAllAccounts(), get().loadTotpAccounts()])
     }
+    return { ...result, refreshFailed }
   },
 
   deleteAccount: async (id) => {
-    await window.electronAPI.deleteAccount(id)
-    if (get().selectedAccountId === id) {
-      set({ selectedAccountId: null })
-    }
-    await Promise.all([get().loadAccounts(), get().loadAllAccounts(), get().loadTrashAccounts()])
+    const result = await window.electronAPI.deleteAccount(id)
+    if (!result.success) throw new Error('账号不存在或已经在回收站中')
+    set((state) => ({
+      accounts: state.accounts.filter((account) => account.id !== id),
+      allAccounts: state.allAccounts.filter((account) => account.id !== id),
+      selectedAccountId: state.selectedAccountId === id ? null : state.selectedAccountId,
+    }))
+    const refreshFailed = await settleRefreshes('account delete', [get().loadAccounts(), get().loadAllAccounts(), get().loadTrashAccounts(), get().loadTotpAccounts()])
+    return { refreshFailed }
   },
 
   restoreAccount: async (id) => {
-    await window.electronAPI.restoreAccount(id)
-    await Promise.all([get().loadAccounts(), get().loadAllAccounts(), get().loadTrashAccounts()])
+    const result = await window.electronAPI.restoreAccount(id)
+    if (!result.success) throw new Error('账号不存在或已经恢复')
+    set((state) => ({ trashAccounts: state.trashAccounts.filter((account) => account.id !== id) }))
+    const refreshFailed = await settleRefreshes('account restore', [get().loadAccounts(), get().loadAllAccounts(), get().loadTrashAccounts(), get().loadTotpAccounts()])
+    return { refreshFailed }
   },
 
   hardDeleteAccount: async (id) => {
-    await window.electronAPI.hardDeleteAccount(id)
-    await Promise.all([get().loadTrashAccounts(), get().loadAllAccounts()])
+    const result = await window.electronAPI.hardDeleteAccount(id)
+    if (!result.success) throw new Error('账号不存在或不在回收站中')
+    set((state) => ({ trashAccounts: state.trashAccounts.filter((account) => account.id !== id) }))
+    const refreshFailed = await settleRefreshes('account hard delete', [get().loadTrashAccounts(), get().loadAllAccounts(), get().loadTotpAccounts()])
+    return { refreshFailed }
   },
 
   restoreSecretService: async (id) => {
-    await window.electronAPI.restoreSecretService(id)
-    await get().loadServiceInfo()
-    await get().loadTrashServices()
+    const result = await window.electronAPI.restoreSecretService(id)
+    if (!result.success) throw new Error('服务不存在或已经恢复')
+    set((state) => ({ trashServices: state.trashServices.filter((service) => service.id !== id) }))
+    const refreshFailed = await settleRefreshes('service restore', [get().loadServiceInfo(), get().loadTrashServices()])
+    return { refreshFailed }
   },
 
   hardDeleteSecretService: async (id) => {
-    await window.electronAPI.hardDeleteSecretService(id)
-    await get().loadTrashServices()
+    const result = await window.electronAPI.hardDeleteSecretService(id)
+    if (!result.success) throw new Error('服务不存在或不在回收站中')
+    set((state) => ({ trashServices: state.trashServices.filter((service) => service.id !== id) }))
+    const refreshFailed = await settleRefreshes('service hard delete', [get().loadTrashServices()])
+    return { refreshFailed }
   },
 
   addAccountTag: async (accountId, tagName) => {
-    await window.electronAPI.addAccountTag({ accountId, tagName })
-    await Promise.all([get().loadAccounts(), get().loadAllAccounts()])
+    const result = await window.electronAPI.addAccountTag({ accountId, tagName })
+    const refreshFailed = await settleRefreshes('account tag add', [get().loadAccounts(), get().loadAllAccounts()])
+    return { ...result, refreshFailed }
   },
 
   removeAccountTag: async (accountId, tagId) => {
-    await window.electronAPI.removeAccountTag({ accountId, tagId })
-    await Promise.all([get().loadAccounts(), get().loadAllAccounts()])
+    const result = await window.electronAPI.removeAccountTag({ accountId, tagId })
+    const refreshFailed = await settleRefreshes('account tag remove', [get().loadAccounts(), get().loadAllAccounts()])
+    return { ...result, refreshFailed }
   },
 
   navigateToAccount: (accountId) => {
@@ -386,22 +450,27 @@ export const useStore = create<AppState>((set, get) => ({
 
   importDatabase: async () => {
     const result = await window.electronAPI.importDatabase()
+    let refreshFailed = false
     if (result.success) {
-      await get().loadTotpAccounts()
-      await get().loadAccounts()
-      await get().loadAllAccounts()
-      await get().loadTrashAccounts()
-      await get().loadServiceInfo()
-      await get().loadTrashServices()
+      refreshFailed = await settleRefreshes('database import', [
+        get().loadTotpAccounts(),
+        get().loadAccounts(),
+        get().loadAllAccounts(),
+        get().loadTrashAccounts(),
+        get().loadServiceInfo(),
+        get().loadTrashServices(),
+      ])
+      set((state) => ({ dataRevision: state.dataRevision + 1 }))
     }
-    return result
+    return { ...result, refreshFailed }
   },
 
   importCsvAccounts: async () => {
     const result = await window.electronAPI.importCsvAccounts()
+    let refreshFailed = false
     if (result.count > 0) {
-      await Promise.all([get().loadAccounts(), get().loadAllAccounts(), get().loadTotpAccounts()])
+      refreshFailed = await settleRefreshes('CSV import', [get().loadAccounts(), get().loadAllAccounts(), get().loadTotpAccounts()])
     }
-    return result
+    return { ...result, refreshFailed }
   },
 }))

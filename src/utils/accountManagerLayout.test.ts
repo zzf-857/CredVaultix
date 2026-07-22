@@ -3,11 +3,28 @@ import {
   ACCOUNT_TAG_INPUT_CONTROL_HEIGHT,
   getAccountDetailSectionOrder,
   getVisibleAccountPreviewTags,
+  mergeVisibleAccountOrder,
 } from './accountManagerLayout'
 
 describe('ACCOUNT_TAG_INPUT_CONTROL_HEIGHT', () => {
   it('uses a shared 40px control height for tag input row controls', () => {
     expect(ACCOUNT_TAG_INPUT_CONTROL_HEIGHT).toBe(40)
+  })
+})
+
+describe('mergeVisibleAccountOrder', () => {
+  it('reorders a filtered subset without dropping or moving hidden accounts', () => {
+    expect(
+      mergeVisibleAccountOrder(
+        ['a', 'b', 'c', 'd'],
+        ['a', 'b', 'c', 'd'],
+        ['c', 'a']
+      )
+    ).toEqual(['c', 'b', 'a', 'd'])
+  })
+
+  it('adds accounts missing from an older saved preference before merging', () => {
+    expect(mergeVisibleAccountOrder(['a'], ['a', 'b', 'c'], ['c', 'a'])).toEqual(['c', 'b', 'a'])
   })
 })
 

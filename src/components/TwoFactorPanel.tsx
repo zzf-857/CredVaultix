@@ -6,6 +6,7 @@ import {
   MenuItem, Select, FormControl, InputLabel,
   InputAdornment,
   ToggleButton, ToggleButtonGroup,
+  Alert, Snackbar,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -105,6 +106,7 @@ function TotpCard({
   onRequestDelete,
   onRequestEdit,
   onIncrementCounter,
+  counterBusy = false,
   onNavigateToAccount,
 }: {
   account: TotpAccountRow
@@ -113,6 +115,7 @@ function TotpCard({
   onRequestDelete: (account: TotpAccountRow) => void
   onRequestEdit: (account: TotpAccountRow) => void
   onIncrementCounter: (id: string) => void
+  counterBusy?: boolean
   onNavigateToAccount?: (accountId: string) => void
 }) {
   const [otpCode, setOtpCode] = useState<OtpCode>(() => generateOtpCode(account))
@@ -121,11 +124,14 @@ function TotpCard({
   const [hovered, setHovered] = useState(false)
 
   const isHotp = account.otp_type === 'hotp'
-  const isOrphaned = account.linked_account_id?.startsWith('!deleted-')
+  const linkedAccountState = account.linked_account_state
+    || (account.linked_account_id?.startsWith('!deleted-') ? 'missing' : account.linked_account_id ? 'active' : 'unlinked')
+  const isOrphaned = linkedAccountState === 'missing'
+  const isLinkedAccountTrashed = linkedAccountState === 'trashed'
 
   useEffect(() => {
+    setOtpCode(generateOtpCode(account))
     if (isHotp) {
-      setOtpCode(generateOtpCode(account))
       return
     }
     const timer = setInterval(() => {
@@ -192,17 +198,17 @@ function TotpCard({
               {account.issuer || account.label}
             </Typography>
             <OtpTypeBadge type={account.otp_type} />
-            {isOrphaned ? (
+            {isOrphaned || isLinkedAccountTrashed ? (
               <Chip
                 icon={<WarningAmberIcon sx={{ fontSize: '14px !important' }} />}
-                label="主账号已删"
+                label={isLinkedAccountTrashed ? '主账号在回收站' : '主账号已删'}
                 size="small"
                 sx={{
                   height: 24, fontSize: '0.68rem', fontWeight: 600, lineHeight: 1.35,
                   bgcolor: 'rgba(211,47,47,0.1)', color: 'error.main', border: '1px solid', borderColor: 'rgba(211,47,47,0.3)',
                 }}
               />
-            ) : account.linked_account_id && (
+            ) : linkedAccountState === 'active' && account.linked_account_id && (
               <Tooltip title="已关联账号 · 点击跳转" arrow TransitionComponent={Fade}>
                 <IconButton
                   size="small"
@@ -289,6 +295,7 @@ function TotpCard({
               <IconButton
                 size="small"
                 onClick={(e) => { e.stopPropagation(); onIncrementCounter(account.id) }}
+                disabled={counterBusy}
                 sx={{ color: 'primary.main' }}
               >
                 <RefreshIcon sx={{ fontSize: 20 }} />
@@ -645,8 +652,10 @@ export default function TwoFactorPanel() {
       setActiveGroup('group-microsoft')
     } else if (otherAccounts.length > 0) {
       setActiveGroup('group-other')
+    } else {
+      setActiveGroup('')
     }
-  }, [totpAccounts])
+  }, [totpAccounts, accounts])
 
   const scrollToGroup = (groupId: string) => {
     const el = document.getElementById(groupId)
@@ -700,6 +709,12 @@ export default function TwoFactorPanel() {
   const [uriError, setUriError] = useState('')
   const [manualError, setManualError] = useState('')
   const [editingTarget, setEditingTarget] = useState<TotpAccountRow | null>(null)
+  const [mutationBusy, setMutationBusy] = useState(false)
+  const counterBusyRef = useRef<string | null>(null)
+  const [counterBusyId, setCounterBusyId] = useState<string | null>(null)
+  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [loadError, setLoadError] = useState('')
+  const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<TotpAccountRow | null>(null)
@@ -780,8 +795,20 @@ export default function TwoFactorPanel() {
     setDialogOpen(true)
   }
 
+  const loadPanelData = async () => {
+    setLoadState('loading')
+    setLoadError('')
+    try {
+      await Promise.all([loadTotpAccounts(), loadAllAccounts()])
+      setLoadState('ready')
+    } catch (error) {
+      setLoadError(`读取 2FA 数据失败：${error instanceof Error ? error.message : String(error)}`)
+      setLoadState('error')
+    }
+  }
+
   useEffect(() => {
-    void Promise.all([loadTotpAccounts(), loadAllAccounts()])
+    void loadPanelData()
   }, [loadAllAccounts, loadTotpAccounts])
 
   // Identify platform for grouping (Google, Microsoft, Others) with safe accessors
@@ -915,7 +942,8 @@ export default function TwoFactorPanel() {
                 isPinned={account.linked_account_id ? accountsPinnedIds.includes(account.linked_account_id) : false}
                 onRequestDelete={handleRequestDelete}
                 onRequestEdit={openEditDialog}
-                onIncrementCounter={incrementTotpCounter}
+                onIncrementCounter={handleIncrementCounter}
+                counterBusy={counterBusyId !== null}
                 onNavigateToAccount={navigateToAccount}
               />
             </Box>
@@ -1013,18 +1041,31 @@ export default function TwoFactorPanel() {
       }
     }
 
-    if (editingTarget) {
-      await updateTotpAccount(editingTarget.id, nextData)
-      if (editingTarget.linked_account_id && !editingTarget.linked_account_id.startsWith('!deleted-')) {
-        await window.electronAPI.updateAccount(editingTarget.linked_account_id, {
-          totpSecret: nextData.secret,
-        })
-        await loadAllAccounts()
+    if (mutationBusy) return
+    setMutationBusy(true)
+    try {
+      let result: { refreshFailed: boolean }
+      if (editingTarget) {
+        result = await updateTotpAccount(editingTarget.id, nextData)
+      } else {
+        result = await createTotpAccount(nextData)
       }
-    } else {
-      await createTotpAccount(nextData)
+      setNotice({
+        severity: result.refreshFailed ? 'info' : 'success',
+        text: result.refreshFailed
+          ? `${editingTarget ? '2FA 记录已更新' : '2FA 记录已添加'}，但界面刷新失败`
+          : editingTarget ? '2FA 记录已更新' : '2FA 记录已添加',
+      })
+      if (!result.refreshFailed) {
+        setLoadState('ready')
+        setLoadError('')
+      }
+      resetDialog()
+    } catch (error) {
+      setNotice({ severity: 'error', text: `保存失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setMutationBusy(false)
     }
-    resetDialog()
   }
 
   const resetDialog = () => {
@@ -1050,12 +1091,39 @@ export default function TwoFactorPanel() {
     setDeleteConfirmOpen(true)
   }
 
-  const handleConfirmDelete = async () => {
-    if (deleteTarget) {
-      await deleteTotpAccount(deleteTarget.id)
+  const handleIncrementCounter = async (id: string) => {
+    if (counterBusyRef.current) return
+    counterBusyRef.current = id
+    setCounterBusyId(id)
+    try {
+      const result = await incrementTotpCounter(id)
+      if (result.refreshFailed) {
+        setNotice({ severity: 'info', text: 'HOTP 计数器已递增，但验证码刷新失败；重新进入后会再次读取' })
+      }
+    } catch (error) {
+      setNotice({ severity: 'error', text: `HOTP 计数器递增失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      counterBusyRef.current = null
+      setCounterBusyId(null)
     }
-    setDeleteTarget(null)
-    setDeleteConfirmOpen(false)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || mutationBusy) return
+    setMutationBusy(true)
+    try {
+      const result = await deleteTotpAccount(deleteTarget.id)
+      setDeleteTarget(null)
+      setDeleteConfirmOpen(false)
+      setNotice({
+        severity: result.refreshFailed ? 'info' : 'success',
+        text: result.refreshFailed ? '2FA 记录已删除，但界面刷新失败' : '2FA 记录已删除',
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `删除失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setMutationBusy(false)
+    }
   }
 
   return (
@@ -1157,7 +1225,15 @@ export default function TwoFactorPanel() {
             transition: 'padding-right 0.2s ease',
           }}
         >
-          {totpAccounts.length === 0 ? (
+          {loadState === 'loading' && <LinearProgress aria-label="正在读取 2FA 数据" sx={{ mb: 2 }} />}
+          {loadState === 'error' ? (
+            <Alert
+              severity="error"
+              action={<Button color="inherit" size="small" onClick={() => { void loadPanelData() }}>重试</Button>}
+            >
+              {loadError}
+            </Alert>
+          ) : loadState === 'ready' && (totpAccounts.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8, px: 4, maxWidth: 460, mx: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
               <SecurityIcon sx={{ fontSize: 52, color: 'primary.main', opacity: 0.32, mb: 2 }} />
               <Typography variant="h6" sx={{ color: 'text.primary', mb: 1, fontWeight: 800 }}>
@@ -1202,7 +1278,7 @@ export default function TwoFactorPanel() {
                 'group-other'
               )}
             </Box>
-          )}
+          ))}
         </Box>
 
         {/* Quick Navigation Floating Sidebar */}
@@ -1446,7 +1522,7 @@ export default function TwoFactorPanel() {
       </Dialog>
 
       {/* ========== Add Account Dialog ========== */}
-      <Dialog open={dialogOpen} onClose={resetDialog} maxWidth="sm" fullWidth>
+      <Dialog open={dialogOpen} onClose={() => { if (!mutationBusy) resetDialog() }} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon sx={{ color: 'primary.main' }} />
           {editingTarget ? '编辑 2FA 账户' : '添加 2FA 账户'}
@@ -1592,13 +1668,15 @@ export default function TwoFactorPanel() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={resetDialog}>取消</Button>
-          <Button variant="contained" onClick={handleAdd}>{editingTarget ? '保存' : '添加'}</Button>
+          <Button onClick={resetDialog} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" onClick={handleAdd} disabled={mutationBusy}>
+            {mutationBusy ? '保存中...' : editingTarget ? '保存' : '添加'}
+          </Button>
         </DialogActions>
       </Dialog>
 
       {/* ========== Delete Confirmation Dialog ========== */}
-      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={deleteConfirmOpen} onClose={() => { if (!mutationBusy) setDeleteConfirmOpen(false) }} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningAmberIcon sx={{ color: 'warning.main' }} />
           确认删除
@@ -1624,10 +1702,17 @@ export default function TwoFactorPanel() {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteConfirmOpen(false)}>取消</Button>
-          <Button variant="contained" color="error" onClick={handleConfirmDelete}>确认删除</Button>
+          <Button onClick={() => setDeleteConfirmOpen(false)} disabled={mutationBusy}>取消</Button>
+          <Button variant="contained" color="error" onClick={handleConfirmDelete} disabled={mutationBusy}>
+            {mutationBusy ? '删除中...' : '确认删除'}
+          </Button>
         </DialogActions>
       </Dialog>
+      <Snackbar open={notice !== null} autoHideDuration={4500} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={notice?.severity || 'success'} variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>
+          {notice?.text}
+        </Alert>
+      </Snackbar>
     </Box>
   )
 }

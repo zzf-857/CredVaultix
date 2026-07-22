@@ -32,6 +32,7 @@ type UpdateStatus =
   | 'latest'
   | 'downloading'
   | 'downloaded'
+  | 'installing'
   | 'error'
   | 'portable'
 
@@ -104,6 +105,9 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           setUpdateStatusText(`新版本 v${version} 已下载完成`)
           setDownloadPercent(100)
           break
+        case 'installing':
+          setUpdateStatusText('正在退出并安装更新...')
+          break
         case 'error':
           setUpdateStatusText(getFriendlyUpdateError(error))
           break
@@ -149,7 +153,25 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     }
   }
 
-  const busy = updateStatus === 'checking' || updateStatus === 'downloading'
+  const handleQuitAndInstall = async () => {
+    if (updateStatus === 'installing') return
+
+    setUpdateStatus('installing')
+    setUpdateStatusText('正在退出并安装更新...')
+
+    try {
+      const started = await window.electronAPI.quitAndInstall()
+      if (!started) {
+        setUpdateStatus('error')
+        setUpdateStatusText('无法启动更新安装，请重新下载更新包')
+      }
+    } catch (error) {
+      setUpdateStatus('error')
+      setUpdateStatusText(getFriendlyUpdateError(error instanceof Error ? error.message : String(error)))
+    }
+  }
+
+  const busy = updateStatus === 'checking' || updateStatus === 'downloading' || updateStatus === 'installing'
 
   const handleExportDatabase = async () => {
     try {
@@ -167,7 +189,12 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     try {
       const result = await importDatabase()
       if (result.success) {
-        setNotice({ severity: 'success', text: '备份已恢复，账号、2FA 和服务信息已重新加载' })
+        setNotice({
+          severity: result.refreshFailed ? 'info' : 'success',
+          text: result.refreshFailed
+            ? '备份已恢复，但部分界面刷新失败；重新打开对应页面会再次读取'
+            : '备份已恢复，账号、2FA 和服务信息已重新加载',
+        })
       }
     } catch (error) {
       setNotice({ severity: 'error', text: `导入失败；已保留导入前自动备份：${error instanceof Error ? error.message : String(error)}` })
@@ -223,15 +250,15 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   下载更新包
                 </Button>
               )}
-              {updateStatus === 'downloaded' && (
+              {(updateStatus === 'downloaded' || updateStatus === 'installing') && (
                 <Button
-                  onClick={() => window.electronAPI.quitAndInstall()}
+                  onClick={handleQuitAndInstall}
                   startIcon={<RestartAltIcon />}
                   color="success"
                   variant="contained"
-                  disabled={Boolean(navigationBlockReason)}
+                  disabled={Boolean(navigationBlockReason) || updateStatus === 'installing'}
                 >
-                  重启安装
+                  {updateStatus === 'installing' ? '正在安装' : '重启安装'}
                 </Button>
               )}
             </Box>

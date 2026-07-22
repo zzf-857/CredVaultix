@@ -9,6 +9,11 @@ interface BackupData {
   secretFields?: any[]
 }
 
+export interface ServiceAccountLink {
+  id: string
+  linked_account_id: string
+}
+
 export function readServiceInfoBackupData(db: Database.Database) {
   return {
     secretGroups: db.prepare('SELECT * FROM secret_groups').all(),
@@ -18,13 +23,42 @@ export function readServiceInfoBackupData(db: Database.Database) {
   }
 }
 
-function hasServiceInfoBackupData(data: BackupData) {
+export function hasServiceInfoBackupData(data: BackupData) {
   return Boolean(
     data.secretGroups ||
       data.secretServices ||
       data.secretFieldGroups ||
       data.secretFields
   )
+}
+
+export function captureLegacyServiceAccountLinks(
+  db: Database.Database,
+  data: BackupData
+): ServiceAccountLink[] {
+  if (hasServiceInfoBackupData(data)) return []
+
+  return db.prepare(`
+    SELECT id, linked_account_id
+    FROM secret_services
+    WHERE linked_account_id IS NOT NULL
+  `).all() as ServiceAccountLink[]
+}
+
+export function restoreLegacyServiceAccountLinks(
+  db: Database.Database,
+  links: readonly ServiceAccountLink[]
+) {
+  const restoreLink = db.prepare(`
+    UPDATE secret_services
+    SET linked_account_id = ?
+    WHERE id = ?
+      AND EXISTS (SELECT 1 FROM accounts WHERE id = ?)
+  `)
+
+  for (const link of links) {
+    restoreLink.run(link.linked_account_id, link.id, link.linked_account_id)
+  }
 }
 
 export function clearServiceInfoBackupTables(db: Database.Database) {

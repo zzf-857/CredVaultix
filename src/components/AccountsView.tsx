@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Box,
   Button,
@@ -13,6 +13,7 @@ import {
   InputAdornment,
   ListItemIcon,
   ListItemText,
+  LinearProgress,
   Menu,
   MenuItem,
   Paper,
@@ -52,7 +53,7 @@ import { v4 as uuidv4 } from 'uuid'
 import AccountPlatformDialog from './AccountPlatformDialog'
 import TotpCodeDisplay from './TotpCodeDisplay'
 import { useStore } from '../stores/useStore'
-import { AccountRow, CustomFieldRow, TagRow } from '../types'
+import { AccountRow, CustomFieldRow, TagRow, UpdateAccountData } from '../types'
 import {
   AccountPlatform,
   getAccountPlatformLabel,
@@ -61,8 +62,14 @@ import {
   ACCOUNT_TAG_INPUT_CONTROL_HEIGHT,
   getAccountDetailSectionOrder,
   getVisibleAccountPreviewTags,
+  mergeVisibleAccountOrder,
 } from '../utils/accountManagerLayout'
 import { generateSecurePassword } from '../utils/securePassword'
+import { normalizeOtpInput } from '../utils/otpAuth'
+import { buildAccountUpdatePatch } from '../utils/accountEdit'
+
+const MAX_ACCOUNT_TAG_LENGTH = 64
+type AccountNotice = { severity: 'success' | 'error' | 'info'; text: string }
 
 const PLATFORM_ACCENTS: Record<AccountPlatform, string> = {
   google: '#8ddc9f',
@@ -171,6 +178,8 @@ function SensitiveField({
   editing,
   onChange,
   onGenerate,
+  error,
+  helperText,
 }: {
   icon: React.ReactNode
   label: string
@@ -181,6 +190,8 @@ function SensitiveField({
   editing: boolean
   onChange?: (val: string) => void
   onGenerate?: () => void
+  error?: boolean
+  helperText?: string
 }) {
   const [visible, setVisible] = useState(false)
   const hasValue = value && value.length > 0
@@ -199,6 +210,8 @@ function SensitiveField({
         value={value}
         type={isSecretField && !visible ? 'password' : 'text'}
         onChange={(event) => onChange?.(event.target.value)}
+        error={error}
+        helperText={helperText}
         InputProps={{
           startAdornment: <InputAdornment position="start">{icon}</InputAdornment>,
           endAdornment: onGenerate || isSecretField ? (
@@ -321,16 +334,17 @@ function AccountDetail({
   editSignal,
   isPinned,
   onTogglePin,
+  onNotice,
 }: {
   accountId: string
   onClose: () => void
   editSignal?: number
   isPinned: boolean
   onTogglePin: (e: React.MouseEvent) => void
+  onNotice: (notice: AccountNotice) => void
 }) {
   const {
     addAccountTag,
-    createTotpAccount,
     deleteAccount,
     incrementTotpCounter,
     loadAccounts,
@@ -338,7 +352,9 @@ function AccountDetail({
     removeAccountTag,
     totpAccounts,
     updateAccount,
+    loadTotpAccounts,
     setNavigationBlockReason,
+    dataRevision,
   } = useStore()
   const [account, setAccount] = useState<AccountRow | null>(null)
   const [editing, setEditing] = useState(false)
@@ -364,10 +380,30 @@ function AccountDetail({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [notesExpanded, setNotesExpanded] = useState(false)
   const [linkTotpDialogOpen, setLinkTotpDialogOpen] = useState(false)
+  const [pendingLinkPatch, setPendingLinkPatch] = useState<UpdateAccountData | null>(null)
   const [linkSecretVisible, setLinkSecretVisible] = useState(false)
-  const [linkData, setLinkData] = useState({ issuer: '', label: '', secret: '', otpType: 'totp' })
+  const [linkData, setLinkData] = useState({
+    issuer: '',
+    label: '',
+    secret: '',
+    otpType: 'totp',
+    algorithm: 'SHA1',
+    digits: 6,
+    period: 30,
+    counter: 0,
+  })
   const [tagSourceAccounts, setTagSourceAccounts] = useState<AccountRow[]>([])
   const [newTagName, setNewTagName] = useState('')
+  const [saveBusy, setSaveBusy] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [tagBusy, setTagBusy] = useState<string | null>(null)
+  const [fieldBusy, setFieldBusy] = useState(false)
+  const hotpIncrementBusyRef = useRef(false)
+  const [hotpIncrementBusy, setHotpIncrementBusy] = useState(false)
+  const [totpInputError, setTotpInputError] = useState('')
+  const [notice, setNotice] = useState<AccountNotice | null>(null)
+  const [accountLoadError, setAccountLoadError] = useState('')
   const { copiedField, copy } = useCopy()
 
   const hasUnsavedAccountChanges = Boolean(account && editing && (
@@ -388,33 +424,50 @@ function AccountDetail({
       : newFieldName.trim() || newFieldValue || newFieldIsSecret
   ))
 
-  const loadAccount = async () => {
-    const data = await window.electronAPI.getAccountById(accountId)
-    if (!data) {
-      setAccount(null)
-      return
+  const loadAccount = async ({ preserveDraft = false }: { preserveDraft?: boolean } = {}) => {
+    try {
+      const data = await window.electronAPI.getAccountById(accountId)
+      if (!data) {
+        setAccount(null)
+        setAccountLoadError('账号不存在、已移入回收站，或备份恢复后该记录已被替换')
+        return
+      }
+
+      setAccount(data)
+      setCustomFields(data.customFields || [])
+      if (!preserveDraft) {
+        setEditData({
+          name: data.name,
+          platform: data.platform,
+          username: data.username,
+          password: data.password,
+          phone: data.phone,
+          backupEmail: data.backup_email,
+          totpSecret: data.totp_secret,
+          notes: data.notes,
+        })
+        setTotpInputError('')
+      }
+
+      const tagSources = await window.electronAPI.getAccounts({ isDeleted: false, platform: 'all' })
+      setTagSourceAccounts(tagSources)
+      setAccountLoadError('')
+    } catch (error) {
+      setAccountLoadError(`读取账号失败：${error instanceof Error ? error.message : String(error)}`)
+      throw error
     }
+  }
 
-    setAccount(data)
-    setCustomFields(data.customFields || [])
-    setEditData({
-      name: data.name,
-      platform: data.platform,
-      username: data.username,
-      password: data.password,
-      phone: data.phone,
-      backupEmail: data.backup_email,
-      totpSecret: data.totp_secret,
-      notes: data.notes,
-    })
-
-    const tagSources = await window.electronAPI.getAccounts({ isDeleted: false, platform: 'all' })
-    setTagSourceAccounts(tagSources)
+  const refreshAccountViews = async ({ preserveDraft = false, includeDetail = true, includeLists = true } = {}) => {
+    const refreshes: Promise<unknown>[] = includeLists ? [loadAccounts(), loadAllAccounts(), loadTotpAccounts()] : []
+    if (includeDetail) refreshes.push(loadAccount({ preserveDraft }))
+    const results = await Promise.allSettled(refreshes)
+    return results.some((result) => result.status === 'rejected')
   }
 
   useEffect(() => {
-    loadAccount()
-  }, [accountId])
+    void loadAccount().catch(() => undefined)
+  }, [accountId, dataRevision])
 
   useEffect(() => {
     if (editSignal && editSignal > 0) {
@@ -435,64 +488,171 @@ function AccountDetail({
 
   const handleSave = async () => {
     const name = editData.name.trim()
-    if (!name) return
+    if (!name || saveBusy || !account) return
 
-    await updateAccount(accountId, {
-      name,
-      platform: editData.platform,
-      username: editData.username,
-      password: editData.password,
-      phone: editData.phone,
-      backupEmail: editData.backupEmail,
-      totpSecret: editData.totpSecret,
-      notes: editData.notes,
-    }, false)
+    const patch = buildAccountUpdatePatch(account, { ...editData, name })
+    let normalizedTotp = null as ReturnType<typeof normalizeOtpInput>
+    if (patch.totpSecret !== undefined) {
+      normalizedTotp = normalizeOtpInput(patch.totpSecret)
+      if (!normalizedTotp) {
+        setTotpInputError('请输入有效的 Base32 密钥或 otpauth:// URI')
+        return
+      }
+      setTotpInputError('')
+    }
+    if (Object.keys(patch).length === 0) {
+      setEditing(false)
+      const refreshFailed = await refreshAccountViews({ includeLists: false })
+      if (refreshFailed) {
+        setNotice({ severity: 'error', text: '重新读取账号失败，请稍后重试' })
+      }
+      return
+    }
 
-    const hasLinkedTotp = totpAccounts.some((totpAccount) => totpAccount.linked_account_id === accountId)
-    if (editData.totpSecret && editData.totpSecret.trim() && !hasLinkedTotp) {
+    if (normalizedTotp?.secret && (account.linked_totp_count ?? 0) === 0) {
+      const parsed = normalizedTotp.parsedUri
+      setPendingLinkPatch(patch)
       setLinkData({
-        issuer: editData.name,
-        label: editData.username || editData.name,
-        secret: editData.totpSecret.trim(),
-        otpType: 'totp',
+        issuer: parsed?.issuer || name,
+        label: parsed?.label || editData.username || name,
+        secret: normalizedTotp.secret,
+        otpType: parsed?.otpType || 'totp',
+        algorithm: parsed?.algorithm || 'SHA1',
+        digits: parsed?.digits || 6,
+        period: parsed?.period || 30,
+        counter: parsed?.counter || 0,
       })
       setLinkSecretVisible(false)
       setLinkTotpDialogOpen(true)
       return
     }
 
-    setEditing(false)
-    await loadAccount()
-    await Promise.all([loadAccounts(), loadAllAccounts()])
+    setSaveBusy(true)
+    try {
+      const result = await updateAccount(accountId, patch, false)
+      const refreshFailed = await refreshAccountViews()
+
+      if (result.needsTotpLink && normalizedTotp?.secret) {
+        const parsed = normalizedTotp.parsedUri
+        setLinkData({
+          issuer: parsed?.issuer || name,
+          label: parsed?.label || editData.username || name,
+          secret: normalizedTotp.secret,
+          otpType: parsed?.otpType || 'totp',
+          algorithm: parsed?.algorithm || 'SHA1',
+          digits: parsed?.digits || 6,
+          period: parsed?.period || 30,
+          counter: parsed?.counter || 0,
+        })
+        setLinkSecretVisible(false)
+        setPendingLinkPatch(patch)
+        setLinkTotpDialogOpen(true)
+        if (refreshFailed) {
+          setNotice({ severity: 'info', text: '账号已保存，但界面刷新失败；绑定前请确认当前内容' })
+        }
+        return
+      }
+
+      setEditing(false)
+      setNotice({
+        severity: refreshFailed ? 'info' : 'success',
+        text: refreshFailed
+          ? '账号已保存，但部分界面刷新失败；重新进入账号后会再次读取'
+          : result.detachedTotpCount
+          ? `账号已保存；原 2FA 记录已保留为 ${result.detachedTotpCount} 条独立记录`
+          : '账号已保存',
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `保存失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setSaveBusy(false)
+    }
   }
 
   const handleConfirmLink = async () => {
-    await createTotpAccount({
-      issuer: linkData.issuer,
-      label: linkData.label,
-      secret: linkData.secret,
-      otpType: linkData.otpType,
-      linkedAccountId: accountId,
-    })
-    setLinkTotpDialogOpen(false)
-    setLinkSecretVisible(false)
-    setEditing(false)
-    await loadAccount()
-    await Promise.all([loadAccounts(), loadAllAccounts()])
+    if (linkBusy || !pendingLinkPatch) return
+    setLinkBusy(true)
+    try {
+      await updateAccount(accountId, {
+        ...pendingLinkPatch,
+        totpSecret: linkData.secret,
+        createLinkedTotp: {
+          id: uuidv4(),
+          issuer: linkData.issuer,
+          label: linkData.label,
+          otpType: linkData.otpType,
+          algorithm: linkData.algorithm,
+          digits: linkData.digits,
+          period: linkData.period,
+          counter: linkData.counter,
+        },
+      }, false)
+      const refreshFailed = await refreshAccountViews()
+      setLinkTotpDialogOpen(false)
+      setPendingLinkPatch(null)
+      setLinkSecretVisible(false)
+      setEditing(false)
+      setNotice({
+        severity: refreshFailed ? 'info' : 'success',
+        text: refreshFailed
+          ? '2FA 已绑定，但部分界面刷新失败；重新进入后会再次读取'
+          : '2FA 已绑定；验证码已使用新密钥刷新',
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `绑定失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setLinkBusy(false)
+    }
   }
 
   const handleSkipLink = async () => {
+    if (linkBusy || !pendingLinkPatch) return
+    setLinkBusy(true)
+    try {
+      const normalized = normalizeOtpInput(linkData.secret)
+      if (!normalized?.secret) throw new Error('2FA 密钥无效')
+      await updateAccount(accountId, { ...pendingLinkPatch, totpSecret: linkData.secret }, false)
+      const refreshFailed = await refreshAccountViews()
+      setLinkTotpDialogOpen(false)
+      setPendingLinkPatch(null)
+      setLinkSecretVisible(false)
+      setEditing(false)
+      setNotice({
+        severity: refreshFailed ? 'info' : 'success',
+        text: refreshFailed
+          ? '账号密钥已保存，但部分界面刷新失败；重新进入后会再次读取'
+          : '账号已保存；2FA 密钥未添加到独立面板',
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `保存失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setLinkBusy(false)
+    }
+  }
+
+  const handleCancelLink = () => {
+    if (linkBusy) return
     setLinkTotpDialogOpen(false)
+    setPendingLinkPatch(null)
     setLinkSecretVisible(false)
-    setEditing(false)
-    await loadAccount()
-    await Promise.all([loadAccounts(), loadAllAccounts()])
   }
 
   const handleDelete = async () => {
-    await deleteAccount(accountId)
-    setDeleteConfirmOpen(false)
-    onClose()
+    if (deleteBusy) return
+    setDeleteBusy(true)
+    try {
+      const result = await deleteAccount(accountId)
+      setDeleteConfirmOpen(false)
+      onNotice({
+        severity: result.refreshFailed ? 'info' : 'success',
+        text: result.refreshFailed ? '账号已移入回收站，但部分列表刷新失败' : '账号已移入回收站',
+      })
+      onClose()
+    } catch (error) {
+      setNotice({ severity: 'error', text: `移入回收站失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   const resetCustomFieldEditor = () => {
@@ -516,10 +676,12 @@ function AccountDetail({
       totpSecret: account.totp_secret,
       notes: account.notes,
     })
+    setTotpInputError('')
     setEditing(false)
   }
 
   const openAddCustomField = () => {
+    if (fieldBusy) return
     setNewFieldName('')
     setNewFieldValue('')
     setNewFieldIsSecret(false)
@@ -529,6 +691,7 @@ function AccountDetail({
   }
 
   const openEditCustomField = (field: CustomFieldRow) => {
+    if (fieldBusy) return
     setNewFieldName(field.field_name)
     setNewFieldValue(field.field_value)
     setNewFieldIsSecret(Boolean(field.is_secret))
@@ -538,31 +701,56 @@ function AccountDetail({
   }
 
   const handleSaveField = async () => {
-    if (!newFieldName.trim()) return
-    if (editingCustomField) {
-      await window.electronAPI.updateAccountField(editingCustomField.id, {
-        fieldName: newFieldName.trim(),
-        fieldValue: newFieldValue,
-        isSecret: newFieldIsSecret,
+    if (!newFieldName.trim() || fieldBusy) return
+    setFieldBusy(true)
+    try {
+      if (editingCustomField) {
+        const result = await window.electronAPI.updateAccountField(editingCustomField.id, {
+          fieldName: newFieldName.trim(),
+          fieldValue: newFieldValue,
+          isSecret: newFieldIsSecret,
+        })
+        if (!result.success) throw new Error('自定义字段不存在或已被删除')
+      } else {
+        await window.electronAPI.addAccountField({
+          id: uuidv4(),
+          accountId,
+          fieldName: newFieldName.trim(),
+          fieldValue: newFieldValue,
+          isSecret: newFieldIsSecret,
+        })
+      }
+      const action = editingCustomField ? '更新' : '添加'
+      resetCustomFieldEditor()
+      const refreshFailed = await refreshAccountViews({ preserveDraft: true })
+      setNotice({
+        severity: refreshFailed ? 'info' : 'success',
+        text: refreshFailed ? `自定义字段已${action}，但界面刷新失败` : `自定义字段已${action}`,
       })
-    } else {
-      await window.electronAPI.addAccountField({
-        id: uuidv4(),
-        accountId,
-        fieldName: newFieldName.trim(),
-        fieldValue: newFieldValue,
-        isSecret: newFieldIsSecret,
-      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `保存自定义字段失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setFieldBusy(false)
     }
-    resetCustomFieldEditor()
-    await loadAccount()
   }
 
   const handleConfirmDeleteField = async () => {
-    if (!customFieldDeleteId) return
-    await window.electronAPI.deleteAccountField(customFieldDeleteId)
-    setCustomFieldDeleteId(null)
-    await loadAccount()
+    if (!customFieldDeleteId || fieldBusy) return
+    setFieldBusy(true)
+    try {
+      const result = await window.electronAPI.deleteAccountField(customFieldDeleteId)
+      if (!result.success) throw new Error('自定义字段不存在或已经删除')
+      setCustomFieldDeleteId(null)
+      const refreshFailed = await refreshAccountViews({ preserveDraft: true })
+      setNotice({
+        severity: refreshFailed ? 'info' : 'success',
+        text: refreshFailed ? '自定义字段已删除，但界面刷新失败' : '自定义字段已删除',
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `删除自定义字段失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setFieldBusy(false)
+    }
   }
 
   const toggleCustomFieldVisibility = (fieldId: string) => {
@@ -572,24 +760,103 @@ function AccountDetail({
   }
 
   const handleAddTag = async (tagName: string) => {
-    if (!tagName.trim()) return
-    await addAccountTag(accountId, tagName.trim())
-    setNewTagName('')
-    await loadAccount()
+    const name = tagName.trim()
+    if (!name || tagBusy) return
+    setTagBusy(`add:${name.toLocaleLowerCase()}`)
+    try {
+      const result = await addAccountTag(accountId, name)
+      setNewTagName('')
+      const detailRefreshFailed = await refreshAccountViews({ preserveDraft: true, includeLists: false })
+      const refreshFailed = result.refreshFailed || detailRefreshFailed
+      setNotice({
+        severity: refreshFailed || result.linked === false ? 'info' : 'success',
+        text: refreshFailed
+          ? `标签“${name}”已处理，但界面刷新失败`
+          : result.linked === false ? `当前账号已有标签“${name}”` : `已添加标签“${name}”`,
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `添加标签失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setTagBusy(null)
+    }
   }
 
-  const handleRemoveTag = async (tagId: string) => {
-    await removeAccountTag(accountId, tagId)
-    await loadAccount()
+  const handleRemoveTag = async (tag: TagRow) => {
+    if (tagBusy) return
+    setTagBusy(`remove:${tag.id}`)
+    try {
+      const result = await removeAccountTag(accountId, tag.id)
+      if (!result.success) throw new Error('标签已被移除，请刷新后重试')
+      const detailRefreshFailed = await refreshAccountViews({ preserveDraft: true, includeLists: false })
+      const refreshFailed = result.refreshFailed || detailRefreshFailed
+      setNotice({
+        severity: refreshFailed ? 'info' : 'success',
+        text: refreshFailed ? `标签“${tag.name}”已移除，但界面刷新失败` : `已从当前账号移除标签“${tag.name}”`,
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `移除标签失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setTagBusy(null)
+    }
   }
 
-  if (!account) return null
+  const handleIncrementLinkedHotp = async (totpId: string) => {
+    if (hotpIncrementBusyRef.current) return
+    hotpIncrementBusyRef.current = true
+    setHotpIncrementBusy(true)
+    try {
+      const result = await incrementTotpCounter(totpId)
+      if (result.refreshFailed) {
+        setNotice({ severity: 'info', text: 'HOTP 计数器已递增，但验证码刷新失败；重新进入后会再次读取' })
+      }
+    } catch (error) {
+      setNotice({ severity: 'error', text: `HOTP 计数器递增失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      hotpIncrementBusyRef.current = false
+      setHotpIncrementBusy(false)
+    }
+  }
 
-  const linkedTotpAccount = totpAccounts.find((totpAccount) => totpAccount.linked_account_id === accountId)
-  const displayedTotpSecret = linkedTotpAccount?.secret || account.totp_secret
+  if (!account) {
+    return (
+      <Box sx={{ flex: 1, p: 3, borderLeft: '1px solid', borderColor: 'divider' }}>
+        {accountLoadError ? (
+          <Alert
+            severity="error"
+            action={<Button color="inherit" size="small" onClick={() => { void loadAccount().catch(() => undefined) }}>重试</Button>}
+          >
+            {accountLoadError}
+          </Alert>
+        ) : (
+          <LinearProgress aria-label="正在读取账号" />
+        )}
+      </Box>
+    )
+  }
+
+  const linkedTotpCount = account.linked_totp_count ?? 0
+  const linkedTotpSnapshot = account.linked_totp_accounts?.[0]
+  const linkedTotpAccount = linkedTotpCount === 1
+    ? totpAccounts.find((totpAccount) => (
+        linkedTotpSnapshot
+          ? totpAccount.id === linkedTotpSnapshot.id
+          : totpAccount.linked_account_id === accountId
+      )) || linkedTotpSnapshot
+    : undefined
+  const displayedTotpSecret = linkedTotpCount > 1
+    ? ''
+    : linkedTotpAccount?.secret || account.totp_secret
   const hasTotpSecret = Boolean(!editing && displayedTotpSecret && displayedTotpSecret.trim())
   const createdTagSuggestions = getCreatedTagSuggestions(tagSourceAccounts, account.tags || [])
   const sectionOrder = getAccountDetailSectionOrder(hasTotpSecret)
+  const pendingLinkUri = normalizeOtpInput(linkData.secret)?.parsedUri
+  const linkRequiresStoredMetadata = (
+    (pendingLinkUri?.otpType ?? linkData.otpType) === 'hotp'
+    || (pendingLinkUri?.algorithm ?? linkData.algorithm) !== 'SHA1'
+    || (pendingLinkUri?.digits ?? linkData.digits) !== 6
+    || (pendingLinkUri?.period ?? linkData.period) !== 30
+    || (pendingLinkUri?.counter ?? linkData.counter) !== 0
+  )
 
   const renderAccountInfoSection = () => (
     <React.Fragment key="account-info">
@@ -665,7 +932,21 @@ function AccountDetail({
         />
         <SensitiveField icon={<PhoneIcon sx={{ fontSize: 18 }} />} label="绑定手机号" value={editing ? editData.phone : account.phone} fieldKey="phone" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, phone: value })} />
         <SensitiveField icon={<EmailIcon sx={{ fontSize: 18 }} />} label="备用邮箱" value={editing ? editData.backupEmail : account.backup_email} fieldKey="backup_email" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, backupEmail: value })} />
-        <SensitiveField icon={<SecurityIcon sx={{ fontSize: 18 }} />} label="2FA 密钥" value={editing ? editData.totpSecret : account.totp_secret} fieldKey="totp_secret" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, totpSecret: value })} />
+        <SensitiveField
+          icon={<SecurityIcon sx={{ fontSize: 18 }} />}
+          label="2FA 密钥"
+          value={editing ? editData.totpSecret : account.totp_secret}
+          fieldKey="totp_secret"
+          copiedField={copiedField}
+          onCopy={copy}
+          editing={editing}
+          onChange={(value) => {
+            setEditData({ ...editData, totpSecret: value })
+            setTotpInputError('')
+          }}
+          error={Boolean(totpInputError)}
+          helperText={totpInputError || (editing ? '支持 Base32 密钥或 otpauth:// URI' : undefined)}
+        />
       </Paper>
     </React.Fragment>
   )
@@ -685,8 +966,9 @@ function AccountDetail({
           otpType={linkedTotpAccount?.otp_type}
           counter={linkedTotpAccount?.counter}
           onIncrementCounter={linkedTotpAccount?.otp_type === 'hotp'
-            ? () => { void incrementTotpCounter(linkedTotpAccount.id) }
+            ? () => { void handleIncrementLinkedHotp(linkedTotpAccount.id) }
             : undefined}
+          incrementBusy={hotpIncrementBusy}
         />
       </Box>
     </React.Fragment>
@@ -694,25 +976,28 @@ function AccountDetail({
 
   const renderTagsSection = () => (
     <React.Fragment key="registered-platform-tags">
-      <Typography variant="caption" sx={sectionLabelSx}>
-        注册平台标签
-      </Typography>
+      <Typography variant="caption" sx={sectionLabelSx}>注册平台标签</Typography>
       <Paper variant="outlined" sx={panelSx}>
         {(account.tags || []).length > 0 ? (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.85, mb: 1.65 }}>
             {(account.tags || []).map((tag) => (
-              <Chip
-                key={tag.id}
-                label={tag.name}
-                onDelete={() => handleRemoveTag(tag.id)}
-                sx={{
-                  bgcolor: `${tag.color}22`,
-                  color: tag.color,
-                  border: '1px solid',
-                  borderColor: `${tag.color}55`,
-                  '& .MuiChip-deleteIcon': { color: 'inherit' },
-                }}
-              />
+              <Tooltip key={tag.id} title={`点击 × 从当前账号移除“${tag.name}”`} arrow>
+                <Chip
+                  label={tag.name}
+                  aria-label={`从当前账号移除标签 ${tag.name}`}
+                  disabled={Boolean(tagBusy)}
+                  onDelete={() => handleRemoveTag(tag)}
+                  sx={{
+                    maxWidth: '100%',
+                    bgcolor: `${tag.color}22`,
+                    color: tag.color,
+                    border: '1px solid',
+                    borderColor: `${tag.color}55`,
+                    '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+                    '& .MuiChip-deleteIcon': { color: 'inherit' },
+                  }}
+                />
+              </Tooltip>
             ))}
           </Box>
         ) : (
@@ -730,11 +1015,12 @@ function AccountDetail({
             value={newTagName}
             onChange={(event) => setNewTagName(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
                 event.preventDefault()
-                handleAddTag(newTagName)
+                void handleAddTag(newTagName)
               }
             }}
+            inputProps={{ maxLength: MAX_ACCOUNT_TAG_LENGTH }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -750,7 +1036,8 @@ function AccountDetail({
           />
           <Button
             variant="contained"
-            onClick={() => handleAddTag(newTagName)}
+            disabled={!newTagName.trim() || Boolean(tagBusy)}
+            onClick={() => void handleAddTag(newTagName)}
             sx={{
               height: ACCOUNT_TAG_INPUT_CONTROL_HEIGHT,
               minWidth: 84,
@@ -764,11 +1051,24 @@ function AccountDetail({
         {createdTagSuggestions.length > 0 && (
           <>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.2, lineHeight: 1.45, fontSize: '0.75rem', fontWeight: 800 }}>
-              已创建标签
+              已创建标签（{createdTagSuggestions.length}）
             </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.95 }}>
-              {createdTagSuggestions.slice(0, 12).map((tag) => (
-                <Chip key={tag} label={tag} variant="outlined" onClick={() => handleAddTag(tag)} sx={{ height: 28, fontWeight: 700 }} />
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.95, maxHeight: 168, overflowY: 'auto', pr: 0.5 }}>
+              {createdTagSuggestions.map((tag) => (
+                <Tooltip key={tag} title={tag} arrow>
+                  <Chip
+                    label={tag}
+                    variant="outlined"
+                    disabled={Boolean(tagBusy)}
+                    onClick={() => void handleAddTag(tag)}
+                    sx={{
+                      height: 28,
+                      maxWidth: '100%',
+                      fontWeight: 700,
+                      '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+                    }}
+                  />
+                </Tooltip>
               ))}
             </Box>
           </>
@@ -784,7 +1084,7 @@ function AccountDetail({
           自定义字段
         </Typography>
         {!editing && (
-          <IconButton size="small" onClick={openAddCustomField} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
+          <IconButton size="small" onClick={openAddCustomField} disabled={fieldBusy} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
             <AddCircleOutlineIcon sx={{ fontSize: 18 }} />
           </IconButton>
         )}
@@ -814,20 +1114,20 @@ function AccountDetail({
                 <Box className="cf-actions" sx={{ display: 'flex', gap: 0.35, opacity: 0.82, transition: 'opacity 0.15s' }}>
                   {Boolean(field.is_secret) && (
                     <Tooltip title={visibleCustomFieldIds.includes(field.id) ? '隐藏' : '显示'}>
-                      <IconButton size="small" onClick={() => toggleCustomFieldVisibility(field.id)} sx={{ color: 'text.secondary' }}>
+                    <IconButton size="small" disabled={fieldBusy} onClick={() => toggleCustomFieldVisibility(field.id)} sx={{ color: 'text.secondary' }}>
                         {visibleCustomFieldIds.includes(field.id)
                           ? <VisibilityOffIcon sx={{ fontSize: 14 }} />
                           : <VisibilityIcon sx={{ fontSize: 14 }} />}
                       </IconButton>
                     </Tooltip>
                   )}
-                  <IconButton size="small" onClick={() => copy(field.field_value, field.id)} sx={{ color: copiedField === field.id ? 'success.main' : 'text.secondary' }}>
+                  <IconButton size="small" disabled={fieldBusy} onClick={() => copy(field.field_value, field.id)} sx={{ color: copiedField === field.id ? 'success.main' : 'text.secondary' }}>
                     {copiedField === field.id ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
                   </IconButton>
-                  <IconButton size="small" onClick={() => openEditCustomField(field)} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
+                  <IconButton size="small" disabled={fieldBusy} onClick={() => openEditCustomField(field)} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
                     <EditIcon sx={{ fontSize: 14 }} />
                   </IconButton>
-                  <IconButton size="small" onClick={() => setCustomFieldDeleteId(field.id)} sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}>
+                  <IconButton size="small" disabled={fieldBusy} onClick={() => setCustomFieldDeleteId(field.id)} sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}>
                     <DeleteOutlineIcon sx={{ fontSize: 14 }} />
                   </IconButton>
                 </Box>
@@ -848,7 +1148,7 @@ function AccountDetail({
             onKeyDown={(event) => {
               if (event.key === 'Enter') {
                 event.preventDefault()
-                handleSaveField()
+                void handleSaveField()
               }
             }}
             sx={{ mb: 1 }}
@@ -883,15 +1183,16 @@ function AccountDetail({
                 setNewFieldIsSecret(!newFieldIsSecret)
                 setNewFieldValueVisible(false)
               }}
+              disabled={fieldBusy}
               variant="outlined"
               color={newFieldIsSecret ? 'warning' : 'default'}
             />
             <Box sx={{ flex: 1 }} />
-            <Button size="small" onClick={resetCustomFieldEditor}>
+            <Button size="small" onClick={resetCustomFieldEditor} disabled={fieldBusy}>
               取消
             </Button>
-            <Button size="small" variant="contained" onClick={handleSaveField} disabled={!newFieldName.trim()}>
-              {editingCustomField ? '保存' : '添加'}
+            <Button size="small" variant="contained" onClick={handleSaveField} disabled={!newFieldName.trim() || fieldBusy}>
+              {fieldBusy ? '保存中...' : editingCustomField ? '保存' : '添加'}
             </Button>
           </Box>
         </Paper>
@@ -1028,10 +1329,10 @@ function AccountDetail({
         <Box sx={{ display: 'flex', gap: 0.5 }}>
           {editing ? (
             <>
-              <IconButton size="small" onClick={handleSave} disabled={!editData.name.trim() || !hasUnsavedAccountChanges} sx={{ color: 'success.main' }}>
+              <IconButton size="small" onClick={handleSave} disabled={saveBusy || !editData.name.trim() || !hasUnsavedAccountChanges} sx={{ color: 'success.main' }}>
                 <SaveIcon sx={{ fontSize: 20 }} />
               </IconButton>
-              <IconButton size="small" onClick={handleCancelEdit} sx={{ color: 'text.secondary' }}>
+              <IconButton size="small" onClick={handleCancelEdit} disabled={saveBusy} sx={{ color: 'text.secondary' }}>
                 <CloseIcon sx={{ fontSize: 20 }} />
               </IconButton>
             </>
@@ -1057,7 +1358,21 @@ function AccountDetail({
         </Box>
       </Box>
 
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 3.1 }}>
+      <Box sx={{ flex: 1, overflowY: 'auto', p: 3.1 }}>
+        {accountLoadError && (
+          <Alert
+            severity="error"
+            sx={{ mb: 2 }}
+            action={<Button color="inherit" size="small" onClick={() => { void loadAccount({ preserveDraft: editing }).catch(() => undefined) }}>重试</Button>}
+          >
+            {accountLoadError}
+          </Alert>
+        )}
+        {linkedTotpCount > 1 && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            检测到 {linkedTotpCount} 条关联 2FA。为避免覆盖密钥，修改 2FA 前请先到 2FA 面板确认要保留的记录；系统不会自动删除。
+          </Alert>
+        )}
         {sectionOrder.map((section) => {
           switch (section) {
             case 'realtime-code':
@@ -1076,7 +1391,7 @@ function AccountDetail({
         })}
       </Box>
 
-      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
+      <Dialog open={deleteConfirmOpen} onClose={() => { if (!deleteBusy) setDeleteConfirmOpen(false) }} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningAmberIcon sx={{ color: 'warning.main' }} />
           移入回收站
@@ -1088,22 +1403,27 @@ function AccountDetail({
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteConfirmOpen(false)}>取消</Button>
-          <Button variant="contained" color="error" onClick={handleDelete}>
-            移入回收站
+          <Button onClick={() => setDeleteConfirmOpen(false)} disabled={deleteBusy}>取消</Button>
+          <Button variant="contained" color="error" onClick={handleDelete} disabled={deleteBusy}>
+            {deleteBusy ? '处理中...' : '移入回收站'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={linkTotpDialogOpen} onClose={handleSkipLink} maxWidth="sm" fullWidth>
+      <Dialog open={linkTotpDialogOpen} onClose={handleCancelLink} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon sx={{ color: 'primary.main' }} />
-          自动生成 2FA 账户
+          绑定 2FA 记录
         </DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2, mt: 1 }}>
-            检测到你为该账号写入了 2FA 密钥。是否一并在 2FA 面板中生成并绑定对应卡片？
+            是否在 2FA 面板中创建并绑定对应卡片？账号与卡片会作为一次完整操作保存。
           </Typography>
+          {linkRequiresStoredMetadata && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              该密钥使用 HOTP 或非默认参数，必须绑定卡片才能保留完整参数并生成正确验证码。
+            </Alert>
+          )}
           <TextField
             fullWidth
             size="small"
@@ -1141,14 +1461,19 @@ function AccountDetail({
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleSkipLink}>跳过</Button>
-          <Button variant="contained" onClick={handleConfirmLink}>
-            生成并绑定
+          <Button onClick={handleCancelLink} disabled={linkBusy}>取消保存</Button>
+          <Tooltip title={linkRequiresStoredMetadata ? '当前密钥需要保存完整验证参数' : ''}>
+            <span>
+              <Button onClick={handleSkipLink} disabled={linkBusy || linkRequiresStoredMetadata}>仅保存密钥</Button>
+            </span>
+          </Tooltip>
+          <Button variant="contained" onClick={handleConfirmLink} disabled={linkBusy}>
+            {linkBusy ? '绑定中...' : '绑定到 2FA 面板'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={customFieldDeleteId !== null} onClose={() => setCustomFieldDeleteId(null)} maxWidth="xs" fullWidth>
+      <Dialog open={customFieldDeleteId !== null} onClose={() => { if (!fieldBusy) setCustomFieldDeleteId(null) }} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningAmberIcon sx={{ color: 'warning.main' }} />
           删除自定义字段
@@ -1157,10 +1482,17 @@ function AccountDetail({
           <Typography variant="body2">确定删除这个自定义字段吗？该操作无法撤销。</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCustomFieldDeleteId(null)}>取消</Button>
-          <Button variant="contained" color="error" onClick={handleConfirmDeleteField}>删除</Button>
+          <Button onClick={() => setCustomFieldDeleteId(null)} disabled={fieldBusy}>取消</Button>
+          <Button variant="contained" color="error" onClick={handleConfirmDeleteField} disabled={fieldBusy}>
+            {fieldBusy ? '删除中...' : '删除'}
+          </Button>
         </DialogActions>
       </Dialog>
+      <Snackbar open={notice !== null} autoHideDuration={4500} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert severity={notice?.severity || 'info'} variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>
+          {notice?.text}
+        </Alert>
+      </Snackbar>
     </Box>
   )
 }
@@ -1168,16 +1500,19 @@ function AccountDetail({
 type PendingAccountAction =
   | { kind: 'select'; accountId: string | null; edit: boolean }
   | { kind: 'create'; platform: AccountPlatform }
+  | { kind: 'delete'; accountId: string }
 
 export default function AccountsView() {
   const {
     accountPlatformFilter,
     accountSearchQuery,
     accounts,
+    allAccounts,
     createAccount,
     deleteAccount,
     importCsvAccounts,
     loadAccounts,
+    loadAllAccounts,
     loadTotpAccounts,
     navigationBlockReason,
     selectedAccountId,
@@ -1197,6 +1532,10 @@ export default function AccountsView() {
   const [platformDialogOpen, setPlatformDialogOpen] = useState(false)
   const [pendingAccountAction, setPendingAccountAction] = useState<PendingAccountAction | null>(null)
   const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
+  const [createBusy, setCreateBusy] = useState(false)
+  const [listDeleteBusy, setListDeleteBusy] = useState(false)
+  const [listLoadState, setListLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [listLoadError, setListLoadError] = useState('')
   const { copiedField, copy } = useCopy()
 
   // Drag and drop states for custom account ordering
@@ -1296,7 +1635,11 @@ export default function AccountsView() {
     newSortedIds.splice(targetIndex, 0, removed)
 
     // Save configuration sequence to global store
-    updateAccountsCustomOrder(newSortedIds)
+    updateAccountsCustomOrder(mergeVisibleAccountOrder(
+      accountsCustomOrder,
+      allAccounts.map((account) => account.id),
+      newSortedIds
+    ))
 
     setDraggedId(null)
   }
@@ -1305,9 +1648,20 @@ export default function AccountsView() {
     setDraggedId(null)
   }
 
+  const loadAccountLists = async () => {
+    setListLoadState('loading')
+    setListLoadError('')
+    try {
+      await Promise.all([loadAccounts(), loadAllAccounts(), loadTotpAccounts()])
+      setListLoadState('ready')
+    } catch (error) {
+      setListLoadError(`读取账号列表失败：${error instanceof Error ? error.message : String(error)}`)
+      setListLoadState('error')
+    }
+  }
+
   useEffect(() => {
-    loadAccounts()
-    loadTotpAccounts()
+    void loadAccountLists()
   }, [accountPlatformFilter, accountSearchQuery])
 
   const selectAccount = (accountId: string | null, edit = false) => {
@@ -1330,15 +1684,30 @@ export default function AccountsView() {
   }
 
   const createAccountForPlatform = async (platform: AccountPlatform) => {
+    if (createBusy) return
     const defaultName = platform === 'google'
       ? 'Google 账号'
       : platform === 'microsoft'
         ? 'Microsoft 账号'
         : '新账号'
-    const id = await createAccount(defaultName, platform)
-    setSelectedAccount(id)
-    setEditSignal(Date.now())
-    setPlatformDialogOpen(false)
+    setCreateBusy(true)
+    try {
+      const result = await createAccount(defaultName, platform)
+      const { id } = result
+      setSelectedAccount(id)
+      setEditSignal(Date.now())
+      setPlatformDialogOpen(false)
+      if (result.refreshFailed) {
+        setNotice({ severity: 'info', text: '账号已创建，但部分列表刷新失败；账号详情会直接读取已保存记录' })
+      } else {
+        setListLoadState('ready')
+        setListLoadError('')
+      }
+    } catch (error) {
+      setNotice({ severity: 'error', text: `创建账号失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setCreateBusy(false)
+    }
   }
 
   const handleCreate = async (platform: AccountPlatform) => {
@@ -1360,15 +1729,25 @@ export default function AccountsView() {
       await createAccountForPlatform(action.platform)
       return
     }
+    if (action.kind === 'delete') {
+      setSelectedAccount(null)
+      setListDeleteConfirm(action.accountId)
+      return
+    }
     selectAccount(action.accountId, action.edit)
   }
 
   const handleImportCsv = async () => {
     try {
       const result = await importCsvAccounts()
+      if (result.count > 0 && !result.refreshFailed) {
+        setListLoadState('ready')
+        setListLoadError('')
+      }
       const warnings = [
         result.invalidTotpCount > 0 ? `${result.invalidTotpCount} 个无效 OTP URI 已跳过` : '',
         result.skippedRowCount > 0 ? `${result.skippedRowCount} 行没有可识别字段` : '',
+        result.refreshFailed ? '数据已导入，但部分列表刷新失败' : '',
       ].filter(Boolean)
       setNotice(result.count > 0
         ? {
@@ -1403,10 +1782,29 @@ export default function AccountsView() {
   }
 
   const handleDeleteFromList = async () => {
-    if (listDeleteConfirm) {
-      await deleteAccount(listDeleteConfirm)
-      setListDeleteConfirm(null)
+    if (listDeleteConfirm && !listDeleteBusy) {
+      setListDeleteBusy(true)
+      try {
+        const result = await deleteAccount(listDeleteConfirm)
+        setListDeleteConfirm(null)
+        setNotice({
+          severity: result.refreshFailed ? 'info' : 'success',
+          text: result.refreshFailed ? '账号已移入回收站，但部分列表刷新失败' : '账号已移入回收站',
+        })
+      } catch (error) {
+        setNotice({ severity: 'error', text: `移入回收站失败：${error instanceof Error ? error.message : String(error)}` })
+      } finally {
+        setListDeleteBusy(false)
+      }
     }
+  }
+
+  const requestDeleteFromList = (accountId: string) => {
+    if (navigationBlockReason && accountId === selectedAccountId) {
+      setPendingAccountAction({ kind: 'delete', accountId })
+      return
+    }
+    setListDeleteConfirm(accountId)
   }
 
   return (
@@ -1484,7 +1882,16 @@ export default function AccountsView() {
         </Box>
 
         <Box sx={{ flex: 1, overflowY: 'auto', p: 1.3 }}>
-          {accounts.length === 0 ? (
+          {listLoadState === 'loading' ? (
+            <LinearProgress aria-label="正在读取账号列表" />
+          ) : listLoadState === 'error' ? (
+            <Alert
+              severity="error"
+              action={<Button color="inherit" size="small" onClick={() => { void loadAccountLists() }}>重试</Button>}
+            >
+              {listLoadError}
+            </Alert>
+          ) : accounts.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 8, px: 3, border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
               <AccountBoxIcon sx={{ fontSize: 44, color: 'text.secondary', opacity: 0.42, mb: 1.5 }} />
               <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
@@ -1659,6 +2066,7 @@ export default function AccountsView() {
           editSignal={editSignal}
           isPinned={accountsPinnedIds.includes(selectedAccountId)}
           onTogglePin={(e) => { e.stopPropagation(); togglePinAccount(selectedAccountId) }}
+          onNotice={setNotice}
         />
       ) : (
         <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
@@ -1702,13 +2110,16 @@ export default function AccountsView() {
           <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
           <ListItemText>快速设置</ListItemText>
         </MenuItem>
-        <MenuItem onClick={() => { setListDeleteConfirm(contextMenu?.accountId || null); setContextMenu(null) }}>
+        <MenuItem onClick={() => {
+          if (contextMenu?.accountId) requestDeleteFromList(contextMenu.accountId)
+          setContextMenu(null)
+        }}>
           <ListItemIcon><DeleteOutlineIcon fontSize="small" color="error" /></ListItemIcon>
           <ListItemText sx={{ color: 'error.main' }}>移入回收站</ListItemText>
         </MenuItem>
       </Menu>
 
-      <Dialog open={listDeleteConfirm !== null} onClose={() => setListDeleteConfirm(null)} maxWidth="xs" fullWidth>
+      <Dialog open={listDeleteConfirm !== null} onClose={() => { if (!listDeleteBusy) setListDeleteConfirm(null) }} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <WarningAmberIcon sx={{ color: 'warning.main' }} />
           移入回收站
@@ -1720,8 +2131,10 @@ export default function AccountsView() {
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setListDeleteConfirm(null)}>取消</Button>
-          <Button variant="contained" color="error" onClick={handleDeleteFromList}>移入回收站</Button>
+          <Button onClick={() => setListDeleteConfirm(null)} disabled={listDeleteBusy}>取消</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteFromList} disabled={listDeleteBusy}>
+            {listDeleteBusy ? '处理中...' : '移入回收站'}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -1744,6 +2157,7 @@ export default function AccountsView() {
         open={platformDialogOpen}
         onClose={() => setPlatformDialogOpen(false)}
         onSelect={handleCreate}
+        busy={createBusy}
       />
       <Snackbar open={notice !== null} autoHideDuration={4500} onClose={() => setNotice(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert severity={notice?.severity || 'info'} variant="filled" onClose={() => setNotice(null)} sx={{ width: '100%' }}>

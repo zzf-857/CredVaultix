@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   SERVICE_INFO_BACKUP_VERSION,
+  captureLegacyServiceAccountLinks,
   clearServiceInfoBackupTables,
+  hasServiceInfoBackupData,
   importServiceInfoBackupData,
   readServiceInfoBackupData,
+  restoreLegacyServiceAccountLinks,
 } from './serviceInfoBackup'
+import { TestSqliteDatabase } from './testSqlite'
 
 class FakeDatabase {
   allRows = new Map<string, unknown[]>()
@@ -105,6 +109,49 @@ describe('serviceInfoBackup', () => {
 
     importServiceInfoBackupData(db as any, {})
 
+    expect(db.runCalls).toEqual([])
+  })
+
+  it('preserves legacy service links only for accounts that still exist after account replacement', () => {
+    const db = new TestSqliteDatabase()
+    try {
+      db.exec(`
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE accounts (id TEXT PRIMARY KEY);
+        CREATE TABLE secret_services (
+          id TEXT PRIMARY KEY,
+          linked_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL
+        );
+        INSERT INTO accounts (id) VALUES ('keep'), ('remove');
+        INSERT INTO secret_services (id, linked_account_id)
+        VALUES ('service-keep', 'keep'), ('service-remove', 'remove');
+      `)
+
+      const links = captureLegacyServiceAccountLinks(db as any, {})
+      db.exec(`
+        DELETE FROM accounts;
+        INSERT INTO accounts (id) VALUES ('keep');
+      `)
+      restoreLegacyServiceAccountLinks(db as any, links)
+
+      expect(db.prepare(`
+        SELECT id, linked_account_id
+        FROM secret_services
+        ORDER BY id
+      `).all()).toEqual([
+        { id: 'service-keep', linked_account_id: 'keep' },
+        { id: 'service-remove', linked_account_id: null },
+      ])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('does not carry current service links into a backup that supplies service data', () => {
+    expect(hasServiceInfoBackupData({ secretServices: [] })).toBe(true)
+
+    const db = new FakeDatabase()
+    expect(captureLegacyServiceAccountLinks(db as any, { secretServices: [] })).toEqual([])
     expect(db.runCalls).toEqual([])
   })
 

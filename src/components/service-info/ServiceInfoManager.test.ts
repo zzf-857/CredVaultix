@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import BatchActionBar from './BatchActionBar'
 import ServiceGroupList from './ServiceGroupList'
+import serviceInfoManagerSource from './ServiceInfoManager.tsx?raw'
 
 const service = {
   id: 'svc-1',
@@ -59,5 +60,20 @@ describe('ServiceInfoManager', () => {
     expect(html).toContain('创建分组')
     expect(html).toContain('移入分组')
     expect(html).toContain('取消选择')
+  })
+
+  it('guards service and group mutations against duplicate submission and unsuccessful results', () => {
+    expect(serviceInfoManagerSource).toContain('mutationLockRef.current')
+    expect(serviceInfoManagerSource).toContain('assertMutationSucceeded(result')
+    expect(serviceInfoManagerSource).toContain('assertMutationSucceeded(moveResult')
+    expect(serviceInfoManagerSource).toContain('window.electronAPI.deleteSecretGroup')
+    expect(serviceInfoManagerSource).toContain('window.electronAPI.reorderSecretServices')
+  })
+
+  it('reports refresh failures separately after a successful write', () => {
+    expect(serviceInfoManagerSource).toContain("reloadAfterSuccessfulChange('服务已创建')")
+    expect(serviceInfoManagerSource).toContain('但列表刷新失败')
+    expect(serviceInfoManagerSource).toContain("severity: 'warning'")
+    expect(serviceInfoManagerSource).toContain('pendingServiceGroup')
   })
 })

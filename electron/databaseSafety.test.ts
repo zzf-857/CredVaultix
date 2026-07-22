@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   assertCountsNotReduced,
+  assertFullWalCheckpoint,
   backupDatabaseIfExists,
   buildDatabaseBackupPath,
   getExistingTableCounts,
@@ -33,6 +34,23 @@ function createFakeDatabase(tableCounts: Record<string, number>) {
 }
 
 describe('databaseSafety', () => {
+  it('accepts only a complete, non-busy WAL checkpoint before a file backup', () => {
+    const checkpoint = (result: unknown) => ({
+      pragma: () => result,
+    })
+
+    expect(() => assertFullWalCheckpoint(checkpoint([
+      { busy: 0, log: 8, checkpointed: 8 },
+    ]) as any)).not.toThrow()
+    expect(() => assertFullWalCheckpoint(checkpoint([
+      { busy: 1, log: 8, checkpointed: 6 },
+    ]) as any)).toThrow(/checkpoint 未完成/)
+    expect(() => assertFullWalCheckpoint(checkpoint([
+      { busy: 0, log: 8, checkpointed: 7 },
+    ]) as any)).toThrow(/checkpoint 未完成/)
+    expect(() => assertFullWalCheckpoint(checkpoint([]) as any)).toThrow(/未返回有效/)
+  })
+
   it('builds a timestamped backup path inside the user data folder', () => {
     const backupPath = buildDatabaseBackupPath('C:/AppData/CredVaultix', new Date('2026-07-01T10:11:12.000Z'))
 

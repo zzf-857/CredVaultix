@@ -16,6 +16,7 @@ interface AccountPlatformDialogProps {
   open: boolean
   onClose: () => void
   onSelect: (platform: AccountPlatform) => void
+  busy?: boolean
 }
 
 const OPTIONS: Array<{
@@ -42,11 +43,12 @@ export default function AccountPlatformDialog({
   open,
   onClose,
   onSelect,
+  busy = false,
 }: AccountPlatformDialogProps) {
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose() }}
       maxWidth="sm"
       fullWidth
       PaperProps={{ sx: { maxWidth: 660 } }}
@@ -111,13 +113,15 @@ export default function AccountPlatformDialog({
             <Paper
               key={option.platform}
               variant="outlined"
-              onClick={() => onSelect(option.platform)}
+              aria-disabled={busy}
+              onClick={() => { if (!busy) onSelect(option.platform) }}
               sx={{
                 px: 2.6,
                 py: 2.35,
                 minHeight: 104,
                 borderRadius: 3,
-                cursor: 'pointer',
+                cursor: busy ? 'wait' : 'pointer',
+                opacity: busy ? 0.62 : 1,
                 borderColor: `${option.accent}66`,
                 bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
                 '&:hover': {
@@ -156,7 +160,7 @@ export default function AccountPlatformDialog({
         </Box>
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 2.1, borderTop: '1px solid', borderColor: 'divider' }}>
-        <Button onClick={onClose}>取消</Button>
+        <Button onClick={onClose} disabled={busy}>{busy ? '创建中...' : '取消'}</Button>
       </DialogActions>
     </Dialog>
   )

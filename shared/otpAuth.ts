@@ -11,6 +11,11 @@ export interface ParsedOtpAuthUri {
   counter: number
 }
 
+export interface NormalizedOtpInput {
+  secret: string
+  parsedUri: ParsedOtpAuthUri | null
+}
+
 function normalizeInteger(value: string | null, fallback: number, min: number, max: number) {
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback
@@ -49,6 +54,26 @@ export function parseOtpAuthUri(uri: string): ParsedOtpAuthUri | null {
       otpType,
       counter: normalizeInteger(url.searchParams.get('counter'), 0, 0, Number.MAX_SAFE_INTEGER),
     }
+  } catch {
+    return null
+  }
+}
+
+export function normalizeOtpInput(value: string): NormalizedOtpInput | null {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) {
+    return { secret: '', parsedUri: null }
+  }
+
+  if (trimmed.toLowerCase().startsWith('otpauth://')) {
+    const parsedUri = parseOtpAuthUri(trimmed)
+    return parsedUri ? { secret: parsedUri.secret, parsedUri } : null
+  }
+
+  const secret = trimmed.replace(/\s/g, '').toUpperCase()
+  try {
+    OTPAuth.Secret.fromBase32(secret)
+    return { secret, parsedUri: null }
   } catch {
     return null
   }

@@ -1,21 +1,39 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import Database from 'better-sqlite3'
-import { spawn } from 'child_process'
 import path from 'path'
 import { DATABASE_FILE_NAME, initDatabase, getDatabase } from './database'
 import { encrypt, decrypt, encryptIfNeeded } from './crypto'
-import { backupDatabaseIfExists } from './databaseSafety'
+import { assertFullWalCheckpoint, backupDatabaseIfExists } from './databaseSafety'
 import {
   SERVICE_INFO_BACKUP_VERSION,
+  captureLegacyServiceAccountLinks,
   importServiceInfoBackupData,
   readServiceInfoBackupData,
+  restoreLegacyServiceAccountLinks,
 } from './serviceInfoBackup'
 import { readPreferences, resetPreferences, updatePreferences } from './preferencesStore'
 import { registerServiceInfoIpc } from './serviceInfoRepository'
 import { accountMatchesSearch } from './accountSearch'
 import { assertValidJsonBackup } from './backupValidation'
 import { normalizeCsvAccountRow } from './csvAccountImport'
+import {
+  type AccountUpdateData,
+  createTotpRecord,
+  deleteTotpRecord,
+  incrementHotpCounter,
+  normalizeAccountPlatform,
+  normalizeOtpAlgorithm,
+  normalizeOtpCounter,
+  normalizeOtpDigits,
+  normalizeOtpPeriod,
+  normalizeOtpType,
+  updateAccountRecord,
+  updateTotpRecord,
+} from './accountTotpRepository'
+import { addTagToAccount, removeTagFromAccount } from './accountTagRepository'
+import { addAccountField, deleteAccountField, updateAccountField } from './accountFieldRepository'
+import { hardDeleteAccountRecord, moveAccountToTrash, restoreAccountFromTrash } from './accountLifecycleRepository'
 import fs from 'fs'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
@@ -26,7 +44,7 @@ const APP_NAME = 'CredVaultix'
 const LEGACY_DATABASE_FILE_NAME = 'account-manager.db'
 const TAG_COLOR_PALETTE = ['#a8c7fa', '#81c995', '#f2b8b5', '#fdd663', '#d7aefb', '#78d9ec', '#fcb68e']
 let isQuittingForUpdate = false
-let downloadedInstallerPath: string | null = null
+let updateReadyToInstall = false
 let usesExplicitUserDataDirectory = false
 let hasUnsavedRendererChanges = false
 
@@ -68,38 +86,6 @@ function getAppIconPath() {
   return candidates.find((candidate) => fs.existsSync(candidate))
 }
 
-function normalizeAccountPlatform(value?: string | null) {
-  if (value === 'google' || value === 'microsoft' || value === 'other') {
-    return value
-  }
-
-  return 'other'
-}
-
-function normalizeOtpAlgorithm(value?: string | null) {
-  const algorithm = String(value || 'SHA1').toUpperCase().replace(/[^A-Z0-9]/g, '')
-  return ['SHA1', 'SHA256', 'SHA512'].includes(algorithm) ? algorithm : 'SHA1'
-}
-
-function normalizeOtpDigits(value?: number | null) {
-  const digits = Number(value)
-  return Number.isInteger(digits) && digits >= 6 && digits <= 10 ? digits : 6
-}
-
-function normalizeOtpPeriod(value?: number | null) {
-  const period = Number(value)
-  return Number.isInteger(period) && period >= 5 && period <= 300 ? period : 30
-}
-
-function normalizeOtpType(value?: string | null) {
-  return String(value || '').toLowerCase() === 'hotp' ? 'hotp' : 'totp'
-}
-
-function normalizeOtpCounter(value?: number | null) {
-  const counter = Number(value)
-  return Number.isSafeInteger(counter) && counter >= 0 ? counter : 0
-}
-
 function isSqliteDatabasePath(filePath: string) {
   return path.extname(filePath).toLowerCase() === '.db'
 }
@@ -113,13 +99,14 @@ function backupCurrentDatabaseBeforeImport(currentDb: Database.Database) {
   const userDataPath = app.getPath('userData')
   const dbPath = path.join(userDataPath, DATABASE_FILE_NAME)
 
-  try {
-    currentDb.pragma('wal_checkpoint(FULL)')
-  } catch (error) {
-    console.warn('Failed to checkpoint database before import backup:', error)
+  assertFullWalCheckpoint(currentDb)
+  const backup = backupDatabaseIfExists(dbPath, userDataPath)
+  if (!backup.created || !backup.filePath || !fs.existsSync(backup.filePath)) {
+    throw new Error('导入已中止：无法创建当前数据库的安全备份')
   }
 
-  return backupDatabaseIfExists(dbPath, userDataPath)
+  validateSqliteBackup(backup.filePath)
+  return backup
 }
 
 function removeDatabaseSidecars(dbPath: string) {
@@ -229,16 +216,7 @@ function validateSqliteBackup(filePath: string) {
   }
 }
 
-function getDownloadedInstallerPath() {
-  const updater = autoUpdater as typeof autoUpdater & {
-    installerPath?: string | null
-    downloadedUpdateHelper?: { file?: string | null } | null
-  }
-
-  return downloadedInstallerPath ?? updater.installerPath ?? updater.downloadedUpdateHelper?.file ?? null
-}
-
-function closeDatabaseForUpdateInstall() {
+function checkpointDatabaseForUpdateInstall() {
   try {
     const database = getDatabase()
     if (!database || !database.open) return
@@ -249,31 +227,9 @@ function closeDatabaseForUpdateInstall() {
       console.warn('Failed to checkpoint database before update install:', error)
     }
 
-    database.close()
   } catch (error) {
-    console.warn('Failed to close database before update install:', error)
+    console.warn('Failed to checkpoint database before update install:', error)
   }
-}
-
-function quoteCmdArg(value: string) {
-  return `"${value.replace(/"/g, '""')}"`
-}
-
-function launchDownloadedInstallerAfterExit(installerPath: string) {
-  const installDirectory = path.dirname(process.execPath)
-  const installerArgs = ['--updated', '/S', '/currentuser', `/D=${installDirectory}`]
-  const command = [
-    'ping 127.0.0.1 -n 4 > nul',
-    [installerPath, ...installerArgs].map(quoteCmdArg).join(' '),
-  ].join(' & ')
-
-  const child = spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  })
-
-  child.unref()
 }
 
 function setupAutoUpdater() {
@@ -293,7 +249,7 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('update-available', (info) => {
-    downloadedInstallerPath = null
+    updateReadyToInstall = false
     sendUpdateMessage('available', { version: info.version, info })
   })
 
@@ -302,6 +258,8 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('error', (err) => {
+    isQuittingForUpdate = false
+    updateReadyToInstall = false
     sendUpdateMessage('error', { error: err.message || String(err) })
   })
 
@@ -315,6 +273,7 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('update-downloaded', (info) => {
+    updateReadyToInstall = true
     sendUpdateMessage('downloaded', { version: info.version, info })
   })
 
@@ -347,13 +306,11 @@ function setupAutoUpdater() {
     }
 
     try {
-      const downloadedFiles = await autoUpdater.downloadUpdate()
-      downloadedInstallerPath =
-        downloadedFiles.find((filePath) => filePath.endsWith('.exe')) ??
-        downloadedFiles[0] ??
-        getDownloadedInstallerPath()
+      await autoUpdater.downloadUpdate()
+      updateReadyToInstall = true
       return { success: true }
     } catch (err: any) {
+      updateReadyToInstall = false
       return { success: false, error: err.message || String(err) }
     }
   })
@@ -363,8 +320,7 @@ function setupAutoUpdater() {
       return false
     }
 
-    const installerPath = getDownloadedInstallerPath()
-    if (!installerPath || !fs.existsSync(installerPath)) {
+    if (!updateReadyToInstall) {
       sendUpdateMessage('error', { error: '更新包尚未下载完成，请先下载更新包' })
       return false
     }
@@ -372,19 +328,12 @@ function setupAutoUpdater() {
     try {
       isQuittingForUpdate = true
       sendUpdateMessage('installing')
-      closeDatabaseForUpdateInstall()
-
-      for (const window of BrowserWindow.getAllWindows()) {
-        window.removeAllListeners('close')
-        window.destroy()
-      }
-      mainWindow = null
-
-      launchDownloadedInstallerAfterExit(installerPath)
-      app.quit()
+      checkpointDatabaseForUpdateInstall()
+      autoUpdater.quitAndInstall(true, true)
       return true
     } catch (err: any) {
       isQuittingForUpdate = false
+      updateReadyToInstall = false
       sendUpdateMessage('error', { error: err.message || String(err) })
       return false
     }
@@ -493,16 +442,36 @@ function registerIpcHandlers() {
     `).all(accountId)
   }
 
-  const hydrateAccountRow = (row: any) => ({
-    ...row,
-    platform: normalizeAccountPlatform(row.platform),
-    username: decrypt(row.username),
-    password: decrypt(row.password),
-    phone: decrypt(row.phone),
-    backup_email: decrypt(row.backup_email),
-    totp_secret: decrypt(row.totp_secret),
-    tags: getTagsForAccount(row.id),
-  })
+  const getLinkedTotpAccounts = (accountId: string) => {
+    return (db.prepare(`
+      SELECT *
+      FROM totp_accounts
+      WHERE linked_account_id = ?
+      ORDER BY created_at ASC, id ASC
+    `).all(accountId) as any[]).map((totpAccount) => ({
+      ...totpAccount,
+      secret: decrypt(totpAccount.secret),
+    }))
+  }
+
+  const hydrateAccountRow = (row: any) => {
+    const linkedTotpAccounts = getLinkedTotpAccounts(row.id)
+    return {
+      ...row,
+      platform: normalizeAccountPlatform(row.platform),
+      username: decrypt(row.username),
+      password: decrypt(row.password),
+      phone: decrypt(row.phone),
+      backup_email: decrypt(row.backup_email),
+      // A single linked 2FA record is authoritative; duplicate legacy rows are surfaced instead of auto-resolved.
+      totp_secret: linkedTotpAccounts.length === 1
+        ? linkedTotpAccounts[0].secret
+        : decrypt(row.totp_secret),
+      linked_totp_accounts: linkedTotpAccounts,
+      linked_totp_count: linkedTotpAccounts.length,
+      tags: getTagsForAccount(row.id),
+    }
+  }
 
   // Window controls
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
@@ -581,75 +550,20 @@ function registerIpcHandlers() {
     return { id: data.id }
   })
 
-  ipcMain.handle('accounts:update', (_event, id: string, data: { name?: string; platform?: string; username?: string; password?: string; phone?: string; backupEmail?: string; totpSecret?: string; notes?: string; isFavorite?: number }) => {
-    const now = new Date().toISOString()
-    const updates: string[] = ['updated_at = ?']
-    const params: any[] = [now]
-
-    if (data.name !== undefined) {
-      const accountName = data.name.trim()
-      if (!accountName) throw new Error('Account name is required')
-      updates.push('name = ?')
-      params.push(accountName)
-    }
-    if (data.platform !== undefined) { updates.push('platform = ?'); params.push(normalizeAccountPlatform(data.platform)) }
-    if (data.username !== undefined) { updates.push('username = ?'); params.push(encrypt(data.username)) }
-    if (data.password !== undefined) { updates.push('password = ?'); params.push(encrypt(data.password)) }
-    if (data.phone !== undefined) { updates.push('phone = ?'); params.push(encrypt(data.phone)) }
-    if (data.backupEmail !== undefined) { updates.push('backup_email = ?'); params.push(encrypt(data.backupEmail)) }
-    if (data.totpSecret !== undefined) { updates.push('totp_secret = ?'); params.push(encrypt(data.totpSecret)) }
-    if (data.notes !== undefined) { updates.push('notes = ?'); params.push(data.notes) }
-    if (data.isFavorite !== undefined) { updates.push('is_favorite = ?'); params.push(data.isFavorite) }
-
-    params.push(id)
-    db.prepare(`UPDATE accounts SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-
-    // Auto-sync to 2FA when totpSecret changes
-    if (data.totpSecret !== undefined) {
-      if (!data.totpSecret.trim()) {
-        // Secret cleared → remove linked totp entry
-        db.prepare('DELETE FROM totp_accounts WHERE linked_account_id = ?').run(id)
-      } else {
-        // Update linked totp secret if it exists
-        db.prepare('UPDATE totp_accounts SET secret = ? WHERE linked_account_id = ?').run(encrypt(data.totpSecret.trim()), id)
-      }
-    }
-    if (data.name !== undefined) {
-      db.prepare('UPDATE totp_accounts SET issuer = ? WHERE linked_account_id = ?').run(data.name.trim(), id)
-    }
-    if (data.username !== undefined) {
-      const fallbackLabel = data.name?.trim()
-        || (db.prepare('SELECT name FROM accounts WHERE id = ?').get(id) as { name?: string } | undefined)?.name
-        || ''
-      db.prepare('UPDATE totp_accounts SET label = ? WHERE linked_account_id = ?')
-        .run(data.username.trim() || fallbackLabel, id)
-    }
-
-    return { success: true }
+  ipcMain.handle('accounts:update', (_event, id: string, data: AccountUpdateData) => {
+    return updateAccountRecord(db, id, data, { encrypt })
   })
 
   ipcMain.handle('accounts:delete', (_event, id: string) => {
-    const now = new Date().toISOString()
-    db.prepare('UPDATE accounts SET is_deleted = 1, deleted_at = ? WHERE id = ?').run(now, id)
-    return { success: true }
+    return moveAccountToTrash(db, id)
   })
 
   ipcMain.handle('accounts:restore', (_event, id: string) => {
-    db.prepare('UPDATE accounts SET is_deleted = 0, deleted_at = NULL WHERE id = ?').run(id)
-    return { success: true }
+    return restoreAccountFromTrash(db, id)
   })
 
   ipcMain.handle('accounts:hardDelete', (_event, id: string) => {
-    const account = db.prepare('SELECT is_deleted FROM accounts WHERE id = ?').get(id) as { is_deleted?: number } | undefined
-    if (!account || !account.is_deleted) return { success: false }
-
-    db.transaction(() => {
-      db.prepare('DELETE FROM account_custom_fields WHERE account_id = ?').run(id)
-      db.prepare('DELETE FROM account_tags WHERE account_id = ?').run(id)
-      db.prepare('UPDATE totp_accounts SET linked_account_id = ? WHERE linked_account_id = ?').run(`!deleted-${id}`, id)
-      db.prepare('DELETE FROM accounts WHERE id = ?').run(id)
-    })()
-    return { success: true }
+    return hardDeleteAccountRecord(db, id)
   })
 
   ipcMain.handle('accounts:importCsv', async () => {
@@ -733,125 +647,60 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('accounts:addTag', (_event, data: { accountId: string; tagName: string; color?: string }) => {
-    const tagName = data.tagName.trim()
-    if (!tagName) {
-      throw new Error('Tag name is required')
-    }
-
-    let tag = db.prepare('SELECT * FROM tags WHERE lower(name) = lower(?)').get(tagName) as any
-    if (!tag) {
-      const tagId = uuidv4()
-      const color = data.color || pickTagColor(tagName)
-      db.prepare('INSERT INTO tags (id, name, color) VALUES (?, ?, ?)').run(tagId, tagName, color)
-      tag = { id: tagId, name: tagName, color }
-    }
-
-    db.prepare('INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)').run(data.accountId, tag.id)
-    return { tagId: tag.id }
+    return addTagToAccount(db, data, { createId: uuidv4, pickColor: pickTagColor })
   })
 
   ipcMain.handle('accounts:removeTag', (_event, data: { accountId: string; tagId: string }) => {
-    db.prepare('DELETE FROM account_tags WHERE account_id = ? AND tag_id = ?').run(data.accountId, data.tagId)
-    return { success: true }
+    return removeTagFromAccount(db, data)
   })
 
   // ============ Custom Fields ============
   ipcMain.handle('accounts:addField', (_event, data: { id: string; accountId: string; fieldName: string; fieldValue: string; isSecret: boolean }) => {
-    const value = data.isSecret ? encrypt(data.fieldValue) : data.fieldValue
-    db.prepare('INSERT INTO account_custom_fields (id, account_id, field_name, field_value, is_secret) VALUES (?, ?, ?, ?, ?)').run(data.id, data.accountId, data.fieldName, value, data.isSecret ? 1 : 0)
-    return { id: data.id }
+    return addAccountField(db, data, { encrypt, decrypt })
   })
 
   ipcMain.handle('accounts:updateField', (_event, id: string, data: { fieldName?: string; fieldValue?: string; isSecret?: boolean }) => {
-    const current = db
-      .prepare('SELECT field_value, is_secret FROM account_custom_fields WHERE id = ?')
-      .get(id) as { field_value: string; is_secret: number } | undefined
-    if (!current) return { success: true }
-
-    const currentIsSecret = Boolean(current.is_secret)
-    const nextIsSecret = data.isSecret !== undefined ? Boolean(data.isSecret) : currentIsSecret
-    const updates: string[] = []
-    const params: any[] = []
-    if (data.fieldName !== undefined) { updates.push('field_name = ?'); params.push(data.fieldName) }
-    if (data.fieldValue !== undefined || data.isSecret !== undefined) {
-      const plainValue = data.fieldValue !== undefined
-        ? data.fieldValue
-        : currentIsSecret
-          ? decrypt(current.field_value)
-          : current.field_value
-      updates.push('field_value = ?')
-      params.push(nextIsSecret ? encrypt(plainValue) : plainValue)
-    }
-    if (data.isSecret !== undefined) { updates.push('is_secret = ?'); params.push(nextIsSecret ? 1 : 0) }
-    if (updates.length === 0) return { success: true }
-    params.push(id)
-    db.prepare(`UPDATE account_custom_fields SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-    return { success: true }
+    return updateAccountField(db, id, data, { encrypt, decrypt })
   })
 
   ipcMain.handle('accounts:deleteField', (_event, id: string) => {
-    db.prepare('DELETE FROM account_custom_fields WHERE id = ?').run(id)
-    return { success: true }
+    return deleteAccountField(db, id)
   })
 
   // ============ TOTP 2FA ============
   ipcMain.handle('totp:getAll', () => {
     return (db.prepare('SELECT * FROM totp_accounts ORDER BY sort_order ASC, label ASC').all() as any[])
-      .map((account) => ({ ...account, secret: decrypt(account.secret) }))
+      .map((account) => {
+        let linkedAccountState: 'active' | 'trashed' | 'missing' | 'unlinked' = 'unlinked'
+        if (account.linked_account_id) {
+          if (account.linked_account_id.startsWith('!deleted-')) {
+            linkedAccountState = 'missing'
+          } else {
+            const linkedAccount = db.prepare('SELECT is_deleted FROM accounts WHERE id = ?')
+              .get(account.linked_account_id) as { is_deleted?: number } | undefined
+            linkedAccountState = linkedAccount
+              ? linkedAccount.is_deleted ? 'trashed' : 'active'
+              : 'missing'
+          }
+        }
+        return { ...account, secret: decrypt(account.secret), linked_account_state: linkedAccountState }
+      })
   })
 
   ipcMain.handle('totp:create', (_event, data: { id: string; issuer: string; label: string; secret: string; algorithm?: string; digits?: number; period?: number; otpType?: string; counter?: number; linkedAccountId?: string }) => {
-    const now = new Date().toISOString()
-    // Find the next sort order
-    const row = db.prepare('SELECT MAX(sort_order) as maxOrder FROM totp_accounts').get() as any
-    const nextOrder = (row?.maxOrder || 0) + 1
-
-    db.prepare(`
-      INSERT INTO totp_accounts (id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id, sort_order, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      data.id, data.issuer, data.label, encrypt(data.secret),
-      normalizeOtpAlgorithm(data.algorithm), normalizeOtpDigits(data.digits), normalizeOtpPeriod(data.period),
-      normalizeOtpType(data.otpType), normalizeOtpCounter(data.counter), data.linkedAccountId || null,
-      nextOrder, now
-    )
-    return { id: data.id }
+    return createTotpRecord(db, data, { encrypt })
   })
 
   ipcMain.handle('totp:update', (_event, id: string, data: { issuer?: string; label?: string; secret?: string; algorithm?: string; digits?: number; period?: number; otpType?: string; counter?: number }) => {
-    const updates: string[] = []
-    const params: any[] = []
-    if (data.issuer !== undefined) { updates.push('issuer = ?'); params.push(data.issuer) }
-    if (data.label !== undefined) { updates.push('label = ?'); params.push(data.label) }
-    if (data.secret !== undefined) { updates.push('secret = ?'); params.push(encrypt(data.secret)) }
-    if (data.algorithm !== undefined) { updates.push('algorithm = ?'); params.push(normalizeOtpAlgorithm(data.algorithm)) }
-    if (data.digits !== undefined) { updates.push('digits = ?'); params.push(normalizeOtpDigits(data.digits)) }
-    if (data.period !== undefined) { updates.push('period = ?'); params.push(normalizeOtpPeriod(data.period)) }
-    if (data.otpType !== undefined) { updates.push('otp_type = ?'); params.push(normalizeOtpType(data.otpType)) }
-    if (data.counter !== undefined) { updates.push('counter = ?'); params.push(normalizeOtpCounter(data.counter)) }
-    if (updates.length === 0) return { success: true }
-    params.push(id)
-    db.prepare(`UPDATE totp_accounts SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-    return { success: true }
+    return updateTotpRecord(db, id, data, { encrypt })
   })
 
   ipcMain.handle('totp:delete', (_event, id: string) => {
-    const current = db.prepare('SELECT linked_account_id FROM totp_accounts WHERE id = ?')
-      .get(id) as { linked_account_id?: string | null } | undefined
-    db.transaction(() => {
-      db.prepare('DELETE FROM totp_accounts WHERE id = ?').run(id)
-      if (current?.linked_account_id && !current.linked_account_id.startsWith('!deleted-')) {
-        db.prepare('UPDATE accounts SET totp_secret = ?, updated_at = ? WHERE id = ?')
-          .run('', new Date().toISOString(), current.linked_account_id)
-      }
-    })()
-    return { success: true }
+    return deleteTotpRecord(db, id, { encrypt })
   })
 
   ipcMain.handle('totp:incrementCounter', (_event, id: string) => {
-    db.prepare('UPDATE totp_accounts SET counter = counter + 1 WHERE id = ?').run(id)
-    const row = db.prepare('SELECT counter FROM totp_accounts WHERE id = ?').get(id) as any
-    return { counter: row?.counter || 0 }
+    return incrementHotpCounter(db, id)
   })
 
   // ============ Database Export/Import ============
@@ -944,6 +793,8 @@ function registerIpcHandlers() {
       backupCurrentDatabaseBeforeImport(db)
 
       const importTransaction = db.transaction(() => {
+        const legacyServiceAccountLinks = captureLegacyServiceAccountLinks(db, data)
+
         db.prepare('DELETE FROM tags').run()
         db.prepare('DELETE FROM totp_accounts').run()
         db.prepare('DELETE FROM account_custom_fields').run()
@@ -1015,6 +866,7 @@ function registerIpcHandlers() {
         }
 
         importServiceInfoBackupData(db, data, encryptIfNeeded)
+        restoreLegacyServiceAccountLinks(db, legacyServiceAccountLinks)
       })
 
       importTransaction()

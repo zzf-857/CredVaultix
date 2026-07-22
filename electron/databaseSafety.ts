@@ -25,6 +25,12 @@ export interface BackupResult {
   filePath?: string
 }
 
+interface WalCheckpointRow {
+  busy: number
+  log: number
+  checkpointed: number
+}
+
 function formatBackupTimestamp(now: Date) {
   const year = now.getUTCFullYear()
   const month = String(now.getUTCMonth() + 1).padStart(2, '0')
@@ -76,6 +82,26 @@ export function backupDatabaseIfExists(dbPath: string, userDataPath: string, now
   }
 
   return { created: true, filePath: backupPath }
+}
+
+export function assertFullWalCheckpoint(db: Database.Database) {
+  const rows = db.pragma('wal_checkpoint(FULL)') as WalCheckpointRow[]
+  const result = rows[0]
+
+  if (
+    !result ||
+    !Number.isInteger(result.busy) ||
+    !Number.isInteger(result.log) ||
+    !Number.isInteger(result.checkpointed)
+  ) {
+    throw new Error('SQLite 未返回有效的 WAL checkpoint 结果')
+  }
+
+  if (result.busy !== 0 || result.checkpointed !== result.log) {
+    throw new Error(
+      `SQLite WAL checkpoint 未完成（busy=${result.busy}, log=${result.log}, checkpointed=${result.checkpointed}）`
+    )
+  }
 }
 
 export function hasTable(db: Database.Database, tableName: string) {

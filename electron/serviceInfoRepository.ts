@@ -10,6 +10,14 @@ function normalizeNullableId(value: unknown) {
   return typeof value === 'string' && value.trim() ? value : null
 }
 
+function normalizeBatchIds(value: unknown) {
+  if (!Array.isArray(value) || value.length === 0) return null
+  if (value.some((id) => typeof id !== 'string' || !id.trim())) return null
+
+  const ids = value as string[]
+  return new Set(ids).size === ids.length ? ids : null
+}
+
 function requireName(value: unknown, label: string) {
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`${label} is required`)
@@ -49,6 +57,44 @@ function nextFieldSortOrder(db: Database.Database, serviceId: string, groupId: s
 
 function updateServiceTimestamp(db: Database.Database, serviceId: string) {
   db.prepare('UPDATE secret_services SET updated_at = ? WHERE id = ?').run(nowIso(), serviceId)
+}
+
+function secretGroupExists(db: Database.Database, groupId: string | null) {
+  if (!groupId) return true
+  return Boolean(db.prepare('SELECT id FROM secret_groups WHERE id = ?').get(groupId))
+}
+
+function activeServicesExist(db: Database.Database, ids: string[]) {
+  const findService = db.prepare('SELECT id FROM secret_services WHERE id = ? AND is_deleted = 0')
+  return ids.every((id) => Boolean(findService.get(id)))
+}
+
+function getFieldServiceId(db: Database.Database, ids: string[]) {
+  const findField = db.prepare('SELECT service_id FROM secret_fields WHERE id = ?')
+  let serviceId: string | null = null
+
+  for (const id of ids) {
+    const field = findField.get(id) as { service_id?: string } | undefined
+    if (!field?.service_id) return null
+    if (serviceId && field.service_id !== serviceId) return null
+    serviceId = field.service_id
+  }
+
+  return serviceId
+}
+
+function fieldGroupBelongsToService(db: Database.Database, groupId: string | null, serviceId: string) {
+  if (!groupId) return true
+  const group = db
+    .prepare('SELECT service_id FROM secret_field_groups WHERE id = ?')
+    .get(groupId) as { service_id?: string } | undefined
+  return group?.service_id === serviceId
+}
+
+function requireSingleChange(result: Database.RunResult) {
+  if (result.changes !== 1) {
+    throw new Error('The requested record changed before the operation completed')
+  }
 }
 
 export function registerServiceInfoIpc(initialDatabase: Database.Database) {
@@ -95,16 +141,19 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
     if (data.isCollapsed !== undefined) { updates.push('is_collapsed = ?'); params.push(data.isCollapsed ? 1 : 0) }
     if (data.sortOrder !== undefined) { updates.push('sort_order = ?'); params.push(data.sortOrder) }
     params.push(id)
-    db.prepare(`UPDATE secret_groups SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-    return { success: true }
+    const result = db.prepare(`UPDATE secret_groups SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    return { success: result.changes === 1 }
   })
 
   ipcMain.handle('serviceInfo:deleteGroup', (_event, id: string) => {
-    db.transaction(() => {
+    return db.transaction(() => {
+      const group = db.prepare('SELECT id FROM secret_groups WHERE id = ?').get(id)
+      if (!group) return { success: false }
+
       db.prepare('UPDATE secret_services SET group_id = NULL, updated_at = ? WHERE group_id = ?').run(nowIso(), id)
-      db.prepare('DELETE FROM secret_groups WHERE id = ?').run(id)
+      requireSingleChange(db.prepare('DELETE FROM secret_groups WHERE id = ?').run(id))
+      return { success: true }
     })()
-    return { success: true }
   })
 
   ipcMain.handle('serviceInfo:createService', (_event, data: any) => {
@@ -139,15 +188,15 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
     if (data.notes !== undefined) { updates.push('notes = ?'); params.push(data.notes) }
     if (data.isFavorite !== undefined) { updates.push('is_favorite = ?'); params.push(data.isFavorite ? 1 : 0) }
     params.push(id)
-    db.prepare(`UPDATE secret_services SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-    return { success: true }
+    const result = db.prepare(`UPDATE secret_services SET ${updates.join(', ')} WHERE id = ? AND is_deleted = 0`).run(...params)
+    return { success: result.changes === 1 }
   })
 
   ipcMain.handle('serviceInfo:deleteService', (_event, id: string) => {
     const deletedAt = nowIso()
-    db.prepare('UPDATE secret_services SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ?')
+    const result = db.prepare('UPDATE secret_services SET is_deleted = 1, deleted_at = ?, updated_at = ? WHERE id = ? AND is_deleted = 0')
       .run(deletedAt, deletedAt, id)
-    return { success: true }
+    return { success: result.changes === 1 }
   })
 
   ipcMain.handle('serviceInfo:getDeletedServices', () => (
@@ -155,9 +204,9 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
   ))
 
   ipcMain.handle('serviceInfo:restoreService', (_event, id: string) => {
-    db.prepare('UPDATE secret_services SET is_deleted = 0, deleted_at = NULL, updated_at = ? WHERE id = ?')
+    const result = db.prepare('UPDATE secret_services SET is_deleted = 0, deleted_at = NULL, updated_at = ? WHERE id = ? AND is_deleted = 1')
       .run(nowIso(), id)
-    return { success: true }
+    return { success: result.changes === 1 }
   })
 
   ipcMain.handle('serviceInfo:hardDeleteService', (_event, id: string) => {
@@ -177,29 +226,47 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
   })
 
   ipcMain.handle('serviceInfo:moveServices', (_event, data: { ids: string[]; groupId: string | null }) => {
+    const ids = normalizeBatchIds(data.ids)
+    if (!ids) return { success: false }
+
     const groupId = normalizeNullableId(data.groupId)
     const updatedAt = nowIso()
-    db.transaction(() => {
+    return db.transaction(() => {
+      if (!secretGroupExists(db, groupId) || !activeServicesExist(db, ids)) {
+        return { success: false }
+      }
+
       let sortOrder = nextServiceSortOrder(db, groupId)
-      for (const id of data.ids) {
-        db.prepare('UPDATE secret_services SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ?')
-          .run(groupId, sortOrder, updatedAt, id)
+      const moveService = db.prepare(
+        'UPDATE secret_services SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ? AND is_deleted = 0'
+      )
+      for (const id of ids) {
+        requireSingleChange(moveService.run(groupId, sortOrder, updatedAt, id))
         sortOrder += 1
       }
+      return { success: true }
     })()
-    return { success: true }
   })
 
   ipcMain.handle('serviceInfo:reorderServices', (_event, data: { orderedIds: string[]; groupId: string | null }) => {
+    const orderedIds = normalizeBatchIds(data.orderedIds)
+    if (!orderedIds) return { success: false }
+
     const groupId = normalizeNullableId(data.groupId)
     const updatedAt = nowIso()
-    db.transaction(() => {
-      data.orderedIds.forEach((id, index) => {
-        db.prepare('UPDATE secret_services SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ?')
-          .run(groupId, index + 1, updatedAt, id)
+    return db.transaction(() => {
+      if (!secretGroupExists(db, groupId) || !activeServicesExist(db, orderedIds)) {
+        return { success: false }
+      }
+
+      const reorderService = db.prepare(
+        'UPDATE secret_services SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ? AND is_deleted = 0'
+      )
+      orderedIds.forEach((id, index) => {
+        requireSingleChange(reorderService.run(groupId, index + 1, updatedAt, id))
       })
+      return { success: true }
     })()
-    return { success: true }
   })
 
   ipcMain.handle('serviceInfo:createFieldGroup', (_event, data: { id: string; serviceId: string; name: string; color?: string }) => {
@@ -210,32 +277,41 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
   })
 
   ipcMain.handle('serviceInfo:updateFieldGroup', (_event, id: string, data: any) => {
-    const current = db.prepare('SELECT service_id FROM secret_field_groups WHERE id = ?').get(id) as { service_id?: string } | undefined
-    const updates: string[] = ['updated_at = ?']
-    const params: any[] = [nowIso()]
-    if (data.name !== undefined) { updates.push('name = ?'); params.push(requireName(data.name, 'Field group name')) }
-    if (data.color !== undefined) { updates.push('color = ?'); params.push(data.color || '#a8c7fa') }
-    if (data.isCollapsed !== undefined) { updates.push('is_collapsed = ?'); params.push(data.isCollapsed ? 1 : 0) }
-    if (data.sortOrder !== undefined) { updates.push('sort_order = ?'); params.push(data.sortOrder) }
-    params.push(id)
-    db.prepare(`UPDATE secret_field_groups SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-    if (current?.service_id) updateServiceTimestamp(db, current.service_id)
-    return { success: true }
+    return db.transaction(() => {
+      const current = db.prepare('SELECT service_id FROM secret_field_groups WHERE id = ?').get(id) as { service_id?: string } | undefined
+      if (!current?.service_id) return { success: false }
+
+      const updates: string[] = ['updated_at = ?']
+      const params: any[] = [nowIso()]
+      if (data.name !== undefined) { updates.push('name = ?'); params.push(requireName(data.name, 'Field group name')) }
+      if (data.color !== undefined) { updates.push('color = ?'); params.push(data.color || '#a8c7fa') }
+      if (data.isCollapsed !== undefined) { updates.push('is_collapsed = ?'); params.push(data.isCollapsed ? 1 : 0) }
+      if (data.sortOrder !== undefined) { updates.push('sort_order = ?'); params.push(data.sortOrder) }
+      params.push(id)
+      requireSingleChange(db.prepare(`UPDATE secret_field_groups SET ${updates.join(', ')} WHERE id = ?`).run(...params))
+      updateServiceTimestamp(db, current.service_id)
+      return { success: true }
+    })()
   })
 
   ipcMain.handle('serviceInfo:deleteFieldGroup', (_event, id: string) => {
-    const current = db.prepare('SELECT service_id FROM secret_field_groups WHERE id = ?').get(id) as { service_id?: string } | undefined
-    db.transaction(() => {
+    return db.transaction(() => {
+      const current = db.prepare('SELECT service_id FROM secret_field_groups WHERE id = ?').get(id) as { service_id?: string } | undefined
+      if (!current?.service_id) return { success: false }
+
       db.prepare('UPDATE secret_fields SET group_id = NULL, updated_at = ? WHERE group_id = ?').run(nowIso(), id)
-      db.prepare('DELETE FROM secret_field_groups WHERE id = ?').run(id)
-      if (current?.service_id) updateServiceTimestamp(db, current.service_id)
+      requireSingleChange(db.prepare('DELETE FROM secret_field_groups WHERE id = ?').run(id))
+      updateServiceTimestamp(db, current.service_id)
+      return { success: true }
     })()
-    return { success: true }
   })
 
   ipcMain.handle('serviceInfo:createField', (_event, data: any) => {
     const isSecret = data.isSecret !== false
     const groupId = normalizeNullableId(data.groupId)
+    if (!fieldGroupBelongsToService(db, groupId, data.serviceId)) {
+      throw new Error('Field group does not belong to the target service')
+    }
     db.prepare(`
       INSERT INTO secret_fields (id, service_id, group_id, field_name, field_value, is_secret, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -257,14 +333,19 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
       .prepare('SELECT service_id, field_value, is_secret FROM secret_fields WHERE id = ?')
       .get(id) as { service_id: string; field_value: string; is_secret: number } | undefined
 
-    if (!current) return { success: true }
+    if (!current) return { success: false }
+
+    const groupId = data.groupId !== undefined ? normalizeNullableId(data.groupId) : undefined
+    if (groupId !== undefined && !fieldGroupBelongsToService(db, groupId, current.service_id)) {
+      return { success: false }
+    }
 
     const currentIsSecret = Boolean(current.is_secret)
     const nextIsSecret = data.isSecret !== undefined ? Boolean(data.isSecret) : currentIsSecret
     const updates: string[] = ['updated_at = ?']
     const params: any[] = [nowIso()]
 
-    if (data.groupId !== undefined) { updates.push('group_id = ?'); params.push(normalizeNullableId(data.groupId)) }
+    if (data.groupId !== undefined) { updates.push('group_id = ?'); params.push(groupId) }
     if (data.fieldName !== undefined) { updates.push('field_name = ?'); params.push(requireName(data.fieldName, 'Field name')) }
     if (data.fieldValue !== undefined || data.isSecret !== undefined) {
       const plainValue = data.fieldValue !== undefined
@@ -278,49 +359,72 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
     if (data.isSecret !== undefined) { updates.push('is_secret = ?'); params.push(nextIsSecret ? 1 : 0) }
 
     params.push(id)
-    db.prepare(`UPDATE secret_fields SET ${updates.join(', ')} WHERE id = ?`).run(...params)
-    updateServiceTimestamp(db, current.service_id)
-    return { success: true }
+    return db.transaction(() => {
+      const result = db.prepare(`UPDATE secret_fields SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+      if (result.changes !== 1) return { success: false }
+      updateServiceTimestamp(db, current.service_id)
+      return { success: true }
+    })()
   })
 
   ipcMain.handle('serviceInfo:deleteField', (_event, id: string) => {
-    const current = db.prepare('SELECT service_id FROM secret_fields WHERE id = ?').get(id) as { service_id?: string } | undefined
-    db.prepare('DELETE FROM secret_fields WHERE id = ?').run(id)
-    if (current?.service_id) updateServiceTimestamp(db, current.service_id)
-    return { success: true }
+    return db.transaction(() => {
+      const current = db.prepare('SELECT service_id FROM secret_fields WHERE id = ?').get(id) as { service_id?: string } | undefined
+      if (!current?.service_id) return { success: false }
+
+      const result = db.prepare('DELETE FROM secret_fields WHERE id = ?').run(id)
+      if (result.changes !== 1) return { success: false }
+      updateServiceTimestamp(db, current.service_id)
+      return { success: true }
+    })()
   })
 
   ipcMain.handle('serviceInfo:moveFields', (_event, data: { ids: string[]; groupId: string | null }) => {
+    const ids = normalizeBatchIds(data.ids)
+    if (!ids) return { success: false }
+
     const groupId = normalizeNullableId(data.groupId)
     const updatedAt = nowIso()
-    db.transaction(() => {
-      const firstField = data.ids.length > 0
-        ? db.prepare('SELECT service_id FROM secret_fields WHERE id = ?').get(data.ids[0]) as { service_id?: string } | undefined
-        : undefined
-      let sortOrder = firstField?.service_id ? nextFieldSortOrder(db, firstField.service_id, groupId) : 1
-      for (const id of data.ids) {
-        const current = db.prepare('SELECT service_id FROM secret_fields WHERE id = ?').get(id) as { service_id?: string } | undefined
-        db.prepare('UPDATE secret_fields SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ?')
-          .run(groupId, sortOrder, updatedAt, id)
-        sortOrder += 1
-        if (current?.service_id) updateServiceTimestamp(db, current.service_id)
+    return db.transaction(() => {
+      const serviceId = getFieldServiceId(db, ids)
+      if (!serviceId || !fieldGroupBelongsToService(db, groupId, serviceId)) {
+        return { success: false }
       }
+
+      let sortOrder = nextFieldSortOrder(db, serviceId, groupId)
+      const moveField = db.prepare(
+        'UPDATE secret_fields SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ? AND service_id = ?'
+      )
+      for (const id of ids) {
+        requireSingleChange(moveField.run(groupId, sortOrder, updatedAt, id, serviceId))
+        sortOrder += 1
+      }
+      updateServiceTimestamp(db, serviceId)
+      return { success: true }
     })()
-    return { success: true }
   })
 
   ipcMain.handle('serviceInfo:reorderFields', (_event, data: { orderedIds: string[]; groupId: string | null }) => {
+    const orderedIds = normalizeBatchIds(data.orderedIds)
+    if (!orderedIds) return { success: false }
+
     const groupId = normalizeNullableId(data.groupId)
     const updatedAt = nowIso()
-    db.transaction(() => {
-      data.orderedIds.forEach((id, index) => {
-        const current = db.prepare('SELECT service_id FROM secret_fields WHERE id = ?').get(id) as { service_id?: string } | undefined
-        db.prepare('UPDATE secret_fields SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ?')
-          .run(groupId, index + 1, updatedAt, id)
-        if (current?.service_id) updateServiceTimestamp(db, current.service_id)
+    return db.transaction(() => {
+      const serviceId = getFieldServiceId(db, orderedIds)
+      if (!serviceId || !fieldGroupBelongsToService(db, groupId, serviceId)) {
+        return { success: false }
+      }
+
+      const reorderField = db.prepare(
+        'UPDATE secret_fields SET group_id = ?, sort_order = ?, updated_at = ? WHERE id = ? AND service_id = ?'
+      )
+      orderedIds.forEach((id, index) => {
+        requireSingleChange(reorderField.run(groupId, index + 1, updatedAt, id, serviceId))
       })
+      updateServiceTimestamp(db, serviceId)
+      return { success: true }
     })()
-    return { success: true }
   })
 
   ipcMain.handle('app:openDataDirectory', async () => {

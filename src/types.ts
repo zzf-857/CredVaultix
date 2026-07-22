@@ -19,21 +19,21 @@ export interface ElectronAPI {
   setUnsavedChanges: (hasUnsavedChanges: boolean) => void
 
   getTotpAccounts: () => Promise<TotpAccountRow[]>
-  createTotpAccount: (data: CreateTotpData) => Promise<{ id: string }>
+  createTotpAccount: (data: CreateTotpData) => Promise<{ id: string; created?: boolean }>
   updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<{ success: boolean }>
   deleteTotpAccount: (id: string) => Promise<{ success: boolean }>
-  incrementTotpCounter: (id: string) => Promise<{ counter: number }>
+  incrementTotpCounter: (id: string) => Promise<{ success: boolean; counter: number }>
 
   getAccounts: (filters?: AccountFilters) => Promise<AccountRow[]>
   getAccountById: (id: string) => Promise<AccountRow | null>
   createAccount: (data: CreateAccountData) => Promise<{ id: string }>
-  updateAccount: (id: string, data: UpdateAccountData) => Promise<{ success: boolean }>
+  updateAccount: (id: string, data: UpdateAccountData) => Promise<AccountUpdateResult>
   deleteAccount: (id: string) => Promise<{ success: boolean }>
   restoreAccount: (id: string) => Promise<{ success: boolean }>
   hardDeleteAccount: (id: string) => Promise<{ success: boolean }>
   importCsvAccounts: () => Promise<CsvImportResult>
-  addAccountTag: (data: { accountId: string; tagName: string; color?: string }) => Promise<{ tagId: string }>
-  removeAccountTag: (data: { accountId: string; tagId: string }) => Promise<{ success: boolean }>
+  addAccountTag: (data: { accountId: string; tagName: string; color?: string }) => Promise<{ tagId: string; linked?: boolean }>
+  removeAccountTag: (data: { accountId: string; tagId: string }) => Promise<{ success: boolean; removed?: boolean; deletedUnusedTag?: boolean }>
 
   addAccountField: (data: { id: string; accountId: string; fieldName: string; fieldValue: string; isSecret: boolean }) => Promise<{ id: string }>
   updateAccountField: (id: string, data: { fieldName?: string; fieldValue?: string; isSecret?: boolean }) => Promise<{ success: boolean }>
@@ -76,7 +76,7 @@ export interface ElectronAPI {
 }
 
 export interface UpdateMessage {
-  status: 'checking' | 'available' | 'latest' | 'error' | 'downloading' | 'downloaded' | 'portable'
+  status: 'checking' | 'available' | 'latest' | 'error' | 'downloading' | 'downloaded' | 'installing' | 'portable'
   version?: string
   error?: string
   isPortable?: boolean
@@ -106,6 +106,7 @@ export interface TotpAccountRow {
   linked_account_id: string | null
   sort_order: number
   created_at: string
+  linked_account_state?: 'active' | 'trashed' | 'missing' | 'unlinked'
 }
 
 export interface CustomFieldRow {
@@ -239,6 +240,8 @@ export interface AccountRow {
   updated_at: string
   tags?: TagRow[]
   customFields?: CustomFieldRow[]
+  linked_totp_accounts?: TotpAccountRow[]
+  linked_totp_count?: number
 }
 
 export interface AccountFilters {
@@ -270,6 +273,24 @@ export interface UpdateAccountData {
   totpSecret?: string
   notes?: string
   isFavorite?: number
+  createLinkedTotp?: {
+    id: string
+    issuer: string
+    label: string
+    algorithm?: string
+    digits?: number
+    period?: number
+    otpType?: string
+    counter?: number
+  }
+}
+
+export interface AccountUpdateResult {
+  success: boolean
+  needsTotpLink?: boolean
+  detachedTotpCount?: number
+  linkedTotpCount?: number
+  refreshFailed?: boolean
 }
 
 export interface CreateTotpData {
@@ -289,6 +310,7 @@ export interface CsvImportResult {
   count: number
   invalidTotpCount: number
   skippedRowCount: number
+  refreshFailed?: boolean
 }
 
 export interface UpdateTotpData {
