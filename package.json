@@ -1,6 +1,6 @@
 {
   "name": "credvaultix",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A sleek Windows desktop CredVaultix account, 2FA, and service information vault with Material Design 3",
   "main": "dist-electron/main.js",
   "scripts": {
