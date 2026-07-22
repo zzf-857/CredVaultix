@@ -1,10 +1,18 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import Database from 'better-sqlite3'
 import path from 'path'
 import { DATABASE_FILE_NAME, initDatabase, getDatabase } from './database'
 import { encrypt, decrypt, encryptIfNeeded } from './crypto'
-import { assertFullWalCheckpoint, backupDatabaseIfExists } from './databaseSafety'
+import {
+  PROTECTED_TABLES,
+  SERVICE_INFO_TABLES,
+  assertCountsNotReduced,
+  assertFullWalCheckpoint,
+  backupDatabaseIfExists,
+  getExistingTableCounts,
+  type CoreTableCounts,
+} from './databaseSafety'
 import {
   SERVICE_INFO_BACKUP_VERSION,
   captureLegacyServiceAccountLinks,
@@ -34,6 +42,15 @@ import {
 import { addTagToAccount, removeTagFromAccount } from './accountTagRepository'
 import { addAccountField, deleteAccountField, updateAccountField } from './accountFieldRepository'
 import { hardDeleteAccountRecord, moveAccountToTrash, restoreAccountFromTrash } from './accountLifecycleRepository'
+import { UpdaterController } from './updaterController'
+import { createUpdaterLogger } from './updaterLogger'
+import {
+  read as readUpdateAttempt,
+  reconcile as reconcileUpdateAttempt,
+  remove as removeUpdateAttempt,
+  write as writeUpdateAttempt,
+} from './updaterStateStore'
+import type { UpdateSnapshot } from '../shared/update'
 import fs from 'fs'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
@@ -41,10 +58,13 @@ import { v4 as uuidv4 } from 'uuid'
 let mainWindow: BrowserWindow | null = null
 const APP_ID = 'com.personal.credvaultix'
 const APP_NAME = 'CredVaultix'
+const RELEASE_URL = 'https://github.com/zzf-857/CredVaultix/releases/latest'
 const LEGACY_DATABASE_FILE_NAME = 'account-manager.db'
+const DATA_TABLES = [...PROTECTED_TABLES, ...SERVICE_INFO_TABLES]
 const TAG_COLOR_PALETTE = ['#a8c7fa', '#81c995', '#f2b8b5', '#fdd663', '#d7aefb', '#78d9ec', '#fcb68e']
 let isQuittingForUpdate = false
-let updateReadyToInstall = false
+let updaterController: UpdaterController | null = null
+let updateSnapshot: UpdateSnapshot | null = null
 let usesExplicitUserDataDirectory = false
 let hasUnsavedRendererChanges = false
 
@@ -100,12 +120,12 @@ function backupCurrentDatabaseBeforeImport(currentDb: Database.Database) {
   const dbPath = path.join(userDataPath, DATABASE_FILE_NAME)
 
   assertFullWalCheckpoint(currentDb)
-  const backup = backupDatabaseIfExists(dbPath, userDataPath)
+  const backup = backupDatabaseIfExists(dbPath, userDataPath, new Date(), 'import')
   if (!backup.created || !backup.filePath || !fs.existsSync(backup.filePath)) {
     throw new Error('导入已中止：无法创建当前数据库的安全备份')
   }
 
-  validateSqliteBackup(backup.filePath)
+  validateSqliteBackup(backup.filePath, getExistingTableCounts(currentDb, DATA_TABLES))
   return backup
 }
 
@@ -194,7 +214,7 @@ function migrateLegacyUserDataToCredVaultix() {
   }
 }
 
-function validateSqliteBackup(filePath: string) {
+function validateSqliteBackup(filePath: string, expectedCounts?: CoreTableCounts) {
   const candidate = new Database(filePath, { readonly: true, fileMustExist: true })
   try {
     const integrity = candidate.pragma('integrity_check', { simple: true })
@@ -211,138 +231,170 @@ function validateSqliteBackup(filePath: string) {
         throw new Error(`SQLite 备份缺少必要数据表：${tableName}`)
       }
     }
+
+    if (expectedCounts) {
+      assertCountsNotReduced(
+        expectedCounts,
+        getExistingTableCounts(candidate, Object.keys(expectedCounts))
+      )
+    }
   } finally {
     candidate.close()
   }
 }
 
-function checkpointDatabaseForUpdateInstall() {
-  try {
-    const database = getDatabase()
-    if (!database || !database.open) return
-
-    try {
-      database.pragma('wal_checkpoint(FULL)')
-    } catch (error) {
-      console.warn('Failed to checkpoint database before update install:', error)
-    }
-
-  } catch (error) {
-    console.warn('Failed to checkpoint database before update install:', error)
+function prepareDatabaseForUpdateInstall() {
+  if (hasUnsavedRendererChanges) {
+    throw new Error('请先保存或取消当前账号编辑，再安装更新')
   }
+
+  const database = getDatabase()
+  if (!database?.open) {
+    throw new Error('数据库当前不可用，已中止更新安装')
+  }
+
+  const userDataPath = app.getPath('userData')
+  const databasePath = path.join(userDataPath, DATABASE_FILE_NAME)
+  const expectedCounts = getExistingTableCounts(database, DATA_TABLES)
+  assertFullWalCheckpoint(database)
+  const backup = backupDatabaseIfExists(databasePath, userDataPath, new Date(), 'update')
+  if (!backup.created || !backup.filePath || !fs.existsSync(backup.filePath)) {
+    throw new Error('无法创建更新前数据库备份，已中止更新安装')
+  }
+  validateSqliteBackup(backup.filePath, expectedCounts)
+  return backup.filePath
 }
 
 function setupAutoUpdater() {
+  const userDataPath = app.getPath('userData')
+  const logFilePath = path.join(userDataPath, 'logs', 'updater.log')
+  const attemptFilePath = path.join(userDataPath, 'updater-state.json')
+  const logger = createUpdaterLogger(logFilePath)
+
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
+  autoUpdater.logger = logger
 
-  const isPortable = Boolean(process.env.PORTABLE_EXECUTABLE_DIR || process.env.PORTABLE_EXECUTABLE_FILE)
+  const storedAttempt = readUpdateAttempt(attemptFilePath)
+  const reconciledAttempt = reconcileUpdateAttempt(storedAttempt, app.getVersion())
+  let initialError: string | undefined
+  if (reconciledAttempt?.status === 'installed') {
+    logger.info(`Update to v${reconciledAttempt.targetVersion} completed successfully`)
+    try {
+      removeUpdateAttempt(attemptFilePath)
+    } catch (error) {
+      logger.warn('Failed to remove completed updater state', error)
+    }
+  } else if (reconciledAttempt) {
+    if (reconciledAttempt !== storedAttempt) {
+      try {
+        writeUpdateAttempt(attemptFilePath, reconciledAttempt)
+      } catch (error) {
+        logger.warn('Failed to persist reconciled updater state', error)
+      }
+    }
+    if (reconciledAttempt.status === 'interrupted' || reconciledAttempt.status === 'failed') {
+      initialError = `上次更新到 v${reconciledAttempt.targetVersion} 未完成，可重新检查并安装`
+      logger.warn(reconciledAttempt.error || initialError)
+    }
+  } else if (fs.existsSync(attemptFilePath)) {
+    logger.warn('Ignored an invalid updater state file')
+  }
 
-  const sendUpdateMessage = (status: string, payload: Record<string, unknown> = {}) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update:message', { status, isPortable, ...payload })
+  updaterController = new UpdaterController({
+    updater: autoUpdater,
+    currentVersion: app.getVersion(),
+    releaseUrl: RELEASE_URL,
+    logger,
+    initialError,
+    isPackaged: app.isPackaged,
+    executablePath: process.execPath,
+    productName: APP_NAME,
+    portableExecutableDir: process.env.PORTABLE_EXECUTABLE_DIR,
+    portableExecutableFile: process.env.PORTABLE_EXECUTABLE_FILE,
+    fileExists: fs.existsSync,
+    prepareForInstall: () => {
+      const backupPath = prepareDatabaseForUpdateInstall()
+      logger.info(`Verified pre-update database backup: ${backupPath}`)
+    },
+    persistAttempt: (attempt) => writeUpdateAttempt(attemptFilePath, attempt),
+    requestInstall: () => {
+      isQuittingForUpdate = true
+      try {
+        logger.info('Requesting visible installation through electron-updater')
+        autoUpdater.quitAndInstall()
+      } catch (error) {
+        isQuittingForUpdate = false
+        throw error
+      }
+    },
+    onState: (snapshot) => {
+      updateSnapshot = snapshot
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update:message', snapshot)
+      }
+    },
+  })
+
+  logger.info(
+    `Updater initialized: current=v${app.getVersion()}, distribution=${updaterController.getSnapshot().distribution}, executable=${process.execPath}`
+  )
+
+  autoUpdater.on('download-progress', (progress) => {
+    updaterController?.reportDownloadProgress(progress.percent)
+  })
+  autoUpdater.on('error', (error) => {
+    isQuittingForUpdate = false
+    const attempt = readUpdateAttempt(attemptFilePath)
+    if (attempt?.status === 'launching') {
+      try {
+        writeUpdateAttempt(attemptFilePath, {
+          ...attempt,
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+          updatedAt: new Date().toISOString(),
+        })
+      } catch (stateError) {
+        logger.error('Failed to persist asynchronous updater error', stateError)
+      }
+    }
+    updaterController?.reportUpdaterError(error)
+  })
+
+  let databaseClosedForUpdate = false
+  const closeDatabaseForUpdate = () => {
+    if (databaseClosedForUpdate) return
+    databaseClosedForUpdate = true
+    logger.info('Update quit confirmed; closing the database cleanly')
+    try {
+      const database = getDatabase()
+      if (database?.open) database.close()
+    } catch (error) {
+      logger.warn('Failed to close database cleanly during update quit', error)
     }
   }
 
-  autoUpdater.on('checking-for-update', () => {
-    sendUpdateMessage('checking')
+  electronAutoUpdater.on('before-quit-for-update', () => {
+    isQuittingForUpdate = true
+    closeDatabaseForUpdate()
+  })
+  app.on('before-quit', () => {
+    if (isQuittingForUpdate) closeDatabaseForUpdate()
   })
 
-  autoUpdater.on('update-available', (info) => {
-    updateReadyToInstall = false
-    sendUpdateMessage('available', { version: info.version, info })
+  ipcMain.handle('update:get-state', () => updateSnapshot || updaterController?.getSnapshot())
+  ipcMain.handle('update:check', () => updaterController!.checkForUpdates())
+  ipcMain.handle('update:download', () => updaterController!.downloadUpdate())
+  ipcMain.handle('update:install', () => updaterController!.installUpdate())
+  ipcMain.handle('update:open-log', async () => {
+    const result = await shell.openPath(path.dirname(logFilePath))
+    return result ? { success: false, error: result } : { success: true }
   })
 
-  autoUpdater.on('update-not-available', (info) => {
-    sendUpdateMessage('latest', { version: info.version, info })
-  })
-
-  autoUpdater.on('error', (err) => {
-    isQuittingForUpdate = false
-    updateReadyToInstall = false
-    sendUpdateMessage('error', { error: err.message || String(err) })
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    sendUpdateMessage('downloading', {
-      percent: progress.percent,
-      bytesPerSecond: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total,
-    })
-  })
-
-  autoUpdater.on('update-downloaded', (info) => {
-    updateReadyToInstall = true
-    sendUpdateMessage('downloaded', { version: info.version, info })
-  })
-
-  ipcMain.handle('app:getVersion', () => app.getVersion())
-
-  ipcMain.handle('update:check', async () => {
-    if (isPortable) {
-      sendUpdateMessage('portable')
-      return { success: false, isPortable: true, status: 'portable' }
-    }
-    if (!app.isPackaged) {
-      return { success: false, error: '开发环境跳过更新检查' }
-    }
-
-    try {
-      const result = await autoUpdater.checkForUpdates()
-      return { success: true, result }
-    } catch (err: any) {
-      return { success: false, error: err.message || String(err) }
-    }
-  })
-
-  ipcMain.handle('update:download', async () => {
-    if (isPortable) {
-      sendUpdateMessage('portable')
-      return { success: false, isPortable: true, status: 'portable' }
-    }
-    if (!app.isPackaged) {
-      return { success: false, error: '开发环境跳过更新下载' }
-    }
-
-    try {
-      await autoUpdater.downloadUpdate()
-      updateReadyToInstall = true
-      return { success: true }
-    } catch (err: any) {
-      updateReadyToInstall = false
-      return { success: false, error: err.message || String(err) }
-    }
-  })
-
-  ipcMain.handle('update:quit-and-install', async () => {
-    if (isPortable || !app.isPackaged) {
-      return false
-    }
-
-    if (!updateReadyToInstall) {
-      sendUpdateMessage('error', { error: '更新包尚未下载完成，请先下载更新包' })
-      return false
-    }
-
-    try {
-      isQuittingForUpdate = true
-      sendUpdateMessage('installing')
-      checkpointDatabaseForUpdateInstall()
-      autoUpdater.quitAndInstall(true, true)
-      return true
-    } catch (err: any) {
-      isQuittingForUpdate = false
-      updateReadyToInstall = false
-      sendUpdateMessage('error', { error: err.message || String(err) })
-      return false
-    }
-  })
-
-  if (app.isPackaged && !isPortable) {
+  if (updaterController.getSnapshot().distribution === 'installed') {
     setTimeout(() => {
-      autoUpdater.checkForUpdates().catch((err) => {
-        console.error('[AutoUpdate] Startup check failed:', err)
+      updaterController?.checkForUpdates().catch((error) => {
+        logger.error('Startup update check failed', error)
       })
     }, 5000)
   }

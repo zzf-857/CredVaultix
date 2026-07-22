@@ -59,7 +59,8 @@ CredVaultix 用于集中整理 Google / Microsoft 主账号、密码、恢复资
 
 - JSON 与 SQLite 备份导入/导出；SQLite 导出使用一致性备份 API。
 - 导入前验证 JSON 结构或 SQLite 完整性，并自动备份当前数据库。
-- 设置页支持检查、下载并安装 GitHub Release 更新。
+- 设置页支持检查、下载并安装 GitHub Release 更新；安装前会生成并验证数据库安全备份。
+- 更新安装向导保持可见，启动失败时保留已校验安装包，并可从设置页打开更新日志后重试。
 - 主题、侧栏、列表宽度、排序、置顶和 2FA 对齐偏好统一持久化。
 
 ## 安全说明
@@ -75,6 +76,8 @@ CredVaultix 用于集中整理 Google / Microsoft 主账号、密码、恢复资
 从 [GitHub Releases](https://github.com/zzf-857/CredVaultix/releases) 下载最新的 `CredVaultix-Setup-X.Y.Z.exe`。
 
 当前安装包尚未配置 Windows 代码签名证书，首次运行可能出现 SmartScreen 提示。请只从本项目 Releases 页面下载安装包并核对发布来源。
+
+从 `v1.1.0` 或更早版本更新时，旧更新器可能只关闭应用而未启动安装程序。遇到这种情况，请从 Releases 手动运行一次最新安装包；账号数据库位于独立的用户数据目录，不会随程序目录覆盖。
 
 ## 本地开发
 

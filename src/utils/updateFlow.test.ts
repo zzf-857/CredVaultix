@@ -27,70 +27,71 @@ describe('CredVaultix update flow wiring', () => {
 
   it('registers electron-updater with packaged and portable safeguards', () => {
     expect(mainSource).toContain("import { autoUpdater } from 'electron-updater'")
+    expect(mainSource).toContain("import { UpdaterController } from './updaterController'")
     expect(mainSource).toContain('function setupAutoUpdater()')
     expect(mainSource).toContain('autoUpdater.autoDownload = false')
     expect(mainSource).toContain('autoUpdater.autoInstallOnAppQuit = false')
+    expect(mainSource).toContain('autoUpdater.logger = logger')
     expect(mainSource).toContain('process.env.PORTABLE_EXECUTABLE_DIR')
     expect(mainSource).toContain('process.env.PORTABLE_EXECUTABLE_FILE')
-    expect(mainSource).toContain('!app.isPackaged')
     expect(mainSource).toContain("mainWindow.webContents.send('update:message'")
-    expect(mainSource).toContain("'checking-for-update'")
-    expect(mainSource).toContain("'update-available'")
-    expect(mainSource).toContain("'update-not-available'")
     expect(mainSource).toContain("'download-progress'")
-    expect(mainSource).toContain("'update-downloaded'")
-    expect(mainSource).toContain("ipcMain.handle('app:getVersion'")
+    expect(mainSource).toContain("autoUpdater.on('error'")
+    expect(mainSource).toContain("ipcMain.handle('update:get-state'")
     expect(mainSource).toContain("ipcMain.handle('update:check'")
     expect(mainSource).toContain("ipcMain.handle('update:download'")
-    expect(mainSource).toContain("ipcMain.handle('update:quit-and-install'")
+    expect(mainSource).toContain("ipcMain.handle('update:install'")
+    expect(mainSource).toContain("ipcMain.handle('update:open-log'")
     expect(mainSource).toContain('setTimeout')
     expect(mainSource).toContain('5000')
   })
 
-  it('uses electron-updater to install the downloaded NSIS package after a database checkpoint', () => {
-    expect(mainSource).toContain('let updateReadyToInstall = false')
-    expect(mainSource).toContain('function checkpointDatabaseForUpdateInstall()')
-    expect(mainSource).toContain('await autoUpdater.downloadUpdate()')
-    expect(mainSource).toContain('updateReadyToInstall = true')
-    expect(mainSource).toContain("database.pragma('wal_checkpoint(FULL)')")
-    expect(mainSource).toContain('autoUpdater.quitAndInstall(true, true)')
-    expect(mainSource).not.toContain("import { spawn } from 'child_process'")
+  it('backs up the database before requesting the standard visible NSIS update flow', () => {
+    expect(mainSource).toContain('function prepareDatabaseForUpdateInstall()')
+    expect(mainSource).toContain('assertFullWalCheckpoint(database)')
+    expect(mainSource).toContain("backupDatabaseIfExists(databasePath, userDataPath, new Date(), 'update')")
+    expect(mainSource).toContain('validateSqliteBackup(backup.filePath, expectedCounts)')
+    expect(mainSource).toContain('autoUpdater.quitAndInstall()')
+    expect(mainSource).toContain("electronAutoUpdater.on('before-quit-for-update'")
+    expect(mainSource).toContain("app.on('before-quit'")
+    expect(mainSource).not.toContain('quitAndInstall(true, true)')
+    expect(mainSource).not.toContain('launchNsisInstaller')
+    expect(mainSource).not.toContain('spawn(')
+    expect(mainSource).not.toContain('cmd.exe')
+    expect(mainSource).not.toContain("'/S'")
     expect(mainSource).not.toContain('launchDownloadedInstallerAfterExit')
     expect(mainSource).not.toContain('quoteCmdArg')
     expect(mainSource).not.toContain('windowsHide: true')
   })
 
-  it('resets updater install guards when an updater error occurs', () => {
-    const errorHandlerStart = mainSource.indexOf("autoUpdater.on('error'")
-    const errorHandlerEnd = mainSource.indexOf("autoUpdater.on('download-progress'", errorHandlerStart)
-    const errorHandlerSource = mainSource.slice(errorHandlerStart, errorHandlerEnd)
-
-    expect(errorHandlerStart).toBeGreaterThan(-1)
-    expect(errorHandlerEnd).toBeGreaterThan(errorHandlerStart)
-    expect(errorHandlerSource).toContain('isQuittingForUpdate = false')
-    expect(errorHandlerSource).toContain('updateReadyToInstall = false')
-    expect(errorHandlerSource).toContain("sendUpdateMessage('error'")
+  it('persists update diagnostics without storing vault fields', () => {
+    expect(mainSource).toContain("path.join(userDataPath, 'logs', 'updater.log')")
+    expect(mainSource).toContain("path.join(userDataPath, 'updater-state.json')")
+    expect(mainSource).toContain('reconcileUpdateAttempt(storedAttempt, app.getVersion())')
+    expect(mainSource).toContain('reportUpdaterError(error)')
   })
 
   it('exposes updater controls through preload and renderer types', () => {
     for (const methodName of [
-      'getVersion',
+      'getUpdateState',
       'checkUpdates',
       'downloadUpdate',
-      'quitAndInstall',
+      'installUpdate',
+      'openUpdateLog',
       'onUpdateMessage',
     ]) {
       expect(preloadSource).toContain(methodName)
       expect(typesSource).toContain(methodName)
     }
 
-    expect(preloadSource).toContain("ipcRenderer.invoke('app:getVersion')")
+    expect(preloadSource).toContain("ipcRenderer.invoke('update:get-state')")
     expect(preloadSource).toContain("ipcRenderer.invoke('update:check')")
     expect(preloadSource).toContain("ipcRenderer.invoke('update:download')")
-    expect(preloadSource).toContain("ipcRenderer.invoke('update:quit-and-install')")
+    expect(preloadSource).toContain("ipcRenderer.invoke('update:install')")
+    expect(preloadSource).toContain("ipcRenderer.invoke('update:open-log')")
     expect(preloadSource).toContain("ipcRenderer.on('update:message'")
     expect(preloadSource).toContain('removeListener')
-    expect(typesSource).toContain('UpdateMessage')
+    expect(typesSource).toContain('UpdateSnapshot')
   })
 
   it('adds a settings panel for manual update checks, installs, data actions, and appearance', () => {
@@ -102,9 +103,8 @@ describe('CredVaultix update flow wiring', () => {
     expect(settingsPanelSource).toContain('检查更新')
     expect(settingsPanelSource).toContain('下载更新包')
     expect(settingsPanelSource).toContain('重启安装')
-    expect(settingsPanelSource).toContain("| 'installing'")
-    expect(settingsPanelSource).toContain('正在退出并安装更新...')
-    expect(settingsPanelSource).toContain('handleQuitAndInstall')
+    expect(settingsPanelSource).toContain('正在创建安全备份并启动安装向导...')
+    expect(settingsPanelSource).toContain('handleInstallUpdate')
     expect(settingsPanelSource).toContain("updateStatus === 'installing'")
     expect(settingsPanelSource).toContain("disabled={Boolean(navigationBlockReason) || updateStatus === 'installing'}")
     expect(settingsPanelSource).toContain('升级不会删除本地数据库')
@@ -114,7 +114,10 @@ describe('CredVaultix update flow wiring', () => {
     expect(settingsPanelSource).toContain('切换到浅色模式')
     expect(settingsPanelSource).toContain('checkUpdates')
     expect(settingsPanelSource).toContain('downloadUpdate')
-    expect(settingsPanelSource).toContain('quitAndInstall')
+    expect(settingsPanelSource).toContain('installUpdate')
+    expect(settingsPanelSource).toContain('GitHub Releases')
+    expect(settingsPanelSource).toContain('打开更新日志')
+    expect(settingsPanelSource).toContain('snapshot.revision < latestUpdateRevision.current')
     expect(settingsPanelSource).toContain('onUpdateMessage')
     expect(titleBarSource).not.toContain('SystemUpdateAltIcon')
     expect(titleBarSource).not.toContain('FileUploadIcon')

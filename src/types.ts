@@ -1,4 +1,7 @@
 import type { AccountPlatform } from './utils/accountPlatform'
+import type { UpdateActionResult, UpdateSnapshot } from '../shared/update'
+
+export type { UpdateSnapshot } from '../shared/update'
 
 export interface AppPreferences {
   sidebarWidth?: number
@@ -65,26 +68,15 @@ export interface ElectronAPI {
   getAppPreferences: () => Promise<AppPreferences>
   updateAppPreferences: (patch: Partial<AppPreferences>) => Promise<AppPreferences>
   resetAppPreferences: () => Promise<AppPreferences>
-  getVersion: () => Promise<string>
-  checkUpdates: () => Promise<{ success: boolean; error?: string; isPortable?: boolean; status?: string; result?: unknown }>
-  downloadUpdate: () => Promise<{ success: boolean; error?: string; isPortable?: boolean; status?: string }>
-  quitAndInstall: () => Promise<boolean>
-  onUpdateMessage: (callback: (message: UpdateMessage) => void) => () => void
+  getUpdateState: () => Promise<UpdateSnapshot>
+  checkUpdates: () => Promise<UpdateActionResult>
+  downloadUpdate: () => Promise<UpdateActionResult>
+  installUpdate: () => Promise<UpdateActionResult>
+  openUpdateLog: () => Promise<{ success: boolean; error?: string }>
+  onUpdateMessage: (callback: (message: UpdateSnapshot) => void) => () => void
 
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
   importDatabase: () => Promise<{ success: boolean }>
-}
-
-export interface UpdateMessage {
-  status: 'checking' | 'available' | 'latest' | 'error' | 'downloading' | 'downloaded' | 'installing' | 'portable'
-  version?: string
-  error?: string
-  isPortable?: boolean
-  percent?: number
-  bytesPerSecond?: number
-  transferred?: number
-  total?: number
-  info?: unknown
 }
 
 export interface TagRow {

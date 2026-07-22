@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -18,23 +18,13 @@ import FileDownloadIcon from '@mui/icons-material/FileDownload'
 import FileUploadIcon from '@mui/icons-material/FileUpload'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import LightModeIcon from '@mui/icons-material/LightMode'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SearchIcon from '@mui/icons-material/Search'
 import SettingsIcon from '@mui/icons-material/Settings'
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt'
 import { useStore } from '../stores/useStore'
-import type { UpdateMessage } from '../types'
-
-type UpdateStatus =
-  | 'idle'
-  | 'checking'
-  | 'available'
-  | 'latest'
-  | 'downloading'
-  | 'downloaded'
-  | 'installing'
-  | 'error'
-  | 'portable'
+import type { UpdateSnapshot } from '../types'
 
 interface SettingsPanelProps {
   open: boolean
@@ -52,6 +42,33 @@ function getFriendlyUpdateError(error?: string) {
   return error || '检查更新失败，请稍后再试'
 }
 
+function getUpdateStatusText(update: UpdateSnapshot | null) {
+  if (!update) return '正在读取更新状态...'
+
+  switch (update.status) {
+    case 'checking':
+      return '正在连接 GitHub 检查更新...'
+    case 'available':
+      return `发现新版本 v${update.availableVersion || '-'}，可下载更新包`
+    case 'latest':
+      return '当前已是最新版本'
+    case 'downloading':
+      return '正在下载并校验更新包...'
+    case 'downloaded':
+      return `新版本 v${update.downloadedVersion || update.availableVersion || '-'} 已下载完成`
+    case 'installing':
+      return '正在创建安全备份并启动安装向导...'
+    case 'error':
+      return getFriendlyUpdateError(update.error || undefined)
+    case 'unsupported':
+      if (update.distribution === 'portable') return '当前为便携版，请从 GitHub Releases 手动更新'
+      if (update.distribution === 'unmanaged') return '当前程序不在安装器管理目录中，请手动更新'
+      return '开发环境不执行自动更新'
+    default:
+      return '点击检查更新以获取 GitHub 最新版本'
+  }
+}
+
 function sectionSx() {
   return {
     p: 2,
@@ -64,113 +81,94 @@ function sectionSx() {
 
 export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const { themeMode, toggleTheme, exportDatabase, importDatabase, navigationBlockReason } = useStore()
-  const [appVersion, setAppVersion] = useState('')
-  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>('idle')
-  const [updateStatusText, setUpdateStatusText] = useState('点击检查更新以获取 GitHub 最新版本')
-  const [downloadPercent, setDownloadPercent] = useState(0)
+  const [updateState, setUpdateState] = useState<UpdateSnapshot | null>(null)
+  const [updateRequestError, setUpdateRequestError] = useState<string | null>(null)
+  const latestUpdateRevision = useRef(-1)
   const [importConfirmOpen, setImportConfirmOpen] = useState(false)
   const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
 
-  useEffect(() => {
-    window.electronAPI.getVersion().then(setAppVersion).catch(() => {
-      setAppVersion('')
-    })
-
-    const unsubscribe = window.electronAPI.onUpdateMessage((data: UpdateMessage) => {
-      const { status, version, percent, error, isPortable } = data
-
-      if (isPortable || status === 'portable') {
-        setUpdateStatus('portable')
-        setUpdateStatusText('当前为便携版，请前往 GitHub 手动下载最新版')
-        return
-      }
-
-      setUpdateStatus(status)
-      switch (status) {
-        case 'checking':
-          setUpdateStatusText('正在检查更新...')
-          break
-        case 'available':
-          setUpdateStatusText(`发现新版本 v${version}，可手动下载更新包`)
-          setDownloadPercent(0)
-          break
-        case 'latest':
-          setUpdateStatusText('当前已是最新版本')
-          break
-        case 'downloading':
-          setUpdateStatusText('正在下载更新包...')
-          setDownloadPercent(Math.round(percent || 0))
-          break
-        case 'downloaded':
-          setUpdateStatusText(`新版本 v${version} 已下载完成`)
-          setDownloadPercent(100)
-          break
-        case 'installing':
-          setUpdateStatusText('正在退出并安装更新...')
-          break
-        case 'error':
-          setUpdateStatusText(getFriendlyUpdateError(error))
-          break
-        default:
-          break
-      }
-    })
-
-    return unsubscribe
+  const applyUpdateSnapshot = useCallback((snapshot: UpdateSnapshot) => {
+    if (snapshot.revision < latestUpdateRevision.current) return false
+    latestUpdateRevision.current = snapshot.revision
+    setUpdateState(snapshot)
+    setUpdateRequestError(null)
+    return true
   }, [])
 
-  const handleCheckUpdates = async () => {
-    setUpdateStatus('checking')
-    setUpdateStatusText('正在连接 GitHub 检查更新...')
-    setDownloadPercent(0)
-
-    const result = await window.electronAPI.checkUpdates()
-    if (result.isPortable || result.status === 'portable') {
-      setUpdateStatus('portable')
-      setUpdateStatusText('当前为便携版，请前往 GitHub 手动下载最新版')
-      return
+  useEffect(() => {
+    let active = true
+    const applySnapshot = (snapshot: UpdateSnapshot) => {
+      if (active) applyUpdateSnapshot(snapshot)
     }
-    if (!result.success) {
-      setUpdateStatus('error')
-      setUpdateStatusText(getFriendlyUpdateError(result.error))
+
+    const unsubscribe = window.electronAPI.onUpdateMessage(applySnapshot)
+    window.electronAPI.getUpdateState().then(applySnapshot).catch((error) => {
+      if (active) setUpdateRequestError(getFriendlyUpdateError(error instanceof Error ? error.message : String(error)))
+    })
+
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [applyUpdateSnapshot])
+
+  const handleCheckUpdates = async () => {
+    try {
+      const result = await window.electronAPI.checkUpdates()
+      applyUpdateSnapshot(result.snapshot)
+      if (!result.success) setUpdateRequestError(getFriendlyUpdateError(result.error))
+    } catch (error) {
+      setUpdateRequestError(getFriendlyUpdateError(error instanceof Error ? error.message : String(error)))
     }
   }
 
   const handleDownloadUpdate = async () => {
-    setUpdateStatus('downloading')
-    setUpdateStatusText('正在下载更新包...')
-    setDownloadPercent(0)
-
-    const result = await window.electronAPI.downloadUpdate()
-    if (result.isPortable || result.status === 'portable') {
-      setUpdateStatus('portable')
-      setUpdateStatusText('当前为便携版，请前往 GitHub 手动下载最新版')
-      return
-    }
-    if (!result.success) {
-      setUpdateStatus('error')
-      setUpdateStatusText(getFriendlyUpdateError(result.error || '下载更新失败，请稍后再试'))
-    }
-  }
-
-  const handleQuitAndInstall = async () => {
-    if (updateStatus === 'installing') return
-
-    setUpdateStatus('installing')
-    setUpdateStatusText('正在退出并安装更新...')
-
     try {
-      const started = await window.electronAPI.quitAndInstall()
-      if (!started) {
-        setUpdateStatus('error')
-        setUpdateStatusText('无法启动更新安装，请重新下载更新包')
+      const result = await window.electronAPI.downloadUpdate()
+      applyUpdateSnapshot(result.snapshot)
+      if (!result.success) {
+        setUpdateRequestError(getFriendlyUpdateError(result.error || '下载更新失败，请稍后再试'))
       }
     } catch (error) {
-      setUpdateStatus('error')
-      setUpdateStatusText(getFriendlyUpdateError(error instanceof Error ? error.message : String(error)))
+      setUpdateRequestError(getFriendlyUpdateError(error instanceof Error ? error.message : String(error)))
     }
   }
 
+  const handleInstallUpdate = async () => {
+    if (updateState?.status === 'installing') return
+    try {
+      const result = await window.electronAPI.installUpdate()
+      applyUpdateSnapshot(result.snapshot)
+      if (!result.success) setUpdateRequestError(getFriendlyUpdateError(result.error))
+    } catch (error) {
+      setUpdateRequestError(getFriendlyUpdateError(error instanceof Error ? error.message : String(error)))
+    }
+  }
+
+  const handleOpenReleasePage = async () => {
+    try {
+      const result = await window.electronAPI.openExternal(
+        updateState?.releaseUrl || 'https://github.com/zzf-857/CredVaultix/releases/latest'
+      )
+      if (!result.success) setUpdateRequestError(result.error || '无法打开 GitHub Releases')
+    } catch (error) {
+      setUpdateRequestError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const handleOpenUpdateLog = async () => {
+    try {
+      const result = await window.electronAPI.openUpdateLog()
+      if (!result.success) setUpdateRequestError(result.error || '无法打开更新日志目录')
+    } catch (error) {
+      setUpdateRequestError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const updateStatus = updateState?.status || 'idle'
+  const updateStatusText = getUpdateStatusText(updateState)
+  const downloadPercent = updateState?.percent || 0
+  const displayedUpdateError = updateRequestError || updateState?.error
   const busy = updateStatus === 'checking' || updateStatus === 'downloading' || updateStatus === 'installing'
 
   const handleExportDatabase = async () => {
@@ -217,7 +215,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   版本与更新
                 </Typography>
                 <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.3 }}>
-                  当前版本 v{appVersion || '-'}
+                  当前版本 v{updateState?.currentVersion || '-'}
                 </Typography>
               </Box>
               <SystemUpdateAltIcon sx={{ color: 'text.secondary' }} />
@@ -236,13 +234,18 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 </Typography>
               </Box>
             )}
-            {updateStatus === 'error' && (
+            {displayedUpdateError && (
               <Alert severity="warning" variant="outlined" sx={{ mt: 1.5 }}>
-                {updateStatusText}
+                {getFriendlyUpdateError(displayedUpdateError)}
               </Alert>
             )}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.75 }}>
-              <Button onClick={handleCheckUpdates} disabled={busy} startIcon={<SearchIcon />} variant="outlined">
+              <Button
+                onClick={handleCheckUpdates}
+                disabled={busy || Boolean(updateState?.canInstall) || updateStatus === 'unsupported'}
+                startIcon={<SearchIcon />}
+                variant="outlined"
+              >
                 检查更新
               </Button>
               {updateStatus === 'available' && (
@@ -250,9 +253,9 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   下载更新包
                 </Button>
               )}
-              {(updateStatus === 'downloaded' || updateStatus === 'installing') && (
+              {(updateState?.canInstall || updateStatus === 'installing') && (
                 <Button
-                  onClick={handleQuitAndInstall}
+                  onClick={handleInstallUpdate}
                   startIcon={<RestartAltIcon />}
                   color="success"
                   variant="contained"
@@ -261,6 +264,12 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   {updateStatus === 'installing' ? '正在安装' : '重启安装'}
                 </Button>
               )}
+              <Button onClick={handleOpenReleasePage} startIcon={<OpenInNewIcon />} variant="outlined">
+                GitHub Releases
+              </Button>
+              <Button onClick={handleOpenUpdateLog} startIcon={<FolderOpenIcon />} variant="text">
+                打开更新日志
+              </Button>
             </Box>
           </Box>
 

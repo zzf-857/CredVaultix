@@ -96,6 +96,8 @@
       "uninstallerIcon": "assets/app.ico",
       "installerHeaderIcon": "assets/app.ico",
       "oneClick": false,
+      "allowElevation": true,
+      "packElevateHelper": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "shortcutName": "CredVaultix"

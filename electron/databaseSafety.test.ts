@@ -59,6 +59,18 @@ describe('databaseSafety', () => {
     )
   })
 
+  it('uses a distinct purpose in update backups', () => {
+    const backupPath = buildDatabaseBackupPath(
+      'C:/AppData/CredVaultix',
+      new Date('2026-07-01T10:11:12.000Z'),
+      'update'
+    )
+
+    expect(backupPath.replace(/\\/g, '/')).toBe(
+      'C:/AppData/CredVaultix/credvaultix-before-update-2026-07-01-101112.db'
+    )
+  })
+
   it('copies an existing database after the caller checkpoints it', () => {
     const dir = mkdtempSync(join(tmpdir(), 'credvaultix-backup-'))
     try {

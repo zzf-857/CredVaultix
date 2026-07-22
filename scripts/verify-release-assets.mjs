@@ -41,16 +41,32 @@ export function verifyReleaseAssets({
   const installerPath = path.join(resolvedReleaseDirectory, installerName)
   const blockmapPath = `${installerPath}.blockmap`
   const latestPath = path.join(resolvedReleaseDirectory, 'latest.yml')
+  const appUpdatePath = path.join(resolvedReleaseDirectory, 'win-unpacked', 'resources', 'app-update.yml')
+  const elevatePath = path.join(resolvedReleaseDirectory, 'win-unpacked', 'resources', 'elevate.exe')
 
   const installerSize = statSync(installerPath).size
   const blockmapSize = statSync(blockmapPath).size
+  const elevateSize = statSync(elevatePath).size
   if (installerSize <= 0) throw new Error(`安装包为空：${installerPath}`)
   if (blockmapSize <= 0) throw new Error(`blockmap 为空：${blockmapPath}`)
+  if (elevateSize <= 0) throw new Error(`提权辅助程序为空：${elevatePath}`)
 
   const installerSha512 = createHash('sha512')
     .update(readFileSync(installerPath))
     .digest('base64')
   const metadata = parseLatestMetadata(readFileSync(latestPath, 'utf8'))
+  const appUpdateSource = readFileSync(appUpdatePath, 'utf8')
+  const appUpdate = {
+    owner: readScalar(appUpdateSource, /^owner:\s*(.+)$/m, 'app-update.yml owner'),
+    repo: readScalar(appUpdateSource, /^repo:\s*(.+)$/m, 'app-update.yml repo'),
+    provider: readScalar(appUpdateSource, /^provider:\s*(.+)$/m, 'app-update.yml provider'),
+    updaterCacheDirName: readScalar(
+      appUpdateSource,
+      /^updaterCacheDirName:\s*(.+)$/m,
+      'app-update.yml updaterCacheDirName'
+    ),
+  }
+  const githubPublish = packageJson.build?.publish?.find((entry) => entry?.provider === 'github')
 
   const mismatches = []
   if (metadata.version !== version) mismatches.push(`version=${metadata.version}，期望 ${version}`)
@@ -59,6 +75,19 @@ export function verifyReleaseAssets({
   if (metadata.fileSize !== installerSize) mismatches.push(`files[0].size=${metadata.fileSize}，期望 ${installerSize}`)
   if (metadata.fileSha512 !== installerSha512) mismatches.push('files[0].sha512 与安装包不一致')
   if (metadata.sha512 !== installerSha512) mismatches.push('sha512 与安装包不一致')
+  if (!githubPublish) mismatches.push('package.json 缺少 GitHub publish 配置')
+  if (appUpdate.provider !== 'github') mismatches.push(`app-update.yml provider=${appUpdate.provider}，期望 github`)
+  if (githubPublish && appUpdate.owner !== githubPublish.owner) {
+    mismatches.push(`app-update.yml owner=${appUpdate.owner}，期望 ${githubPublish.owner}`)
+  }
+  if (githubPublish && appUpdate.repo !== githubPublish.repo) {
+    mismatches.push(`app-update.yml repo=${appUpdate.repo}，期望 ${githubPublish.repo}`)
+  }
+  if (appUpdate.updaterCacheDirName !== `${packageJson.name}-updater`) {
+    mismatches.push(
+      `app-update.yml updaterCacheDirName=${appUpdate.updaterCacheDirName}，期望 ${packageJson.name}-updater`
+    )
+  }
 
   if (mismatches.length > 0) {
     throw new Error(`发布元数据校验失败：\n- ${mismatches.join('\n- ')}`)
@@ -69,6 +98,7 @@ export function verifyReleaseAssets({
     installerName,
     installerSize,
     blockmapSize,
+    elevateSize,
     sha512: installerSha512,
   }
 }
@@ -78,7 +108,7 @@ if (invokedPath === import.meta.url) {
   try {
     const result = verifyReleaseAssets({ releaseDirectory: process.argv[2] })
     console.log(
-      `release-assets: v${result.version} 校验通过（installer=${result.installerSize} bytes, blockmap=${result.blockmapSize} bytes）`
+      `release-assets: v${result.version} 校验通过（installer=${result.installerSize} bytes, blockmap=${result.blockmapSize} bytes, elevate=${result.elevateSize} bytes）`
     )
   } catch (error) {
     console.error(`release-assets: ${error instanceof Error ? error.message : String(error)}`)

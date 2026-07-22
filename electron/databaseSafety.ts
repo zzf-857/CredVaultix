@@ -47,14 +47,23 @@ function assertSafeTableName(tableName: string) {
   }
 }
 
-export function buildDatabaseBackupPath(userDataPath: string, now = new Date()) {
+export function buildDatabaseBackupPath(
+  userDataPath: string,
+  now = new Date(),
+  reason: 'migration' | 'import' | 'update' = 'migration'
+) {
   return path.join(
     userDataPath,
-    `credvaultix-before-migration-${formatBackupTimestamp(now)}.db`
+    `credvaultix-before-${reason}-${formatBackupTimestamp(now)}.db`
   )
 }
 
-export function backupDatabaseIfExists(dbPath: string, userDataPath: string, now = new Date()): BackupResult {
+export function backupDatabaseIfExists(
+  dbPath: string,
+  userDataPath: string,
+  now = new Date(),
+  reason: 'migration' | 'import' | 'update' = 'migration'
+): BackupResult {
   if (!fs.existsSync(dbPath)) {
     return { created: false }
   }
@@ -63,7 +72,7 @@ export function backupDatabaseIfExists(dbPath: string, userDataPath: string, now
     fs.mkdirSync(userDataPath, { recursive: true })
   }
 
-  const baseBackupPath = buildDatabaseBackupPath(userDataPath, now)
+  const baseBackupPath = buildDatabaseBackupPath(userDataPath, now, reason)
   const extension = path.extname(baseBackupPath)
   const stem = baseBackupPath.slice(0, -extension.length)
   let backupPath = baseBackupPath

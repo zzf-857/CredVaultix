@@ -18,7 +18,14 @@ function createFixture({ declaredSizeOffset = 0, declaredSha512 } = {}) {
   const sha512 = createHash('sha512').update(installer).digest('base64')
 
   mkdirSync(releaseDirectory)
-  writeFileSync(packageJsonPath, JSON.stringify({ version }))
+  mkdirSync(path.join(releaseDirectory, 'win-unpacked', 'resources'), { recursive: true })
+  writeFileSync(packageJsonPath, JSON.stringify({
+    name: 'credvaultix',
+    version,
+    build: {
+      publish: [{ provider: 'github', owner: 'zzf-857', repo: 'CredVaultix' }],
+    },
+  }))
   writeFileSync(path.join(releaseDirectory, installerName), installer)
   writeFileSync(path.join(releaseDirectory, `${installerName}.blockmap`), 'blockmap')
   writeFileSync(path.join(releaseDirectory, 'latest.yml'), [
@@ -32,6 +39,14 @@ function createFixture({ declaredSizeOffset = 0, declaredSha512 } = {}) {
     "releaseDate: '2026-07-14T00:00:00.000Z'",
     '',
   ].join('\n'))
+  writeFileSync(path.join(releaseDirectory, 'win-unpacked', 'resources', 'app-update.yml'), [
+    'owner: zzf-857',
+    'repo: CredVaultix',
+    'provider: github',
+    'updaterCacheDirName: credvaultix-updater',
+    '',
+  ].join('\n'))
+  writeFileSync(path.join(releaseDirectory, 'win-unpacked', 'resources', 'elevate.exe'), 'elevate')
 
   return { releaseDirectory, packageJsonPath, installer, sha512 }
 }
@@ -49,6 +64,7 @@ describe('release asset verification', () => {
 
     expect(result.version).toBe('9.8.7')
     expect(result.installerSize).toBe(fixture.installer.length)
+    expect(result.elevateSize).toBeGreaterThan(0)
     expect(result.sha512).toBe(fixture.sha512)
   })
 
@@ -58,5 +74,15 @@ describe('release asset verification', () => {
 
     const staleHash = createFixture({ declaredSha512: 'stale-sha512' })
     expect(() => verifyReleaseAssets(staleHash)).toThrow('sha512')
+  })
+
+  it('rejects a package without a matching updater runtime configuration', () => {
+    const fixture = createFixture()
+    writeFileSync(
+      path.join(fixture.releaseDirectory, 'win-unpacked', 'resources', 'app-update.yml'),
+      'owner: wrong\nrepo: CredVaultix\nprovider: github\nupdaterCacheDirName: credvaultix-updater\n'
+    )
+
+    expect(() => verifyReleaseAssets(fixture)).toThrow('app-update.yml owner')
   })
 })

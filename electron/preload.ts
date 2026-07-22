@@ -63,10 +63,11 @@ const electronAPI = {
   resetAppPreferences: () => ipcRenderer.invoke('preferences:reset'),
 
   // Updates
-  getVersion: () => ipcRenderer.invoke('app:getVersion'),
+  getUpdateState: () => ipcRenderer.invoke('update:get-state'),
   checkUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
-  quitAndInstall: () => ipcRenderer.invoke('update:quit-and-install'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  openUpdateLog: () => ipcRenderer.invoke('update:open-log'),
   onUpdateMessage: (callback: (message: any) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, message: any) => callback(message)
     ipcRenderer.on('update:message', listener)
