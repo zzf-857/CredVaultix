@@ -36,7 +36,9 @@ export interface ElectronAPI {
   hardDeleteAccount: (id: string) => Promise<{ success: boolean }>
   importCsvAccounts: () => Promise<CsvImportResult>
   addAccountTag: (data: { accountId: string; tagName: string; color?: string }) => Promise<{ tagId: string; linked?: boolean }>
+  getAccountTags: () => Promise<AccountTagUsageRow[]>
   removeAccountTag: (data: { accountId: string; tagId: string }) => Promise<{ success: boolean; removed?: boolean; deletedUnusedTag?: boolean }>
+  deleteTag: (tagId: string) => Promise<{ success: boolean; tagName: string; affectedAccounts: number; removedLinks: number }>
 
   addAccountField: (data: { id: string; accountId: string; fieldName: string; fieldValue: string; isSecret: boolean }) => Promise<{ id: string }>
   updateAccountField: (id: string, data: { fieldName?: string; fieldValue?: string; isSecret?: boolean }) => Promise<{ success: boolean }>
@@ -83,6 +85,10 @@ export interface TagRow {
   id: string
   name: string
   color: string
+}
+
+export interface AccountTagUsageRow extends TagRow {
+  usage_count: number
 }
 
 export interface TotpAccountRow {

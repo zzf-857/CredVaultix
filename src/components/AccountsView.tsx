@@ -53,7 +53,7 @@ import { v4 as uuidv4 } from 'uuid'
 import AccountPlatformDialog from './AccountPlatformDialog'
 import TotpCodeDisplay from './TotpCodeDisplay'
 import { useStore } from '../stores/useStore'
-import { AccountRow, CustomFieldRow, TagRow, UpdateAccountData } from '../types'
+import { AccountRow, AccountTagUsageRow, CustomFieldRow, TagRow, UpdateAccountData } from '../types'
 import {
   AccountPlatform,
   getAccountPlatformLabel,
@@ -144,28 +144,9 @@ function PlatformChip({ platform }: { platform: AccountPlatform }) {
   )
 }
 
-function getCreatedTagSuggestions(accounts: AccountRow[], currentTags: TagRow[] = []) {
-  const current = new Set(currentTags.map((tag) => tag.name.trim().toLowerCase()).filter(Boolean))
-  const tagStats = new Map<string, { name: string; count: number }>()
-
-  for (const account of accounts) {
-    for (const tag of account.tags || []) {
-      const name = tag.name.trim()
-      const key = name.toLowerCase()
-      if (!name || current.has(key)) continue
-
-      const existing = tagStats.get(key)
-      if (existing) {
-        existing.count += 1
-      } else {
-        tagStats.set(key, { name, count: 1 })
-      }
-    }
-  }
-
-  return Array.from(tagStats.values())
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-Hans-CN'))
-    .map((tag) => tag.name)
+function getCreatedTagSuggestions(tags: AccountTagUsageRow[], currentTags: TagRow[] = []) {
+  const currentIds = new Set(currentTags.map((tag) => tag.id))
+  return tags.filter((tag) => !currentIds.has(tag.id))
 }
 
 function SensitiveField({
@@ -345,6 +326,7 @@ function AccountDetail({
 }) {
   const {
     addAccountTag,
+    deleteTag,
     deleteAccount,
     incrementTotpCounter,
     loadAccounts,
@@ -392,7 +374,13 @@ function AccountDetail({
     period: 30,
     counter: 0,
   })
-  const [tagSourceAccounts, setTagSourceAccounts] = useState<AccountRow[]>([])
+  const [tagCatalog, setTagCatalog] = useState<AccountTagUsageRow[]>([])
+  const [tagContextMenu, setTagContextMenu] = useState<{
+    mouseX: number
+    mouseY: number
+    tag: AccountTagUsageRow
+  } | null>(null)
+  const [tagDeleteTarget, setTagDeleteTarget] = useState<AccountTagUsageRow | null>(null)
   const [newTagName, setNewTagName] = useState('')
   const [saveBusy, setSaveBusy] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
@@ -449,8 +437,8 @@ function AccountDetail({
         setTotpInputError('')
       }
 
-      const tagSources = await window.electronAPI.getAccounts({ isDeleted: false, platform: 'all' })
-      setTagSourceAccounts(tagSources)
+      const tags = await window.electronAPI.getAccountTags()
+      setTagCatalog(tags)
       setAccountLoadError('')
     } catch (error) {
       setAccountLoadError(`读取账号失败：${error instanceof Error ? error.message : String(error)}`)
@@ -800,6 +788,35 @@ function AccountDetail({
     }
   }
 
+  const handleTagContextMenu = (event: React.MouseEvent, tag: AccountTagUsageRow) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setTagContextMenu({ mouseX: event.clientX + 2, mouseY: event.clientY - 6, tag })
+  }
+
+  const handleConfirmDeleteTag = async () => {
+    if (!tagDeleteTarget || tagBusy) return
+    const target = tagDeleteTarget
+    setTagBusy(`delete:${target.id}`)
+    try {
+      const result = await deleteTag(target.id)
+      if (!result.success) throw new Error('标签不存在或已经删除')
+      setTagDeleteTarget(null)
+      const detailRefreshFailed = await refreshAccountViews({ preserveDraft: true, includeLists: false })
+      const refreshFailed = result.refreshFailed || detailRefreshFailed
+      setNotice({
+        severity: refreshFailed ? 'info' : 'success',
+        text: refreshFailed
+          ? `标签“${target.name}”已删除，但界面刷新失败`
+          : `已删除标签“${target.name}”，并解除 ${result.affectedAccounts} 个账号关联`,
+      })
+    } catch (error) {
+      setNotice({ severity: 'error', text: `删除标签失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setTagBusy(null)
+    }
+  }
+
   const handleIncrementLinkedHotp = async (totpId: string) => {
     if (hotpIncrementBusyRef.current) return
     hotpIncrementBusyRef.current = true
@@ -847,7 +864,7 @@ function AccountDetail({
     ? ''
     : linkedTotpAccount?.secret || account.totp_secret
   const hasTotpSecret = Boolean(!editing && displayedTotpSecret && displayedTotpSecret.trim())
-  const createdTagSuggestions = getCreatedTagSuggestions(tagSourceAccounts, account.tags || [])
+  const createdTagSuggestions = getCreatedTagSuggestions(tagCatalog, account.tags || [])
   const sectionOrder = getAccountDetailSectionOrder(hasTotpSecret)
   const pendingLinkUri = normalizeOtpInput(linkData.secret)?.parsedUri
   const linkRequiresStoredMetadata = (
@@ -980,25 +997,32 @@ function AccountDetail({
       <Paper variant="outlined" sx={panelSx}>
         {(account.tags || []).length > 0 ? (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.85, mb: 1.65 }}>
-            {(account.tags || []).map((tag) => (
-              <Tooltip key={tag.id} title={`点击 × 从当前账号移除“${tag.name}”`} arrow>
-                <Chip
-                  label={tag.name}
-                  aria-label={`从当前账号移除标签 ${tag.name}`}
-                  disabled={Boolean(tagBusy)}
-                  onDelete={() => handleRemoveTag(tag)}
-                  sx={{
-                    maxWidth: '100%',
-                    bgcolor: `${tag.color}22`,
-                    color: tag.color,
-                    border: '1px solid',
-                    borderColor: `${tag.color}55`,
-                    '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
-                    '& .MuiChip-deleteIcon': { color: 'inherit' },
-                  }}
-                />
-              </Tooltip>
-            ))}
+            {(account.tags || []).map((tag) => {
+              const catalogTag = tagCatalog.find((candidate) => candidate.id === tag.id) || {
+                ...tag,
+                usage_count: 1,
+              }
+              return (
+                <Tooltip key={tag.id} title={`点击 × 从当前账号移除“${tag.name}”；右键管理标签`} arrow>
+                  <Chip
+                    label={tag.name}
+                    aria-label={`从当前账号移除标签 ${tag.name}`}
+                    disabled={Boolean(tagBusy)}
+                    onContextMenu={(event) => handleTagContextMenu(event, catalogTag)}
+                    onDelete={() => handleRemoveTag(tag)}
+                    sx={{
+                      maxWidth: '100%',
+                      bgcolor: `${tag.color}22`,
+                      color: tag.color,
+                      border: '1px solid',
+                      borderColor: `${tag.color}55`,
+                      '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+                      '& .MuiChip-deleteIcon': { color: 'inherit' },
+                    }}
+                  />
+                </Tooltip>
+              )
+            })}
           </Box>
         ) : (
           <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.85rem', mb: 1.65, lineHeight: 1.5 }}>
@@ -1055,12 +1079,13 @@ function AccountDetail({
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.95, maxHeight: 168, overflowY: 'auto', pr: 0.5 }}>
               {createdTagSuggestions.map((tag) => (
-                <Tooltip key={tag} title={tag} arrow>
+                <Tooltip key={tag.id} title="单击添加；右键管理标签" arrow>
                   <Chip
-                    label={tag}
+                    label={tag.name}
                     variant="outlined"
                     disabled={Boolean(tagBusy)}
-                    onClick={() => void handleAddTag(tag)}
+                    onClick={() => void handleAddTag(tag.name)}
+                    onContextMenu={(event) => handleTagContextMenu(event, tag)}
                     sx={{
                       height: 28,
                       maxWidth: '100%',
@@ -1390,6 +1415,52 @@ function AccountDetail({
           }
         })}
       </Box>
+
+      <Menu
+        open={tagContextMenu !== null}
+        onClose={() => setTagContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={tagContextMenu
+          ? { top: tagContextMenu.mouseY, left: tagContextMenu.mouseX }
+          : undefined}
+      >
+        <MenuItem
+          disabled={Boolean(tagBusy)}
+          onClick={() => {
+            if (tagContextMenu) setTagDeleteTarget(tagContextMenu.tag)
+            setTagContextMenu(null)
+          }}
+        >
+          <ListItemIcon><DeleteOutlineIcon fontSize="small" color="error" /></ListItemIcon>
+          <ListItemText sx={{ color: 'error.main' }}>删除标签</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      <Dialog
+        open={tagDeleteTarget !== null}
+        onClose={() => { if (!tagBusy) setTagDeleteTarget(null) }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningAmberIcon sx={{ color: 'warning.main' }} />
+          删除标签
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            确定要彻底删除标签 <strong>{tagDeleteTarget?.name}</strong> 吗？
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary', fontSize: '0.82rem', lineHeight: 1.55 }}>
+            将从 {tagDeleteTarget?.usage_count ?? 0} 个关联账号中移除该标签。账号、密码、2FA 和其他字段都不会被删除；此操作无法撤销。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTagDeleteTarget(null)} disabled={Boolean(tagBusy)}>取消</Button>
+          <Button variant="contained" color="error" onClick={handleConfirmDeleteTag} disabled={Boolean(tagBusy)}>
+            {tagBusy?.startsWith('delete:') ? '删除中...' : '删除标签'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={deleteConfirmOpen} onClose={() => { if (!deleteBusy) setDeleteConfirmOpen(false) }} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

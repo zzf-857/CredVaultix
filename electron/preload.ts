@@ -25,7 +25,9 @@ const electronAPI = {
   hardDeleteAccount: (id: string) => ipcRenderer.invoke('accounts:hardDelete', id),
   importCsvAccounts: () => ipcRenderer.invoke('accounts:importCsv'),
   addAccountTag: (data: any) => ipcRenderer.invoke('accounts:addTag', data),
+  getAccountTags: () => ipcRenderer.invoke('accounts:getTags'),
   removeAccountTag: (data: any) => ipcRenderer.invoke('accounts:removeTag', data),
+  deleteTag: (tagId: string) => ipcRenderer.invoke('accounts:deleteTag', tagId),
 
   // Custom Fields
   addAccountField: (data: any) => ipcRenderer.invoke('accounts:addField', data),

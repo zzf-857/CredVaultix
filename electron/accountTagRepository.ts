@@ -17,6 +17,16 @@ function normalizeTagName(value: string) {
   return name
 }
 
+export function getAccountTags(db: Database.Database) {
+  return db.prepare(`
+    SELECT t.id, t.name, t.color, COUNT(at.account_id) AS usage_count
+    FROM tags t
+    LEFT JOIN account_tags at ON at.tag_id = t.id
+    GROUP BY t.id, t.name, t.color
+    ORDER BY usage_count DESC, t.name COLLATE NOCASE ASC
+  `).all() as Array<{ id: string; name: string; color: string; usage_count: number }>
+}
+
 export function addTagToAccount(
   db: Database.Database,
   data: { accountId: string; tagName: string; color?: string },
@@ -62,5 +72,39 @@ export function removeTagFromAccount(
       }
     }
     return { success: result.changes > 0, removed: result.changes > 0, deletedUnusedTag }
+  })()
+}
+
+export function deleteTag(
+  db: Database.Database,
+  tagId: string,
+  now = () => new Date().toISOString()
+) {
+  const normalizedTagId = String(tagId || '').trim()
+  if (!normalizedTagId) throw new Error('标签 ID 不能为空')
+
+  return db.transaction(() => {
+    const tag = db.prepare('SELECT id, name FROM tags WHERE id = ?').get(normalizedTagId) as
+      | { id: string; name: string }
+      | undefined
+    if (!tag) {
+      return { success: false, tagName: '', affectedAccounts: 0, removedLinks: 0 }
+    }
+
+    const updatedAccounts = db.prepare(`
+      UPDATE accounts
+      SET updated_at = ?
+      WHERE id IN (SELECT account_id FROM account_tags WHERE tag_id = ?)
+    `).run(now(), normalizedTagId).changes
+    const removedLinks = db.prepare('DELETE FROM account_tags WHERE tag_id = ?').run(normalizedTagId).changes
+    const deleted = db.prepare('DELETE FROM tags WHERE id = ?').run(normalizedTagId).changes
+    if (deleted !== 1) throw new Error('标签删除失败')
+
+    return {
+      success: true,
+      tagName: tag.name,
+      affectedAccounts: updatedAccounts,
+      removedLinks,
+    }
   })()
 }

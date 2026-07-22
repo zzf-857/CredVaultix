@@ -15,9 +15,10 @@ describe('account interaction safeguards', () => {
   })
 
   it('keeps tag and custom-field mutations from resetting an unfinished account draft', () => {
-    expect(accountsViewSource.match(/preserveDraft: true/g)).toHaveLength(4)
+    expect(accountsViewSource.match(/preserveDraft: true/g)).toHaveLength(5)
     expect(accountsViewSource).toContain('!event.nativeEvent.isComposing')
     expect(accountsViewSource).toContain('从当前账号移除标签')
+    expect(accountsViewSource).toContain('handleConfirmDeleteTag')
   })
 
   it('routes deletion through the unsaved-change guard and merges filtered sorting', () => {

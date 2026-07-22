@@ -108,6 +108,7 @@ interface AppState {
   hardDeleteSecretService: (id: string) => Promise<MutationRefreshResult>
   addAccountTag: (accountId: string, tagName: string) => Promise<{ tagId: string; linked?: boolean } & MutationRefreshResult>
   removeAccountTag: (accountId: string, tagId: string) => Promise<{ success: boolean; removed?: boolean; deletedUnusedTag?: boolean } & MutationRefreshResult>
+  deleteTag: (tagId: string) => Promise<{ success: boolean; tagName: string; affectedAccounts: number; removedLinks: number } & MutationRefreshResult>
   navigateToAccount: (accountId: string) => void
 
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
@@ -432,6 +433,14 @@ export const useStore = create<AppState>((set, get) => ({
   removeAccountTag: async (accountId, tagId) => {
     const result = await window.electronAPI.removeAccountTag({ accountId, tagId })
     const refreshFailed = await settleRefreshes('account tag remove', [get().loadAccounts(), get().loadAllAccounts()])
+    return { ...result, refreshFailed }
+  },
+
+  deleteTag: async (tagId) => {
+    const result = await window.electronAPI.deleteTag(tagId)
+    const refreshFailed = result.success
+      ? await settleRefreshes('account tag delete', [get().loadAccounts(), get().loadAllAccounts(), get().loadTrashAccounts()])
+      : false
     return { ...result, refreshFailed }
   },
 

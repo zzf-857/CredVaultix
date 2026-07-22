@@ -134,9 +134,13 @@ describe('CredVaultix update flow wiring', () => {
     expect(typesSource).toContain('setUnsavedChanges')
   })
 
-  it('uses user-created tag suggestions and full-row account field copying', () => {
+  it('uses the complete tag catalog with management controls and full-row account field copying', () => {
     expect(accountsViewSource).toContain('function getCreatedTagSuggestions')
-    expect(accountsViewSource).toContain("getAccounts({ isDeleted: false, platform: 'all' })")
+    expect(accountsViewSource).toContain('window.electronAPI.getAccountTags()')
+    expect(preloadSource).toContain("ipcRenderer.invoke('accounts:getTags')")
+    expect(mainSource).toContain("ipcMain.handle('accounts:getTags'")
+    expect(accountsViewSource).toContain('onContextMenu={(event) => handleTagContextMenu(event, tag)}')
+    expect(accountsViewSource).toContain('账号、密码、2FA 和其他字段都不会被删除')
     expect(accountsViewSource).toContain('已创建标签')
     expect(accountsViewSource).not.toContain('createdTagSuggestions.slice(0, 12)')
     expect(accountsViewSource).not.toContain('常用建议')

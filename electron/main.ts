@@ -39,7 +39,7 @@ import {
   updateAccountRecord,
   updateTotpRecord,
 } from './accountTotpRepository'
-import { addTagToAccount, removeTagFromAccount } from './accountTagRepository'
+import { addTagToAccount, deleteTag, getAccountTags, removeTagFromAccount } from './accountTagRepository'
 import { addAccountField, deleteAccountField, updateAccountField } from './accountFieldRepository'
 import { hardDeleteAccountRecord, moveAccountToTrash, restoreAccountFromTrash } from './accountLifecycleRepository'
 import { UpdaterController } from './updaterController'
@@ -702,9 +702,13 @@ function registerIpcHandlers() {
     return addTagToAccount(db, data, { createId: uuidv4, pickColor: pickTagColor })
   })
 
+  ipcMain.handle('accounts:getTags', () => getAccountTags(db))
+
   ipcMain.handle('accounts:removeTag', (_event, data: { accountId: string; tagId: string }) => {
     return removeTagFromAccount(db, data)
   })
+
+  ipcMain.handle('accounts:deleteTag', (_event, tagId: string) => deleteTag(db, tagId))
 
   // ============ Custom Fields ============
   ipcMain.handle('accounts:addField', (_event, data: { id: string; accountId: string; fieldName: string; fieldValue: string; isSecret: boolean }) => {
