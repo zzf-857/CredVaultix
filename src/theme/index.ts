@@ -29,6 +29,7 @@ declare module '@mui/material/styles' {
 }
 
 const fontFamily = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', sans-serif"
+const formControlFontFamily = "'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI Variable Text', 'Segoe UI', sans-serif"
 
 const typography = {
   fontFamily,
@@ -139,7 +140,7 @@ function buildTheme(mode: PaletteMode) {
     },
     typography,
     shape: {
-      borderRadius: 8,
+      borderRadius: 10,
     },
     components: {
       MuiCssBaseline: {
@@ -162,7 +163,7 @@ function buildTheme(mode: PaletteMode) {
           root: {
             minHeight: 34,
             padding: '6px 13px',
-            borderRadius: 7,
+            borderRadius: 10,
             boxShadow: 'none',
             fontWeight: 600,
             letterSpacing: 0,
@@ -195,7 +196,7 @@ function buildTheme(mode: PaletteMode) {
       MuiIconButton: {
         styleOverrides: {
           root: {
-            borderRadius: 7,
+            borderRadius: 10,
             transition: 'background-color 0.16s ease, color 0.16s ease',
           },
           sizeSmall: {
@@ -218,7 +219,7 @@ function buildTheme(mode: PaletteMode) {
         styleOverrides: {
           root: {
             height: 24,
-            borderRadius: 6,
+            borderRadius: 8,
             fontSize: '0.72rem',
             fontWeight: 600,
             letterSpacing: 0,
@@ -237,7 +238,7 @@ function buildTheme(mode: PaletteMode) {
             margin: 0,
             padding: '8px 10px',
             border: '1px solid transparent',
-            borderRadius: 7,
+            borderRadius: 12,
             transition: 'background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease',
             '&.Mui-selected': {
               backgroundColor: alpha(colors.primary, isDark ? 0.13 : 0.1),
@@ -249,10 +250,38 @@ function buildTheme(mode: PaletteMode) {
           },
         },
       },
+      MuiInputBase: {
+        styleOverrides: {
+          root: {
+            fontFamily: formControlFontFamily,
+            fontSize: '0.875rem',
+            fontWeight: 400,
+            lineHeight: 1.45,
+            letterSpacing: 0,
+          },
+          input: {
+            height: '1.45em',
+            lineHeight: 1.45,
+            boxSizing: 'content-box',
+            fontFamily: 'inherit',
+            fontWeight: 400,
+            '&::placeholder': {
+              color: colors.textSecondary,
+              fontFamily: 'inherit',
+              fontWeight: 400,
+              opacity: 1,
+            },
+            '&.MuiInputBase-inputMultiline': {
+              height: 'auto',
+              lineHeight: 1.55,
+            },
+          },
+        },
+      },
       MuiOutlinedInput: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
+            borderRadius: 12,
             backgroundColor: colors.raised,
             transition: 'background-color 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease',
             '& .MuiOutlinedInput-notchedOutline': {
@@ -275,7 +304,7 @@ function buildTheme(mode: PaletteMode) {
           },
           input: {
             padding: '10px 12px',
-            lineHeight: 1.4,
+            lineHeight: 1.45,
           },
           inputSizeSmall: {
             padding: '8px 10px',
@@ -285,14 +314,34 @@ function buildTheme(mode: PaletteMode) {
           },
         },
       },
+      MuiInputLabel: {
+        styleOverrides: {
+          root: {
+            color: colors.textSecondary,
+            fontFamily: formControlFontFamily,
+            fontSize: '0.875rem',
+            fontWeight: 400,
+            lineHeight: 1.45,
+            letterSpacing: 0,
+            '&[data-shrink="false"]': {
+              transform: 'translate(14px, 10px) scale(1)',
+            },
+          },
+          sizeSmall: {
+            '&[data-shrink="false"]': {
+              transform: 'translate(14px, 8px) scale(1)',
+            },
+          },
+        },
+      },
       MuiTextField: {
         styleOverrides: {
           root: {
             '& .MuiInputLabel-root': {
               color: colors.textSecondary,
-              fontWeight: 500,
+              fontWeight: 400,
               letterSpacing: 0,
-              lineHeight: 1.35,
+              lineHeight: 1.45,
             },
           },
         },
@@ -300,8 +349,12 @@ function buildTheme(mode: PaletteMode) {
       MuiSelect: {
         styleOverrides: {
           select: {
-            fontWeight: 500,
-            lineHeight: 1.4,
+            display: 'flex',
+            alignItems: 'center',
+            minHeight: '1.45em !important',
+            fontFamily: formControlFontFamily,
+            fontWeight: 400,
+            lineHeight: 1.45,
           },
         },
       },
@@ -311,7 +364,9 @@ function buildTheme(mode: PaletteMode) {
             minHeight: 36,
             paddingTop: 7,
             paddingBottom: 7,
-            lineHeight: 1.4,
+            fontFamily: formControlFontFamily,
+            fontWeight: 400,
+            lineHeight: 1.45,
           },
         },
       },
@@ -321,7 +376,9 @@ function buildTheme(mode: PaletteMode) {
             marginLeft: 0,
             marginRight: 0,
             marginTop: 5,
-            lineHeight: 1.4,
+            fontFamily: formControlFontFamily,
+            fontWeight: 400,
+            lineHeight: 1.45,
           },
         },
       },
@@ -329,7 +386,7 @@ function buildTheme(mode: PaletteMode) {
         styleOverrides: {
           paper: {
             border: `1px solid ${colors.divider}`,
-            borderRadius: 12,
+            borderRadius: 16,
             backgroundColor: colors.surface,
             backgroundImage: 'none',
             boxShadow: isDark
@@ -373,7 +430,7 @@ function buildTheme(mode: PaletteMode) {
         styleOverrides: {
           paper: {
             border: `1px solid ${colors.divider}`,
-            borderRadius: 9,
+            borderRadius: 12,
             backgroundColor: colors.elevated,
             boxShadow: isDark
               ? '0 14px 40px rgba(0, 0, 0, 0.38)'
@@ -384,7 +441,7 @@ function buildTheme(mode: PaletteMode) {
       MuiAlert: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
+            borderRadius: 12,
           },
         },
       },
@@ -419,7 +476,7 @@ function buildTheme(mode: PaletteMode) {
           tooltip: {
             border: `1px solid ${colors.divider}`,
             backgroundColor: isDark ? '#2b2f35' : '#252a31',
-            borderRadius: 6,
+            borderRadius: 8,
             fontSize: '0.72rem',
             fontWeight: 500,
           },

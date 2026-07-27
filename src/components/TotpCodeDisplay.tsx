@@ -4,6 +4,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import * as OTPAuth from 'otpauth'
+import useCopyFeedback from '../hooks/useCopyFeedback'
 
 /**
  * Shared inline TOTP code display component.
@@ -32,7 +33,9 @@ export default function TotpCodeDisplay({
 }) {
   const [code, setCode] = useState('-'.repeat(digits))
   const [remaining, setRemaining] = useState(period)
-  const [copied, setCopied] = useState(false)
+  const { copiedKey, copy } = useCopyFeedback()
+  const copyKey = `totp-code:${code}`
+  const copied = copiedKey === copyKey
   const isHotp = otpType === 'hotp'
 
   useEffect(() => {
@@ -67,10 +70,8 @@ export default function TotpCodeDisplay({
   }, [algorithm, counter, digits, isHotp, period, secret])
 
   const handleCopy = async () => {
-    if (/^-+$/.test(code)) return
-    await navigator.clipboard.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    if (/^-+$/.test(code)) return false
+    return copy(code, copyKey)
   }
 
   if (!secret || !secret.trim()) return null
@@ -91,10 +92,11 @@ export default function TotpCodeDisplay({
           px: 1.5,
           borderRadius: 1,
           border: '1px solid',
-          borderColor: isUrgent ? 'error.dark' : 'border.subtle',
-          bgcolor: 'surface.sunken',
-          '&:hover': { bgcolor: 'surface.elevated' },
-          transition: 'background-color 0.2s, border-color 0.2s',
+          borderColor: copied ? 'success.main' : isUrgent ? 'error.dark' : 'border.subtle',
+          bgcolor: copied ? 'rgba(52, 168, 83, 0.12)' : 'surface.sunken',
+          boxShadow: copied ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.55)' : 'none',
+          '&:hover': { bgcolor: copied ? 'rgba(52, 168, 83, 0.16)' : 'surface.elevated' },
+          transition: 'background-color 0.2s, border-color 0.2s, box-shadow 0.2s',
           position: 'relative',
         }}
       >
@@ -110,9 +112,8 @@ export default function TotpCodeDisplay({
             flex: 1,
             minWidth: 0,
             alignSelf: 'stretch',
-            borderRadius: 0.5,
             cursor: 'pointer',
-            '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+            '&:focus-visible': { outline: '2px solid', outlineColor: copied ? 'success.main' : 'primary.main', outlineOffset: 2 },
           }}
         >
           <Typography
@@ -197,10 +198,11 @@ export default function TotpCodeDisplay({
         px: 1.5,
         borderRadius: 1,
         border: '1px solid',
-        borderColor: isUrgent ? 'error.dark' : 'border.subtle',
-        bgcolor: 'surface.sunken',
-        '&:hover': { bgcolor: 'surface.elevated' },
-        transition: 'background-color 0.15s',
+        borderColor: copied ? 'success.main' : isUrgent ? 'error.dark' : 'border.subtle',
+        bgcolor: copied ? 'rgba(52, 168, 83, 0.12)' : 'surface.sunken',
+        boxShadow: copied ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.55)' : 'none',
+        '&:hover': { bgcolor: copied ? 'rgba(52, 168, 83, 0.16)' : 'surface.elevated' },
+        transition: 'background-color 0.18s, border-color 0.18s, box-shadow 0.18s',
         position: 'relative',
       }}
     >
@@ -216,9 +218,8 @@ export default function TotpCodeDisplay({
           flex: 1,
           minWidth: 0,
           alignSelf: 'stretch',
-          borderRadius: 0.5,
           cursor: 'pointer',
-          '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+          '&:focus-visible': { outline: '2px solid', outlineColor: copied ? 'success.main' : 'primary.main', outlineOffset: 2 },
         }}
       >
         <Typography

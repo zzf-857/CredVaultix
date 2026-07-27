@@ -31,6 +31,7 @@ import * as OTPAuth from 'otpauth'
 import { useStore } from '../stores/useStore'
 import { TotpAccountRow } from '../types'
 import { parseOtpAuthUri } from '../utils/otpAuth'
+import useCopyFeedback from '../hooks/useCopyFeedback'
 import EmptyState from './common/EmptyState'
 import PageHeader from './common/PageHeader'
 import SectionLabel from './common/SectionLabel'
@@ -120,7 +121,9 @@ function TotpCard({
   onNavigateToAccount?: (accountId: string) => void
 }) {
   const [otpCode, setOtpCode] = useState<OtpCode>(() => generateOtpCode(account))
-  const [copied, setCopied] = useState(false)
+  const { copiedKey, copy } = useCopyFeedback()
+  const copyKey = `card-code:${otpCode.code}`
+  const copied = copiedKey === copyKey
   const [showSecret, setShowSecret] = useState(false)
 
   const isHotp = account.otp_type === 'hotp'
@@ -141,9 +144,7 @@ function TotpCard({
   }, [account, isHotp])
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(otpCode.code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    return copy(otpCode.code, copyKey)
   }
 
   const progress = !isHotp ? (otpCode.remaining / otpCode.period) * 100 : 100
@@ -272,11 +273,12 @@ function TotpCard({
           py: 1.15,
           px: 1.75,
           borderRadius: 1,
-          bgcolor: 'surface.sunken',
+          bgcolor: copied ? 'rgba(52, 168, 83, 0.12)' : 'surface.sunken',
           border: '1px solid',
-          borderColor: 'border.subtle',
-          '&:hover': { bgcolor: 'surface.elevated' },
-          transition: 'background-color 0.15s',
+          borderColor: copied ? 'success.main' : 'border.subtle',
+          boxShadow: copied ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.55)' : 'none',
+          '&:hover': { bgcolor: copied ? 'rgba(52, 168, 83, 0.16)' : 'surface.elevated' },
+          transition: 'background-color 0.18s, border-color 0.18s, box-shadow 0.18s',
         }}
       >
         <Box
@@ -293,7 +295,7 @@ function TotpCard({
             alignSelf: 'stretch',
             borderRadius: 0.5,
             cursor: 'pointer',
-            '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+            '&:focus-visible': { outline: '2px solid', outlineColor: copied ? 'success.main' : 'primary.main', outlineOffset: 2 },
           }}
         >
           <Typography
@@ -413,7 +415,9 @@ function TempTotpDisplay({
 }) {
   const [code, setCode] = useState('------')
   const [remaining, setRemaining] = useState(30)
-  const [copied, setCopied] = useState(false)
+  const { copiedKey, copy } = useCopyFeedback()
+  const copyKey = `temporary-code:${code}`
+  const copied = copiedKey === copyKey
 
   const isHotp = otpType === 'hotp'
 
@@ -461,10 +465,8 @@ function TempTotpDisplay({
   }, [secret, otpType, algorithm, digits, period, counter])
 
   const handleCopy = async () => {
-    if (code === '------') return
-    await navigator.clipboard.writeText(code)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
+    if (code === '------') return false
+    return copy(code, copyKey)
   }
 
   if (!secret || !secret.trim()) {
@@ -507,11 +509,12 @@ function TempTotpDisplay({
           py: 1.15,
           px: 1.75,
           borderRadius: 1,
-          bgcolor: 'surface.sunken',
+          bgcolor: copied ? 'rgba(52, 168, 83, 0.12)' : 'surface.sunken',
           border: '1px solid',
-          borderColor: 'border.subtle',
-          '&:hover': { bgcolor: 'surface.elevated' },
-          transition: 'background-color 0.15s',
+          borderColor: copied ? 'success.main' : 'border.subtle',
+          boxShadow: copied ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.55)' : 'none',
+          '&:hover': { bgcolor: copied ? 'rgba(52, 168, 83, 0.16)' : 'surface.elevated' },
+          transition: 'background-color 0.18s, border-color 0.18s, box-shadow 0.18s',
         }}
       >
         <Box
@@ -528,7 +531,7 @@ function TempTotpDisplay({
             alignSelf: 'stretch',
             borderRadius: 0.5,
             cursor: 'pointer',
-            '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+            '&:focus-visible': { outline: '2px solid', outlineColor: copied ? 'success.main' : 'primary.main', outlineOffset: 2 },
           }}
         >
           <Typography
@@ -627,6 +630,8 @@ export default function TwoFactorPanel() {
 
   // Alignment state with localStorage persistence and safety check
   const [alignment, setAlignment] = useState<'left' | 'center'>('left')
+  const [activeGroup, setActiveGroup] = useState('')
+  const listContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let mounted = true
@@ -712,6 +717,7 @@ export default function TwoFactorPanel() {
   const [manualError, setManualError] = useState('')
   const [editingTarget, setEditingTarget] = useState<TotpAccountRow | null>(null)
   const [mutationBusy, setMutationBusy] = useState(false)
+  const mutationBusyRef = useRef(false)
   const counterBusyRef = useRef<string | null>(null)
   const [counterBusyId, setCounterBusyId] = useState<string | null>(null)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
@@ -863,6 +869,94 @@ export default function TwoFactorPanel() {
   const outlookAccounts = safeTotpAccounts.filter(acc => getAccountPlatform(acc) === 'microsoft')
   const otherAccounts = safeTotpAccounts.filter(acc => getAccountPlatform(acc) === 'other')
 
+  useEffect(() => {
+    setActiveGroup((currentGroup) => {
+      const currentGroupStillExists =
+        (currentGroup === 'group-google' && googleAccounts.length > 0) ||
+        (currentGroup === 'group-microsoft' && outlookAccounts.length > 0) ||
+        (currentGroup === 'group-other' && otherAccounts.length > 0)
+
+      if (currentGroupStillExists) return currentGroup
+      if (googleAccounts.length > 0) return 'group-google'
+      if (outlookAccounts.length > 0) return 'group-microsoft'
+      if (otherAccounts.length > 0) return 'group-other'
+      return ''
+    })
+  }, [googleAccounts.length, outlookAccounts.length, otherAccounts.length])
+
+  const scrollToGroup = (groupId: string) => {
+    const container = listContainerRef.current
+    const target = container?.querySelector<HTMLElement>(`#${groupId}`)
+    if (!container || !target) return
+
+    const containerRect = container.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    container.scrollTo({
+      top: container.scrollTop + targetRect.top - containerRect.top - 12,
+      behavior: 'smooth',
+    })
+    setActiveGroup(groupId)
+  }
+
+  const handleGroupScroll = (event: React.UIEvent<HTMLDivElement>) => {
+    const container = event.currentTarget
+    const containerTop = container.getBoundingClientRect().top
+    const groupIds = ['group-google', 'group-microsoft', 'group-other']
+    const groups = groupIds
+      .map(id => ({ id, element: container.querySelector<HTMLElement>(`#${id}`) }))
+      .filter((group): group is { id: string; element: HTMLElement } => group.element !== null)
+
+    if (groups.length === 0) return
+
+    const activationLine = containerTop + 32
+    let nextActiveGroup = groups[0].id
+    for (const group of groups) {
+      if (group.element.getBoundingClientRect().top <= activationLine) {
+        nextActiveGroup = group.id
+      } else {
+        break
+      }
+    }
+
+    setActiveGroup((currentGroup) => currentGroup === nextActiveGroup ? currentGroup : nextActiveGroup)
+  }
+
+  const renderQuickJumpButton = (
+    groupId: string,
+    label: string,
+    icon: React.ReactNode,
+    activeColor: string
+  ) => {
+    const isActive = activeGroup === groupId
+
+    return (
+      <Tooltip key={groupId} title={label} placement="left" arrow>
+        <IconButton
+          size="small"
+          aria-label={label}
+          aria-current={isActive ? 'location' : undefined}
+          onClick={() => scrollToGroup(groupId)}
+          sx={{
+            width: 44,
+            height: 44,
+            borderRadius: 2.75,
+            border: '1px solid',
+            borderColor: isActive ? activeColor : 'transparent',
+            color: isActive ? activeColor : 'text.secondary',
+            bgcolor: isActive ? 'action.selected' : 'transparent',
+            transition: 'background-color 0.18s, border-color 0.18s, color 0.18s',
+            '&:hover': {
+              color: activeColor,
+              bgcolor: 'action.hover',
+            },
+          }}
+        >
+          {icon}
+        </IconButton>
+      </Tooltip>
+    )
+  }
+
   const renderAccountGroup = (
     title: string,
     icon: React.ReactNode,
@@ -875,7 +969,7 @@ export default function TwoFactorPanel() {
     const sortedAccounts = sortAccounts(groupAccounts)
 
     return (
-      <Box id={groupId} sx={{ minWidth: 0, scrollMarginTop: 56 }}>
+      <Box id={groupId} sx={{ minWidth: 0, scrollMarginTop: 16 }}>
         {/* Section Header */}
         <SectionLabel meta={`${groupAccounts.length} 个账户`}>
           <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
@@ -959,6 +1053,8 @@ export default function TwoFactorPanel() {
   }
 
   const handleAdd = async () => {
+    if (mutationBusyRef.current) return
+
     let nextData: {
       issuer: string
       label: string
@@ -999,7 +1095,7 @@ export default function TwoFactorPanel() {
       }
     }
 
-    if (mutationBusy) return
+    mutationBusyRef.current = true
     setMutationBusy(true)
     try {
       let result: { refreshFailed: boolean }
@@ -1022,6 +1118,7 @@ export default function TwoFactorPanel() {
     } catch (error) {
       setNotice({ severity: 'error', text: `保存失败：${error instanceof Error ? error.message : String(error)}` })
     } finally {
+      mutationBusyRef.current = false
       setMutationBusy(false)
     }
   }
@@ -1067,7 +1164,8 @@ export default function TwoFactorPanel() {
   }
 
   const handleConfirmDelete = async () => {
-    if (!deleteTarget || mutationBusy) return
+    if (!deleteTarget || mutationBusyRef.current) return
+    mutationBusyRef.current = true
     setMutationBusy(true)
     try {
       const result = await deleteTotpAccount(deleteTarget.id)
@@ -1080,6 +1178,7 @@ export default function TwoFactorPanel() {
     } catch (error) {
       setNotice({ severity: 'error', text: `删除失败：${error instanceof Error ? error.message : String(error)}` })
     } finally {
+      mutationBusyRef.current = false
       setMutationBusy(false)
     }
   }
@@ -1157,15 +1256,18 @@ export default function TwoFactorPanel() {
       />
 
       {/* Account list */}
-      <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, display: 'flex', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
         {/* Account list */}
         <Box
+          ref={listContainerRef}
+          onScroll={handleGroupScroll}
           sx={{
             flex: 1,
             minWidth: 0,
             minHeight: 0,
             overflowY: 'auto',
             p: 2,
+            pr: loadState === 'ready' && totpAccounts.length > 0 ? 14 : 2,
           }}
         >
           {loadState === 'loading' && <LinearProgress aria-label="正在读取 2FA 数据" sx={{ mb: 2 }} />}
@@ -1194,38 +1296,85 @@ export default function TwoFactorPanel() {
               }
             />
           ) : (
-            <Box>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))',
-                  alignItems: 'start',
-                  gap: 2,
-                }}
-              >
-                {renderAccountGroup(
-                  'Google / Gmail 账户',
-                  <GoogleIcon sx={{ fontSize: 16, color: 'success.main' }} />,
-                  googleAccounts,
-                  'group-google'
-                )}
-                {renderAccountGroup(
-                  'Microsoft / Outlook 账户',
-                  <MicrosoftIcon sx={{ fontSize: 16, color: 'info.main' }} />,
-                  outlookAccounts,
-                  'group-microsoft'
-                )}
-                {renderAccountGroup(
-                  '其他应用账户',
-                  <AppsIcon sx={{ fontSize: 16, color: 'text.secondary' }} />,
-                  otherAccounts,
-                  'group-other'
-                )}
-              </Box>
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2.5,
+                pb: 1,
+              }}
+            >
+              {renderAccountGroup(
+                'Google / Gmail 账户',
+                <GoogleIcon sx={{ fontSize: 16, color: 'success.main' }} />,
+                googleAccounts,
+                'group-google'
+              )}
+              {renderAccountGroup(
+                'Microsoft / Outlook 账户',
+                <MicrosoftIcon sx={{ fontSize: 16, color: 'info.main' }} />,
+                outlookAccounts,
+                'group-microsoft'
+              )}
+              {renderAccountGroup(
+                '其他应用账户',
+                <AppsIcon sx={{ fontSize: 16, color: 'text.secondary' }} />,
+                otherAccounts,
+                'group-other'
+              )}
             </Box>
           ))}
         </Box>
 
+        {loadState === 'ready' && totpAccounts.length > 0 && (
+          <Box
+            sx={{
+              position: 'absolute',
+              right: '40px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              zIndex: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Paper
+              component="nav"
+              aria-label="2FA 分类快速跳转"
+              elevation={0}
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 0.75,
+                p: 0.75,
+                borderRadius: 3.5,
+                border: '1px solid',
+                borderColor: 'divider',
+                bgcolor: 'background.paper',
+              }}
+            >
+              {googleAccounts.length > 0 && renderQuickJumpButton(
+                'group-google',
+                '跳转到 Google / Gmail 账户',
+                <GoogleIcon sx={{ fontSize: 22 }} />,
+                'success.main'
+              )}
+              {outlookAccounts.length > 0 && renderQuickJumpButton(
+                'group-microsoft',
+                '跳转到 Microsoft / Outlook 账户',
+                <MicrosoftIcon sx={{ fontSize: 22 }} />,
+                'info.main'
+              )}
+              {otherAccounts.length > 0 && renderQuickJumpButton(
+                'group-other',
+                '跳转到其他应用账户',
+                <AppsIcon sx={{ fontSize: 22 }} />,
+                'text.primary'
+              )}
+            </Paper>
+          </Box>
+        )}
       </Box>
 
       {/* ========== Temporary Authenticator Dialog ========== */}
@@ -1378,7 +1527,20 @@ export default function TwoFactorPanel() {
       </Dialog>
 
       {/* ========== Add Account Dialog ========== */}
-      <Dialog open={dialogOpen} onClose={() => { if (!mutationBusy) resetDialog() }} maxWidth="sm" fullWidth>
+      <Dialog
+        open={dialogOpen}
+        onClose={() => { if (!mutationBusy) resetDialog() }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          component: 'form',
+          noValidate: true,
+          onSubmit: (event: React.FormEvent<HTMLFormElement>) => {
+            event.preventDefault()
+            if (!mutationBusy) void handleAdd()
+          },
+        }}
+      >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon sx={{ color: 'primary.main' }} />
           {editingTarget ? '编辑 2FA 账户' : '添加 2FA 账户'}
@@ -1460,6 +1622,7 @@ export default function TwoFactorPanel() {
                     <InputAdornment position="end">
                       <Tooltip title={secretVisible ? '隐藏密钥' : '显示密钥'}>
                         <IconButton
+                          type="button"
                           size="small"
                           onClick={() => setSecretVisible((current) => !current)}
                           edge="end"
@@ -1530,8 +1693,8 @@ export default function TwoFactorPanel() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={resetDialog} disabled={mutationBusy}>取消</Button>
-          <Button variant="contained" onClick={handleAdd} disabled={mutationBusy}>
+          <Button type="button" onClick={resetDialog} disabled={mutationBusy}>取消</Button>
+          <Button type="submit" variant="contained" disabled={mutationBusy}>
             {mutationBusy ? '保存中...' : editingTarget ? '保存' : '添加'}
           </Button>
         </DialogActions>

@@ -70,13 +70,13 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
       {!collapsed && (
         <Typography
           variant="overline"
-          sx={{ px: 2, pt: 1.7, pb: 0.8, color: 'text.secondary', display: 'block' }}
+          sx={{ px: 2.25, pt: 2, pb: 1, color: 'text.secondary', display: 'block' }}
         >
           保险库
         </Typography>
       )}
 
-      <List dense disablePadding sx={{ px: collapsed ? 0.75 : 1, pt: collapsed ? 1 : 0 }}>
+      <List disablePadding sx={{ px: collapsed ? 0.75 : 1.25, pt: collapsed ? 1 : 0 }}>
         {navItems.map((item) => {
           const Icon = item.icon
           const selected = activeView === item.view
@@ -89,20 +89,20 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
                 selected={selected}
                 onClick={() => requestViewChange(item.view)}
                 sx={{
-                  minHeight: 42,
-                  mb: 0.35,
-                  px: collapsed ? 1 : 1.2,
-                  py: 0.7,
+                  minHeight: 50,
+                  mb: 0.65,
+                  px: collapsed ? 1 : 1.4,
+                  py: 0.9,
                   justifyContent: collapsed ? 'center' : 'flex-start',
                   position: 'relative',
                   '&::before': {
                     content: '""',
                     position: 'absolute',
-                    left: 4,
-                    top: 11,
-                    bottom: 11,
-                    width: 2,
-                    borderRadius: 2,
+                    left: 5,
+                    top: 13,
+                    bottom: 13,
+                    width: 3,
+                    borderRadius: 999,
                     bgcolor: selected ? 'primary.main' : 'transparent',
                   },
                   '&.Mui-selected': {
@@ -110,14 +110,14 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
                   },
                 }}
               >
-                <ListItemIcon sx={{ minWidth: collapsed ? 0 : 34, color: item.color, justifyContent: 'center' }}>
-                  <Icon sx={{ fontSize: 19 }} />
+                <ListItemIcon sx={{ minWidth: collapsed ? 0 : 38, color: item.color, justifyContent: 'center' }}>
+                  <Icon sx={{ fontSize: 21 }} />
                 </ListItemIcon>
                 {!collapsed && (
                   <ListItemText
                     primary={item.label}
                     sx={{ my: 0 }}
-                    primaryTypographyProps={{ fontSize: '0.86rem', fontWeight: selected ? 600 : 500, lineHeight: 1.3, noWrap: true }}
+                    primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: selected ? 650 : 550, lineHeight: 1.35, noWrap: true }}
                   />
                 )}
               </ListItemButton>
@@ -126,7 +126,7 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
         })}
       </List>
 
-      <Box sx={{ mt: 'auto', p: collapsed ? 0.75 : 1 }}>
+      <Box sx={{ mt: 'auto', p: collapsed ? 0.75 : 1.25 }}>
         <Divider sx={{ mb: 0.75 }} />
         <Tooltip title={collapsed ? '设置' : ''} placement="right">
           <Button
@@ -138,7 +138,7 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
             variant="text"
             sx={{
               minWidth: 0,
-              height: 38,
+              height: 44,
               px: collapsed ? 0.5 : 1.25,
               color: 'text.secondary',
               justifyContent: collapsed ? 'center' : 'flex-start',

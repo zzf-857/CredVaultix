@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -40,7 +40,17 @@ import { getGroupedItems, moveIdsBefore, sortServiceInfoItems } from '../../util
 import EmptyState from '../common/EmptyState'
 import SectionLabel from '../common/SectionLabel'
 import BatchActionBar from './BatchActionBar'
+import ServiceFormDialog from './ServiceFormDialog'
 import ServiceFieldGroup from './ServiceFieldGroup'
+import {
+  buildServiceFormSubmission,
+  buildServicePresetFields,
+  createEmptyServiceFormValues,
+  createServiceFormValues,
+  findPresetField,
+  servicePresetFieldsNeedSaving,
+  type ServiceFormValues,
+} from './serviceForm'
 
 const GROUP_COLORS = ['#7d98d5', '#70a6b5', '#d09a61', '#64b58a', '#9c8ccf', '#8a90a0']
 
@@ -54,12 +64,12 @@ export default function ServiceDetail() {
   const {
     clearSelectedFieldIds,
     allAccounts: accounts,
-    loadAllAccounts,
     loadServiceDetail,
     loadServiceInfo,
     selectedFieldIds,
     selectedServiceId,
     selectedServiceDetail,
+    serviceGroups,
     serviceDetailLoadError,
     setSelectedService,
     toggleSelectedFieldId,
@@ -73,11 +83,8 @@ export default function ServiceDetail() {
   const [moveDialogOpen, setMoveDialogOpen] = useState(false)
   const [editingField, setEditingField] = useState<SecretFieldRow | null>(null)
   const [editingGroup, setEditingGroup] = useState<SecretFieldGroupRow | null>(null)
-  const [serviceName, setServiceName] = useState('')
-  const [serviceDescription, setServiceDescription] = useState('')
-  const [serviceUrl, setServiceUrl] = useState('')
-  const [serviceNotes, setServiceNotes] = useState('')
-  const [serviceLinkedAccountId, setServiceLinkedAccountId] = useState('')
+  const [serviceForm, setServiceForm] = useState<ServiceFormValues>(() => createEmptyServiceFormValues())
+  const [pendingServiceGroup, setPendingServiceGroup] = useState<{ id: string; name: string } | null>(null)
   const [fieldName, setFieldName] = useState('')
   const [fieldValue, setFieldValue] = useState('')
   const [fieldIsSecret, setFieldIsSecret] = useState(true)
@@ -93,17 +100,10 @@ export default function ServiceDetail() {
   const fields = selectedServiceDetail?.fields || []
   const fieldGroups = selectedServiceDetail?.fieldGroups || []
   const groupedFields = useMemo(() => getGroupedItems(sortServiceInfoItems(fields, 'manual')), [fields])
-
-  useEffect(() => {
-    if (accounts.length === 0) {
-      void loadAllAccounts().catch((error) => {
-        setNotice({
-          severity: 'error',
-          text: `账号列表加载失败：${error instanceof Error ? error.message : String(error)}`,
-        })
-      })
-    }
-  }, [accounts.length, loadAllAccounts])
+  const orderedServiceGroups = useMemo(
+    () => [...serviceGroups].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'zh-Hans-CN')),
+    [serviceGroups]
+  )
 
   if (!selectedServiceDetail) {
     if (selectedServiceId) {
@@ -174,35 +174,102 @@ export default function ServiceDetail() {
 
   const openEditServiceDialog = () => {
     if (mutationBusyRef.current) return
-    setServiceName(service.name)
-    setServiceDescription(service.description || '')
-    setServiceUrl(service.url || '')
-    setServiceNotes(service.notes || '')
-    setServiceLinkedAccountId(service.linked_account_id || '')
+    const currentGroupName = orderedServiceGroups.find((group) => group.id === service.group_id)?.name || ''
+    setServiceForm(createServiceFormValues(service, currentGroupName, fields))
+    setPendingServiceGroup(null)
     setServiceDialogOpen(true)
   }
 
+  const closeServiceDialog = () => {
+    if (mutationBusyRef.current) return
+    setServiceDialogOpen(false)
+    setPendingServiceGroup(null)
+  }
+
+  const findServiceGroupByName = (name: string) => {
+    const normalized = name.trim().toLowerCase()
+    return orderedServiceGroups.find((group) => group.name.trim().toLowerCase() === normalized)
+  }
+
   const saveService = async () => {
-    const name = serviceName.trim()
+    const name = serviceForm.name.trim()
     if (!name || !beginMutation()) return
 
+    let createdGroup: { id: string; name: string } | null = null
     try {
+      const trimmedGroupName = serviceForm.groupName.trim()
+      const existingGroup = trimmedGroupName ? findServiceGroupByName(trimmedGroupName) : undefined
+      const reusablePendingGroup = pendingServiceGroup
+        && pendingServiceGroup.name.trim().toLowerCase() === trimmedGroupName.toLowerCase()
+        ? pendingServiceGroup
+        : null
+      let groupId = existingGroup?.id || reusablePendingGroup?.id || null
+
+      if (!groupId && trimmedGroupName) {
+        const groupResult = await window.electronAPI.createSecretGroup({
+          id: uuidv4(),
+          name: trimmedGroupName,
+          color: GROUP_COLORS[0],
+        })
+        if (!groupResult?.id) throw new Error('新分组未返回有效结果')
+        createdGroup = { id: groupResult.id, name: trimmedGroupName }
+        groupId = groupResult.id
+        setPendingServiceGroup(createdGroup)
+      }
+
       const result = await window.electronAPI.updateSecretService(service.id, {
-        name,
-        description: serviceDescription.trim(),
-        url: serviceUrl.trim(),
-        notes: serviceNotes.trim(),
-        linkedAccountId: serviceLinkedAccountId || null,
+        ...buildServiceFormSubmission(serviceForm, groupId),
       })
       assertMutationSucceeded(result, '服务不存在或已被删除')
 
+      let presetError: unknown = null
+      const presetFields = servicePresetFieldsNeedSaving(serviceForm, fields)
+        ? buildServicePresetFields(serviceForm)
+        : []
+      for (const presetField of presetFields) {
+        try {
+          const existingField = findPresetField(fields, presetField.fieldName)
+          if (existingField) {
+            const fieldResult = await window.electronAPI.updateSecretField(existingField.id, {
+              fieldName: presetField.fieldName,
+              fieldValue: presetField.fieldValue,
+              isSecret: presetField.isSecret,
+            })
+            assertMutationSucceeded(fieldResult, `${presetField.fieldName} 不存在或已被删除`)
+          } else {
+            const fieldResult = await window.electronAPI.createSecretField({
+              id: uuidv4(),
+              serviceId: service.id,
+              fieldName: presetField.fieldName,
+              fieldValue: presetField.fieldValue,
+              isSecret: presetField.isSecret,
+            })
+            if (!fieldResult?.id) throw new Error(`${presetField.fieldName} 未返回有效结果`)
+          }
+        } catch (error) {
+          presetError = error
+          break
+        }
+      }
+
       setServiceDialogOpen(false)
+      setPendingServiceGroup(null)
       const refreshFailed = await refreshServiceData(service.id)
-      reportCommittedMutation('服务信息已保存', refreshFailed, '服务信息已保存但刷新失败')
+
+      if (presetError) {
+        setNotice({
+          severity: 'error',
+          text: `服务信息已保存，但预设字段保存失败：${presetError instanceof Error ? presetError.message : String(presetError)}${refreshFailed ? '；界面刷新也失败' : ''}`,
+        })
+      } else {
+        reportCommittedMutation('服务信息已保存', refreshFailed, '服务信息已保存但刷新失败')
+      }
     } catch (error) {
       setNotice({
         severity: 'error',
-        text: `服务信息保存失败：${error instanceof Error ? error.message : String(error)}`,
+        text: createdGroup
+          ? `分组“${createdGroup.name}”已创建，但服务信息保存失败，可直接重试且不会重复创建该分组：${error instanceof Error ? error.message : String(error)}`
+          : `服务信息保存失败：${error instanceof Error ? error.message : String(error)}`,
       })
     } finally {
       endMutation()
@@ -720,71 +787,31 @@ export default function ServiceDetail() {
         )}
       </Box>
 
-      <Dialog open={serviceDialogOpen} onClose={() => { if (!mutationBusy) setServiceDialogOpen(false) }} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <EditOutlinedIcon sx={{ color: 'primary.main' }} />
-          编辑服务
-        </DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            fullWidth
-            label="服务名称"
-            value={serviceName}
-            onChange={(event) => setServiceName(event.target.value)}
-            disabled={mutationBusy}
-          />
-          <TextField
-            fullWidth
-            label="用途"
-            value={serviceDescription}
-            onChange={(event) => setServiceDescription(event.target.value)}
-            disabled={mutationBusy}
-            sx={{ mt: 2 }}
-          />
-          <TextField
-            fullWidth
-            label="网址"
-            placeholder="https://example.com"
-            value={serviceUrl}
-            onChange={(event) => setServiceUrl(event.target.value)}
-            disabled={mutationBusy}
-            sx={{ mt: 2 }}
-          />
-          <TextField
-            select
-            fullWidth
-            label="关联主账号"
-            value={serviceLinkedAccountId}
-            onChange={(event) => setServiceLinkedAccountId(event.target.value)}
-            disabled={mutationBusy}
-            sx={{ mt: 2 }}
-          >
-            <MenuItem value="">不关联账号</MenuItem>
-            {accounts.map((account) => (
-              <MenuItem key={account.id} value={account.id}>{account.name} · {account.username || '未设置登录账号'}</MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            fullWidth
-            multiline
-            minRows={3}
-            label="备注"
-            value={serviceNotes}
-            onChange={(event) => setServiceNotes(event.target.value)}
-            disabled={mutationBusy}
-            sx={{ mt: 2 }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setServiceDialogOpen(false)} disabled={mutationBusy}>取消</Button>
-          <Button variant="contained" onClick={saveService} disabled={mutationBusy || !serviceName.trim()}>
-            {mutationBusy ? '保存中…' : '保存'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ServiceFormDialog
+        open={serviceDialogOpen}
+        mode="edit"
+        values={serviceForm}
+        groups={orderedServiceGroups}
+        accounts={accounts}
+        busy={mutationBusy}
+        onChange={(patch) => setServiceForm((current) => ({ ...current, ...patch }))}
+        onClose={closeServiceDialog}
+        onSubmit={() => { void saveService() }}
+      />
 
-      <Dialog open={fieldDialogOpen} onClose={() => { if (!mutationBusy) setFieldDialogOpen(false) }} fullWidth maxWidth="sm">
+      <Dialog
+        open={fieldDialogOpen}
+        onClose={() => { if (!mutationBusy) setFieldDialogOpen(false) }}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{
+          component: 'form',
+          onSubmit: (event: React.FormEvent<HTMLFormElement>) => {
+            event.preventDefault()
+            if (!mutationBusy && fieldName.trim()) void saveField()
+          },
+        }}
+      >
         <DialogTitle>{editingField ? '编辑字段' : '新建字段'}</DialogTitle>
         <DialogContent>
           <TextField
@@ -833,14 +860,26 @@ export default function ServiceDetail() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setFieldDialogOpen(false)} disabled={mutationBusy}>取消</Button>
-          <Button variant="contained" onClick={saveField} disabled={mutationBusy || !fieldName.trim()}>
+          <Button type="button" onClick={() => setFieldDialogOpen(false)} disabled={mutationBusy}>取消</Button>
+          <Button type="submit" variant="contained" disabled={mutationBusy || !fieldName.trim()}>
             {mutationBusy ? '保存中…' : '保存'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={groupDialogOpen} onClose={() => { if (!mutationBusy) setGroupDialogOpen(false) }} fullWidth maxWidth="xs">
+      <Dialog
+        open={groupDialogOpen}
+        onClose={() => { if (!mutationBusy) setGroupDialogOpen(false) }}
+        fullWidth
+        maxWidth="xs"
+        PaperProps={{
+          component: 'form',
+          onSubmit: (event: React.FormEvent<HTMLFormElement>) => {
+            event.preventDefault()
+            if (!mutationBusy && groupName.trim()) void saveGroup()
+          },
+        }}
+      >
         <DialogTitle>{editingGroup ? '重命名字段组' : '新建字段组'}</DialogTitle>
         <DialogContent>
           <TextField
@@ -873,8 +912,8 @@ export default function ServiceDetail() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setGroupDialogOpen(false)} disabled={mutationBusy}>取消</Button>
-          <Button variant="contained" onClick={saveGroup} disabled={mutationBusy || !groupName.trim()}>
+          <Button type="button" onClick={() => setGroupDialogOpen(false)} disabled={mutationBusy}>取消</Button>
+          <Button type="submit" variant="contained" disabled={mutationBusy || !groupName.trim()}>
             {mutationBusy ? '保存中…' : '保存'}
           </Button>
         </DialogActions>

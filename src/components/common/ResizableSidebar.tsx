@@ -7,8 +7,8 @@ export default function ResizableSidebar({
   width,
   collapsed,
   collapseLocked = false,
-  minWidth = 192,
-  maxWidth = 360,
+  minWidth = 216,
+  maxWidth = 400,
   collapseThreshold = 116,
   onWidthChange,
   onCollapsedChange,
@@ -66,7 +66,7 @@ export default function ResizableSidebar({
     window.addEventListener('mouseup', stop)
   }
 
-  const renderedWidth = collapsed ? 56 : draftWidth
+  const renderedWidth = collapsed ? 60 : draftWidth
 
   return (
     <Box sx={{ display: 'flex', height: '100%', position: 'relative' }}>
@@ -90,14 +90,14 @@ export default function ResizableSidebar({
           onClick={() => onCollapsedChange(!collapsed)}
           sx={{
             position: 'absolute',
-            right: -11,
-            top: 11,
+            right: -12,
+            top: 14,
             zIndex: 20,
             bgcolor: 'background.paper',
             border: '1px solid',
             borderColor: 'divider',
-            width: 22,
-            height: 22,
+            width: 24,
+            height: 24,
             '&:hover': { bgcolor: 'action.hover' },
           }}
         >

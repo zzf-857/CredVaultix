@@ -34,7 +34,7 @@ export default function PageHeader({ icon, title, description, actions, compact 
             placeItems: 'center',
             border: '1px solid',
             borderColor: 'divider',
-            borderRadius: 1,
+            borderRadius: 1.2,
             bgcolor: 'surface.raised',
             color: 'primary.main',
             flexShrink: 0,

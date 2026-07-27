@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Box,
   Button,
@@ -70,6 +70,8 @@ import {
 import { generateSecurePassword } from '../utils/securePassword'
 import { normalizeOtpInput } from '../utils/otpAuth'
 import { buildAccountUpdatePatch } from '../utils/accountEdit'
+import { shouldSubmitOnEnter } from '../utils/quickSubmit'
+import useCopyFeedback from '../hooks/useCopyFeedback'
 
 const MAX_ACCOUNT_TAG_LENGTH = 64
 type AccountNotice = { severity: 'success' | 'error' | 'info'; text: string }
@@ -119,16 +121,6 @@ const fieldBoxSx = {
   },
 }
 
-function useCopy() {
-  const [copiedField, setCopiedField] = useState<string | null>(null)
-  const copy = useCallback(async (value: string, field: string) => {
-    await navigator.clipboard.writeText(value)
-    setCopiedField(field)
-    setTimeout(() => setCopiedField(null), 1500)
-  }, [])
-  return { copiedField, copy }
-}
-
 function PlatformChip({ platform }: { platform: AccountPlatform }) {
   const accent = PLATFORM_ACCENTS[platform]
 
@@ -166,6 +158,7 @@ function SensitiveField({
   editing,
   onChange,
   onGenerate,
+  onQuickSubmit,
   error,
   helperText,
 }: {
@@ -178,6 +171,7 @@ function SensitiveField({
   editing: boolean
   onChange?: (val: string) => void
   onGenerate?: () => void
+  onQuickSubmit?: (event: React.KeyboardEvent) => void
   error?: boolean
   helperText?: string
 }) {
@@ -198,6 +192,7 @@ function SensitiveField({
         value={value}
         type={isSecretField && !visible ? 'password' : 'text'}
         onChange={(event) => onChange?.(event.target.value)}
+        onKeyDown={onQuickSubmit}
         error={error}
         helperText={helperText}
         InputProps={{
@@ -237,9 +232,10 @@ function SensitiveField({
 
   const requiresRevealBeforeCopy = fieldKey === 'totp_secret'
   const canCopy = !requiresRevealBeforeCopy || visible
+  const isCopied = copiedField === fieldKey
   const handleCopy = () => {
     if (!canCopy) return
-    onCopy(value, fieldKey)
+    void onCopy(value, fieldKey)
   }
 
   return (
@@ -247,34 +243,64 @@ function SensitiveField({
       sx={{
         ...fieldBoxSx,
         mb: 0,
+        borderColor: isCopied ? 'success.main' : 'border.subtle',
+        bgcolor: isCopied ? 'rgba(52, 168, 83, 0.12)' : 'transparent',
+        boxShadow: isCopied ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.75)' : 'none',
+        transition: 'background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
+        '&:hover': {
+          bgcolor: isCopied ? 'rgba(52, 168, 83, 0.16)' : 'action.hover',
+        },
       }}
     >
       <Box
+        component="button"
+        type="button"
+        disabled={!canCopy}
+        aria-label={canCopy ? `复制${label}` : `${label}需先显示才能复制`}
+        onClick={handleCopy}
         sx={{
-          width: 32,
-          height: 32,
-          borderRadius: 1,
-          color: 'primary.main',
-          bgcolor: 'surface.sunken',
-          display: 'grid',
-          placeItems: 'center',
-          flexShrink: 0,
+          all: 'unset',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.25,
+          flex: 1,
+          minWidth: 0,
+          alignSelf: 'stretch',
+          cursor: canCopy ? 'pointer' : 'default',
+          '&:focus-visible': {
+            outline: '2px solid',
+            outlineColor: isCopied ? 'success.main' : 'primary.main',
+            outlineOffset: -2,
+          },
         }}
       >
-        {icon}
-      </Box>
-      <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600 }}>
-          {label}
-        </Typography>
-        <Typography
-          variant="body2"
-          className={isSecretField ? 'mono-data' : undefined}
-          sx={{ color: 'text.primary', mt: 0.2, fontWeight: 600 }}
-          noWrap
+        <Box
+          sx={{
+            width: 32,
+            height: 32,
+            borderRadius: 1,
+            color: 'primary.main',
+            bgcolor: 'surface.sunken',
+            display: 'grid',
+            placeItems: 'center',
+            flexShrink: 0,
+          }}
         >
-          {isSecretField && !visible ? '••••••••' : value}
-        </Typography>
+          {icon}
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600 }}>
+            {label}
+          </Typography>
+          <Typography
+            variant="body2"
+            className={isSecretField ? 'mono-data' : undefined}
+            sx={{ color: 'text.primary', mt: 0.2, fontWeight: 600 }}
+            noWrap
+          >
+            {isSecretField && !visible ? '••••••••' : value}
+          </Typography>
+        </Box>
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.85, flexShrink: 0 }}>
         {requiresRevealBeforeCopy && !visible && (
@@ -283,14 +309,17 @@ function SensitiveField({
           </Typography>
         )}
         {canCopy && (
-          <Tooltip title={copiedField === fieldKey ? '已复制' : `复制${label}`}>
+          <Tooltip title={isCopied ? '已复制' : `复制${label}`}>
             <IconButton
               size="small"
               aria-label={`复制${label}`}
-              onClick={handleCopy}
-              sx={{ color: copiedField === fieldKey ? 'success.main' : 'text.secondary' }}
+              onClick={(event) => {
+                event.stopPropagation()
+                handleCopy()
+              }}
+              sx={{ color: isCopied ? 'success.main' : 'text.secondary' }}
             >
-              {copiedField === fieldKey
+              {isCopied
                 ? <CheckIcon sx={{ fontSize: 16 }} />
                 : <ContentCopyIcon sx={{ fontSize: 16 }} />}
             </IconButton>
@@ -301,7 +330,10 @@ function SensitiveField({
             <IconButton
               size="small"
               aria-label={visible ? `隐藏${label}` : `显示${label}`}
-              onClick={() => setVisible(!visible)}
+              onClick={(event) => {
+                event.stopPropagation()
+                setVisible(!visible)
+              }}
               sx={{ color: 'text.secondary' }}
             >
               {visible ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <VisibilityIcon sx={{ fontSize: 16 }} />}
@@ -391,12 +423,16 @@ function AccountDetail({
   const [linkBusy, setLinkBusy] = useState(false)
   const [tagBusy, setTagBusy] = useState<string | null>(null)
   const [fieldBusy, setFieldBusy] = useState(false)
+  const saveBusyRef = useRef(false)
+  const linkBusyRef = useRef(false)
+  const tagBusyRef = useRef(false)
+  const fieldBusyRef = useRef(false)
   const hotpIncrementBusyRef = useRef(false)
   const [hotpIncrementBusy, setHotpIncrementBusy] = useState(false)
   const [totpInputError, setTotpInputError] = useState('')
   const [notice, setNotice] = useState<AccountNotice | null>(null)
   const [accountLoadError, setAccountLoadError] = useState('')
-  const { copiedField, copy } = useCopy()
+  const { copiedKey: copiedField, copy } = useCopyFeedback()
 
   const hasUnsavedAccountChanges = Boolean(account && editing && (
     editData.name !== account.name
@@ -480,7 +516,7 @@ function AccountDetail({
 
   const handleSave = async () => {
     const name = editData.name.trim()
-    if (!name || saveBusy || !account) return
+    if (!name || saveBusyRef.current || !account) return
 
     const patch = buildAccountUpdatePatch(account, { ...editData, name })
     let normalizedTotp = null as ReturnType<typeof normalizeOtpInput>
@@ -519,6 +555,7 @@ function AccountDetail({
       return
     }
 
+    saveBusyRef.current = true
     setSaveBusy(true)
     try {
       const result = await updateAccount(accountId, patch, false)
@@ -557,12 +594,26 @@ function AccountDetail({
     } catch (error) {
       setNotice({ severity: 'error', text: `保存失败：${error instanceof Error ? error.message : String(error)}` })
     } finally {
+      saveBusyRef.current = false
       setSaveBusy(false)
     }
   }
 
+  const handleAccountQuickSubmit = (event: React.KeyboardEvent) => {
+    if (
+      saveBusy
+      || !editData.name.trim()
+      || !hasUnsavedAccountChanges
+      || !shouldSubmitOnEnter(event)
+    ) return
+
+    event.preventDefault()
+    void handleSave()
+  }
+
   const handleConfirmLink = async () => {
-    if (linkBusy || !pendingLinkPatch) return
+    if (linkBusyRef.current || !pendingLinkPatch) return
+    linkBusyRef.current = true
     setLinkBusy(true)
     try {
       await updateAccount(accountId, {
@@ -593,12 +644,14 @@ function AccountDetail({
     } catch (error) {
       setNotice({ severity: 'error', text: `绑定失败：${error instanceof Error ? error.message : String(error)}` })
     } finally {
+      linkBusyRef.current = false
       setLinkBusy(false)
     }
   }
 
   const handleSkipLink = async () => {
-    if (linkBusy || !pendingLinkPatch) return
+    if (linkBusyRef.current || !pendingLinkPatch) return
+    linkBusyRef.current = true
     setLinkBusy(true)
     try {
       const normalized = normalizeOtpInput(linkData.secret)
@@ -618,6 +671,7 @@ function AccountDetail({
     } catch (error) {
       setNotice({ severity: 'error', text: `保存失败：${error instanceof Error ? error.message : String(error)}` })
     } finally {
+      linkBusyRef.current = false
       setLinkBusy(false)
     }
   }
@@ -693,7 +747,8 @@ function AccountDetail({
   }
 
   const handleSaveField = async () => {
-    if (!newFieldName.trim() || fieldBusy) return
+    if (!newFieldName.trim() || fieldBusyRef.current) return
+    fieldBusyRef.current = true
     setFieldBusy(true)
     try {
       if (editingCustomField) {
@@ -722,8 +777,15 @@ function AccountDetail({
     } catch (error) {
       setNotice({ severity: 'error', text: `保存自定义字段失败：${error instanceof Error ? error.message : String(error)}` })
     } finally {
+      fieldBusyRef.current = false
       setFieldBusy(false)
     }
+  }
+
+  const handleCustomFieldQuickSubmit = (event: React.KeyboardEvent) => {
+    if (fieldBusy || !newFieldName.trim() || !shouldSubmitOnEnter(event)) return
+    event.preventDefault()
+    void handleSaveField()
   }
 
   const handleConfirmDeleteField = async () => {
@@ -753,7 +815,8 @@ function AccountDetail({
 
   const handleAddTag = async (tagName: string) => {
     const name = tagName.trim()
-    if (!name || tagBusy) return
+    if (!name || tagBusyRef.current) return
+    tagBusyRef.current = true
     setTagBusy(`add:${name.toLocaleLowerCase()}`)
     try {
       const result = await addAccountTag(accountId, name)
@@ -769,8 +832,15 @@ function AccountDetail({
     } catch (error) {
       setNotice({ severity: 'error', text: `添加标签失败：${error instanceof Error ? error.message : String(error)}` })
     } finally {
+      tagBusyRef.current = false
       setTagBusy(null)
     }
+  }
+
+  const handleTagQuickSubmit = (event: React.KeyboardEvent) => {
+    if (tagBusy || !newTagName.trim() || !shouldSubmitOnEnter(event)) return
+    event.preventDefault()
+    void handleAddTag(newTagName)
   }
 
   const handleRemoveTag = async (tag: TagRow) => {
@@ -931,7 +1001,7 @@ function AccountDetail({
           </Box>
         )}
 
-        <SensitiveField icon={<PersonIcon sx={{ fontSize: 18 }} />} label="主邮箱 / 登录账号" value={editing ? editData.username : account.username} fieldKey="username" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, username: value })} />
+        <SensitiveField icon={<PersonIcon sx={{ fontSize: 18 }} />} label="主邮箱 / 登录账号" value={editing ? editData.username : account.username} fieldKey="username" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, username: value })} onQuickSubmit={handleAccountQuickSubmit} />
         <SensitiveField
           icon={<LockIcon sx={{ fontSize: 18 }} />}
           label="密码"
@@ -941,6 +1011,7 @@ function AccountDetail({
           onCopy={copy}
           editing={editing}
           onChange={(value) => setEditData({ ...editData, password: value })}
+          onQuickSubmit={handleAccountQuickSubmit}
           onGenerate={
             editing
               ? () => {
@@ -949,8 +1020,8 @@ function AccountDetail({
               : undefined
           }
         />
-        <SensitiveField icon={<PhoneIcon sx={{ fontSize: 18 }} />} label="绑定手机号" value={editing ? editData.phone : account.phone} fieldKey="phone" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, phone: value })} />
-        <SensitiveField icon={<EmailIcon sx={{ fontSize: 18 }} />} label="备用邮箱" value={editing ? editData.backupEmail : account.backup_email} fieldKey="backup_email" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, backupEmail: value })} />
+        <SensitiveField icon={<PhoneIcon sx={{ fontSize: 18 }} />} label="绑定手机号" value={editing ? editData.phone : account.phone} fieldKey="phone" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, phone: value })} onQuickSubmit={handleAccountQuickSubmit} />
+        <SensitiveField icon={<EmailIcon sx={{ fontSize: 18 }} />} label="备用邮箱" value={editing ? editData.backupEmail : account.backup_email} fieldKey="backup_email" copiedField={copiedField} onCopy={copy} editing={editing} onChange={(value) => setEditData({ ...editData, backupEmail: value })} onQuickSubmit={handleAccountQuickSubmit} />
         <SensitiveField
           icon={<SecurityIcon sx={{ fontSize: 18 }} />}
           label="2FA 密钥"
@@ -963,6 +1034,7 @@ function AccountDetail({
             setEditData({ ...editData, totpSecret: value })
             setTotpInputError('')
           }}
+          onQuickSubmit={handleAccountQuickSubmit}
           error={Boolean(totpInputError)}
           helperText={totpInputError || (editing ? '支持 Base32 密钥或 otpauth:// URI' : undefined)}
         />
@@ -1038,12 +1110,7 @@ function AccountDetail({
             placeholder="例如 GitHub、Discord、Notion"
             value={newTagName}
             onChange={(event) => setNewTagName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                void handleAddTag(newTagName)
-              }
-            }}
+            onKeyDown={handleTagQuickSubmit}
             inputProps={{ maxLength: MAX_ACCOUNT_TAG_LENGTH }}
             InputProps={{
               startAdornment: (
@@ -1127,8 +1194,42 @@ function AccountDetail({
       {customFields.length > 0 && (
         <Paper variant="outlined" sx={fieldPanelSx}>
           {customFields.map((field) => (
-            <Box key={field.id} sx={{ ...fieldBoxSx, '&:hover .cf-actions': { opacity: 1 } }}>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box
+              key={field.id}
+              sx={{
+                ...fieldBoxSx,
+                borderColor: copiedField === field.id ? 'success.main' : 'border.subtle',
+                bgcolor: copiedField === field.id ? 'rgba(52, 168, 83, 0.12)' : 'transparent',
+                boxShadow: copiedField === field.id ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.75)' : 'none',
+                transition: 'background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
+                '&:hover': {
+                  bgcolor: copiedField === field.id ? 'rgba(52, 168, 83, 0.16)' : 'action.hover',
+                },
+                '&:hover .cf-actions': { opacity: 1 },
+              }}
+            >
+              <Box
+                component="button"
+                type="button"
+                disabled={fieldBusy}
+                aria-label={`复制${field.field_name}`}
+                onClick={() => { void copy(field.field_value, field.id) }}
+                sx={{
+                  all: 'unset',
+                  flex: 1,
+                  minWidth: 0,
+                  alignSelf: 'stretch',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  cursor: fieldBusy ? 'default' : 'pointer',
+                  '&:focus-visible': {
+                    outline: '2px solid',
+                    outlineColor: copiedField === field.id ? 'success.main' : 'primary.main',
+                    outlineOffset: 2,
+                  },
+                }}
+              >
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600 }}>
                   {field.field_name} {field.is_secret ? '敏感' : ''}
                 </Typography>
@@ -1150,7 +1251,10 @@ function AccountDetail({
                       size="small"
                       aria-label={visibleCustomFieldIds.includes(field.id) ? `隐藏${field.field_name}` : `显示${field.field_name}`}
                       disabled={fieldBusy}
-                      onClick={() => toggleCustomFieldVisibility(field.id)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        toggleCustomFieldVisibility(field.id)
+                      }}
                       sx={{ color: 'text.secondary' }}
                     >
                         {visibleCustomFieldIds.includes(field.id)
@@ -1164,7 +1268,10 @@ function AccountDetail({
                       size="small"
                       aria-label={`复制${field.field_name}`}
                       disabled={fieldBusy}
-                      onClick={() => copy(field.field_value, field.id)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void copy(field.field_value, field.id)
+                      }}
                       sx={{ color: copiedField === field.id ? 'success.main' : 'text.secondary' }}
                     >
                       {copiedField === field.id ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
@@ -1175,7 +1282,10 @@ function AccountDetail({
                       size="small"
                       aria-label={`编辑${field.field_name}`}
                       disabled={fieldBusy}
-                      onClick={() => openEditCustomField(field)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        openEditCustomField(field)
+                      }}
                       sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
                     >
                       <EditIcon sx={{ fontSize: 14 }} />
@@ -1186,7 +1296,10 @@ function AccountDetail({
                       size="small"
                       aria-label={`删除${field.field_name}`}
                       disabled={fieldBusy}
-                      onClick={() => setCustomFieldDeleteId(field.id)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setCustomFieldDeleteId(field.id)
+                      }}
                       sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
                     >
                       <DeleteOutlineIcon sx={{ fontSize: 14 }} />
@@ -1206,12 +1319,7 @@ function AccountDetail({
             label="字段名称"
             value={newFieldName}
             onChange={(event) => setNewFieldName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                void handleSaveField()
-              }
-            }}
+            onKeyDown={handleCustomFieldQuickSubmit}
             sx={{ mb: 1 }}
           />
           <TextField
@@ -1223,6 +1331,7 @@ function AccountDetail({
             type={newFieldIsSecret && !newFieldValueVisible ? 'password' : 'text'}
             multiline={!newFieldIsSecret}
             minRows={newFieldIsSecret ? undefined : 2}
+            onKeyDown={handleCustomFieldQuickSubmit}
             InputProps={{
               endAdornment: newFieldIsSecret ? (
                 <InputAdornment position="end">
@@ -1370,6 +1479,7 @@ function AccountDetail({
             size="small"
             value={editData.name}
             onChange={(event) => setEditData({ ...editData, name: event.target.value })}
+            onKeyDown={handleAccountQuickSubmit}
             sx={{ flex: 1, minWidth: 0 }}
             variant="standard"
             inputProps={{ 'aria-label': '账号名称', style: { fontSize: '1rem', fontWeight: 600 } }}
@@ -1545,7 +1655,19 @@ function AccountDetail({
         </DialogActions>
       </Dialog>
 
-      <Dialog open={linkTotpDialogOpen} onClose={handleCancelLink} maxWidth="sm" fullWidth>
+      <Dialog
+        open={linkTotpDialogOpen}
+        onClose={handleCancelLink}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          component: 'form',
+          onSubmit: (event: React.FormEvent<HTMLFormElement>) => {
+            event.preventDefault()
+            if (!linkBusy && pendingLinkPatch) void handleConfirmLink()
+          },
+        }}
+      >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon sx={{ color: 'primary.main' }} />
           绑定 2FA 记录
@@ -1587,6 +1709,7 @@ function AccountDetail({
                 <InputAdornment position="end">
                   <Tooltip title={linkSecretVisible ? '隐藏密钥' : '显示密钥'}>
                     <IconButton
+                      type="button"
                       size="small"
                       aria-label={linkSecretVisible ? '隐藏 2FA 密钥' : '显示 2FA 密钥'}
                       onClick={() => setLinkSecretVisible((current) => !current)}
@@ -1601,13 +1724,13 @@ function AccountDetail({
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCancelLink} disabled={linkBusy}>取消保存</Button>
+          <Button type="button" onClick={handleCancelLink} disabled={linkBusy}>取消保存</Button>
           <Tooltip title={linkRequiresStoredMetadata ? '当前密钥需要保存完整验证参数' : ''}>
             <span>
-              <Button onClick={handleSkipLink} disabled={linkBusy || linkRequiresStoredMetadata}>仅保存密钥</Button>
+              <Button type="button" onClick={handleSkipLink} disabled={linkBusy || linkRequiresStoredMetadata}>仅保存密钥</Button>
             </span>
           </Tooltip>
-          <Button variant="contained" onClick={handleConfirmLink} disabled={linkBusy}>
+          <Button type="submit" variant="contained" disabled={linkBusy}>
             {linkBusy ? '绑定中...' : '绑定到 2FA 面板'}
           </Button>
         </DialogActions>
@@ -1676,7 +1799,7 @@ export default function AccountsView() {
   const [listDeleteBusy, setListDeleteBusy] = useState(false)
   const [listLoadState, setListLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [listLoadError, setListLoadError] = useState('')
-  const { copiedField, copy } = useCopy()
+  const { copiedKey: copiedField, copy } = useCopyFeedback()
 
   // Drag and drop states for custom account ordering
   const [draggedId, setDraggedId] = useState<string | null>(null)
@@ -2184,9 +2307,13 @@ export default function AccountsView() {
                           aria-label={`复制 ${account.name} 的密码`}
                           onClick={(event) => {
                             event.stopPropagation()
-                            copy(account.password, `pwd-${account.id}`)
+                            void copy(account.password, `pwd-${account.id}`)
                           }}
-                          sx={{ color: copiedField === `pwd-${account.id}` ? 'success.main' : 'text.secondary' }}
+                          sx={{
+                            color: copiedField === `pwd-${account.id}` ? 'success.main' : 'text.secondary',
+                            bgcolor: copiedField === `pwd-${account.id}` ? 'rgba(52, 168, 83, 0.12)' : 'transparent',
+                            boxShadow: copiedField === `pwd-${account.id}` ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.7)' : 'none',
+                          }}
                         >
                           {copiedField === `pwd-${account.id}` ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
                         </IconButton>

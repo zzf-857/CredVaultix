@@ -16,7 +16,7 @@ export default function App() {
   const activeView = useStore((s) => s.activeView)
   const loadAppPreferences = useStore((s) => s.loadAppPreferences)
 
-  const [sidebarWidth, setSidebarWidth] = useState(224)
+  const [sidebarWidth, setSidebarWidth] = useState(240)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const compactViewport = useMediaQuery('(max-width:1080px)')
   const effectiveSidebarCollapsed = sidebarCollapsed || compactViewport
@@ -26,8 +26,8 @@ export default function App() {
 
     void loadAppPreferences().then((preferences) => {
       if (!mounted) return
-      const savedWidth = typeof preferences.sidebarWidth === 'number' ? preferences.sidebarWidth : 224
-      const normalizedWidth = Math.max(192, Math.min(360, savedWidth))
+      const savedWidth = typeof preferences.sidebarWidth === 'number' ? preferences.sidebarWidth : 240
+      const normalizedWidth = Math.max(216, Math.min(400, savedWidth))
       setSidebarWidth(normalizedWidth)
       if (normalizedWidth !== savedWidth) {
         void window.electronAPI.updateAppPreferences({ sidebarWidth: normalizedWidth })

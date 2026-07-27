@@ -8,6 +8,7 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import type { SecretFieldRow } from '../../types'
+import useCopyFeedback from '../../hooks/useCopyFeedback'
 
 export default function ServiceFieldRow({
   field,
@@ -29,15 +30,12 @@ export default function ServiceFieldRow({
   onDropBefore: (targetFieldId: string, droppedFieldId: string) => void
 }) {
   const [visible, setVisible] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const { copiedKey, copy } = useCopyFeedback()
   const isSecret = Boolean(field.is_secret)
+  const copied = copiedKey === field.id
   const displayedValue = isSecret && !visible ? '••••••••' : field.field_value
 
-  const copyValue = async () => {
-    await navigator.clipboard.writeText(field.field_value)
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1500)
-  }
+  const copyValue = () => copy(field.field_value, field.id)
 
   return (
     <Box
@@ -70,12 +68,14 @@ export default function ServiceFieldRow({
         px: 1.25,
         py: 0.875,
         borderBottom: '1px solid',
-        borderColor: 'border.subtle',
-        bgcolor: 'transparent',
+        borderColor: copied ? 'success.main' : 'border.subtle',
+        bgcolor: copied ? 'rgba(52, 168, 83, 0.12)' : 'transparent',
+        boxShadow: copied ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.75)' : 'none',
         overflow: 'hidden',
+        transition: 'background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
         '&:last-child': { borderBottom: 0 },
         '&:hover': {
-          bgcolor: 'action.hover',
+          bgcolor: copied ? 'rgba(52, 168, 83, 0.16)' : 'action.hover',
         },
       }}
     >
@@ -83,11 +83,31 @@ export default function ServiceFieldRow({
         size="small"
         checked={checked}
         onChange={onToggleSelected}
+        onClick={(event) => event.stopPropagation()}
         inputProps={{ 'aria-label': `选择字段 ${field.field_name}` }}
         sx={{ p: 0.35 }}
       />
       <DragIndicatorIcon aria-label={`拖动字段 ${field.field_name}`} sx={{ fontSize: 17, color: 'text.disabled' }} />
-      <Box sx={{ minWidth: 0 }}>
+      <Box
+        component="button"
+        type="button"
+        aria-label={`复制字段 ${field.field_name}`}
+        onClick={() => { void copyValue() }}
+        sx={{
+          all: 'unset',
+          minWidth: 0,
+          alignSelf: 'stretch',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          '&:focus-visible': {
+            outline: '2px solid',
+            outlineColor: copied ? 'success.main' : 'primary.main',
+            outlineOffset: 2,
+          },
+        }}
+      >
         <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', fontWeight: 600 }}>
           {field.field_name}
         </Typography>
@@ -109,7 +129,10 @@ export default function ServiceFieldRow({
           <Tooltip title={visible ? '隐藏' : '显示'}>
             <IconButton
               size="small"
-              onClick={() => setVisible(!visible)}
+              onClick={(event) => {
+                event.stopPropagation()
+                setVisible(!visible)
+              }}
               aria-label={`${visible ? '隐藏' : '显示'}字段 ${field.field_name}`}
               sx={{ width: 28, height: 28 }}
             >
@@ -121,7 +144,10 @@ export default function ServiceFieldRow({
         <Tooltip title={copied ? '已复制' : '复制'}>
           <IconButton
             size="small"
-            onClick={copyValue}
+            onClick={(event) => {
+              event.stopPropagation()
+              void copyValue()
+            }}
             aria-label={`${copied ? '已复制' : '复制'}字段 ${field.field_name}`}
             sx={{ width: 28, height: 28, color: copied ? 'success.main' : 'text.secondary' }}
           >
@@ -129,12 +155,28 @@ export default function ServiceFieldRow({
           </IconButton>
         </Tooltip>
         <Tooltip title="编辑字段">
-          <IconButton size="small" onClick={onEdit} aria-label={`编辑字段 ${field.field_name}`} sx={{ width: 28, height: 28 }}>
+          <IconButton
+            size="small"
+            onClick={(event) => {
+              event.stopPropagation()
+              onEdit()
+            }}
+            aria-label={`编辑字段 ${field.field_name}`}
+            sx={{ width: 28, height: 28 }}
+          >
             <EditOutlinedIcon sx={{ fontSize: 17 }} />
           </IconButton>
         </Tooltip>
         <Tooltip title="删除字段">
-          <IconButton size="small" onClick={onDelete} aria-label={`删除字段 ${field.field_name}`} sx={{ width: 28, height: 28 }}>
+          <IconButton
+            size="small"
+            onClick={(event) => {
+              event.stopPropagation()
+              onDelete()
+            }}
+            aria-label={`删除字段 ${field.field_name}`}
+            sx={{ width: 28, height: 28 }}
+          >
             <DeleteOutlineIcon sx={{ fontSize: 17 }} />
           </IconButton>
         </Tooltip>
