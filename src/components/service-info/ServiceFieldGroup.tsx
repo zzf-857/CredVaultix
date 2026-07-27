@@ -57,10 +57,10 @@ export default function ServiceFieldGroup({
       onDragOver={(event) => event.preventDefault()}
       onDrop={handleDrop}
       sx={{
-        mb: 2.35,
+        mb: 1.5,
         border: '1px solid',
-        borderColor: draggingFieldId ? 'primary.main' : 'divider',
-        borderRadius: 2,
+        borderColor: draggingFieldId ? 'primary.main' : 'border.subtle',
+        borderRadius: 1,
         overflow: 'hidden',
         bgcolor: 'background.paper',
       }}
@@ -69,31 +69,41 @@ export default function ServiceFieldGroup({
         sx={{
           display: 'flex',
           alignItems: 'center',
-          gap: 1.1,
-          px: 1.55,
-          minHeight: 48,
-          bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+          gap: 0.75,
+          px: 1,
+          minHeight: 40,
+          bgcolor: 'surface.raised',
           borderBottom: collapsed || fields.length === 0 ? 0 : '1px solid',
-          borderColor: 'divider',
+          borderColor: 'border.subtle',
         }}
       >
         {group ? (
           <Tooltip title={collapsed ? '展开分组' : '折叠分组'}>
-            <IconButton size="small" onClick={() => onToggleCollapsed(group)}>
+            <IconButton
+              size="small"
+              onClick={() => onToggleCollapsed(group)}
+              aria-label={`${collapsed ? '展开' : '折叠'}字段组 ${group.name}`}
+              sx={{ width: 28, height: 28 }}
+            >
               {collapsed ? <KeyboardArrowRightIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
         ) : (
-          <Box sx={{ width: 30 }} />
+          <Box sx={{ width: 28 }} />
         )}
-        <Box sx={{ width: 8, height: 18, borderRadius: 99, bgcolor: color || 'divider' }} />
-        <Typography variant="caption" noWrap sx={{ flex: 1, minWidth: 0, color: 'text.secondary', fontWeight: 800, fontSize: '0.76rem', lineHeight: 1.45, textTransform: 'uppercase' }}>
+        <Box sx={{ width: 3, height: 14, borderRadius: 1, bgcolor: color || 'border.strong' }} />
+        <Typography variant="caption" noWrap sx={{ flex: 1, minWidth: 0, color: 'text.secondary', fontWeight: 600 }}>
           {title} ({fields.length})
         </Typography>
         {group && (
           <>
             <Tooltip title="字段分组菜单">
-              <IconButton size="small" onClick={(event) => setMenuAnchor(event.currentTarget)}>
+              <IconButton
+                size="small"
+                onClick={(event) => setMenuAnchor(event.currentTarget)}
+                aria-label={`${group.name} 字段分组菜单`}
+                sx={{ width: 28, height: 28 }}
+              >
                 <MoreHorizIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -120,9 +130,9 @@ export default function ServiceFieldGroup({
       </Box>
 
       {!collapsed && (
-        <Box sx={{ minHeight: fields.length ? 0 : 40 }}>
+        <Box sx={{ minHeight: fields.length ? 0 : 36 }}>
           {fields.length === 0 ? (
-            <Typography variant="caption" sx={{ display: 'block', px: 5.25, py: 1.5, color: 'text.disabled', fontSize: '0.76rem', lineHeight: 1.5 }}>
+            <Typography variant="caption" sx={{ display: 'block', pl: 5.75, py: 1.25, color: 'text.disabled' }}>
               暂无字段
             </Typography>
           ) : (

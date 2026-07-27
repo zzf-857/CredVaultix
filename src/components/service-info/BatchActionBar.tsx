@@ -25,30 +25,31 @@ export default function BatchActionBar({
       sx={{
         display: 'flex',
         alignItems: 'center',
-        gap: 1,
-        px: 1.5,
-        py: 1,
-        m: 1,
+        gap: 0.5,
+        px: 1,
+        py: 0.75,
+        mx: 1,
+        my: 0.75,
         border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: 2,
-        bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+        borderColor: 'border.subtle',
+        borderRadius: 1,
+        bgcolor: 'surface.raised',
         flexWrap: 'wrap',
       }}
     >
-      <Typography variant="body2" sx={{ fontWeight: 700, mr: 0.5 }}>
+      <Typography variant="caption" sx={{ fontWeight: 600, mr: 0.5 }}>
         已选择 {count} 项
       </Typography>
-      <Button size="small" startIcon={<AddCircleOutlineIcon />} onClick={onCreateGroup}>
+      <Button size="small" startIcon={<AddCircleOutlineIcon />} onClick={onCreateGroup} sx={{ minWidth: 0 }}>
         创建分组
       </Button>
-      <Button size="small" startIcon={<DriveFileMoveIcon />} onClick={onMoveToGroup}>
+      <Button size="small" startIcon={<DriveFileMoveIcon />} onClick={onMoveToGroup} sx={{ minWidth: 0 }}>
         移入分组
       </Button>
-      <Button size="small" startIcon={<WorkspacesOutlinedIcon />} onClick={onUngroup}>
+      <Button size="small" startIcon={<WorkspacesOutlinedIcon />} onClick={onUngroup} sx={{ minWidth: 0 }}>
         移出分组
       </Button>
-      <Button size="small" color="inherit" startIcon={<CloseIcon />} onClick={onClear}>
+      <Button size="small" color="inherit" startIcon={<CloseIcon />} onClick={onClear} sx={{ minWidth: 0 }}>
         取消选择
       </Button>
     </Box>

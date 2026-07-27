@@ -5,7 +5,6 @@ import SecurityIcon from '@mui/icons-material/Security'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import SettingsIcon from '@mui/icons-material/Settings'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
-import appIcon from '../../assets/app.png'
 import { useStore } from '../stores/useStore'
 import SettingsPanel from './SettingsPanel'
 
@@ -13,30 +12,26 @@ const navItems = [
   {
     view: 'accounts' as const,
     label: '账号管理',
-    helper: '账号、密码、标签、自定义字段',
     icon: AccountBoxIcon,
-    color: '#adc6ff',
+    color: 'primary.main',
   },
   {
     view: 'service-info' as const,
     label: '服务信息',
-    helper: 'API Key、Secret、服务器资料',
     icon: VpnKeyIcon,
-    color: '#ffb786',
+    color: 'warning.main',
   },
   {
     view: '2fa' as const,
     label: '2FA 验证器',
-    helper: 'TOTP、HOTP 与临时验证码',
     icon: SecurityIcon,
-    color: '#b7c8e1',
+    color: 'secondary.main',
   },
   {
     view: 'trash' as const,
     label: '回收站',
-    helper: '恢复或彻底删除账号与服务',
     icon: DeleteOutlineIcon,
-    color: '#ffb4ab',
+    color: 'error.main',
   },
 ]
 
@@ -72,60 +67,16 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
         overflow: 'hidden',
       }}
     >
-      <Box
-        sx={{
-          px: collapsed ? 1 : 1.75,
-          pt: collapsed ? 1.25 : 1.75,
-          pb: collapsed ? 1 : 1.55,
-          minHeight: collapsed ? 58 : 86,
-          display: 'flex',
-          alignItems: collapsed ? 'center' : 'center',
-          justifyContent: collapsed ? 'center' : 'flex-start',
-        }}
-      >
-        {collapsed ? (
-          <Box
-            component="img"
-            src={appIcon}
-            alt="CredVaultix"
-            sx={{
-              width: 44,
-              height: 44,
-              display: 'block',
-              objectFit: 'contain',
-              bgcolor: 'transparent',
-            }}
-          />
-        ) : (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.15, minWidth: 0 }}>
-            <Box
-              component="img"
-              src={appIcon}
-              alt="CredVaultix"
-              sx={{
-                width: 48,
-                height: 48,
-                display: 'block',
-                objectFit: 'contain',
-                bgcolor: 'transparent',
-                flexShrink: 0,
-              }}
-            />
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="subtitle1" noWrap sx={{ fontWeight: 850, fontSize: '1rem', lineHeight: 1.25 }}>
-                CredVaultix
-              </Typography>
-              <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', mt: 0.25, lineHeight: 1.35 }}>
-                本地账号与服务信息库
-              </Typography>
-            </Box>
-          </Box>
-        )}
-      </Box>
+      {!collapsed && (
+        <Typography
+          variant="overline"
+          sx={{ px: 2, pt: 1.7, pb: 0.8, color: 'text.secondary', display: 'block' }}
+        >
+          保险库
+        </Typography>
+      )}
 
-      <Divider sx={{ mx: collapsed ? 1 : 1.75, mb: 1.2 }} />
-
-      <List dense disablePadding sx={{ px: collapsed ? 0.75 : 1 }}>
+      <List dense disablePadding sx={{ px: collapsed ? 0.75 : 1, pt: collapsed ? 1 : 0 }}>
         {navItems.map((item) => {
           const Icon = item.icon
           const selected = activeView === item.view
@@ -133,35 +84,40 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
           return (
             <Tooltip key={item.view} title={collapsed ? item.label : ''} placement="right">
               <ListItemButton
+                aria-current={selected ? 'page' : undefined}
+                aria-label={item.label}
                 selected={selected}
                 onClick={() => requestViewChange(item.view)}
                 sx={{
-                  minHeight: collapsed ? 44 : 52,
-                  borderRadius: 2,
-                  mb: 0.65,
-                  px: collapsed ? 1 : 1.5,
-                  py: collapsed ? 0.75 : 1.05,
+                  minHeight: 42,
+                  mb: 0.35,
+                  px: collapsed ? 1 : 1.2,
+                  py: 0.7,
                   justifyContent: collapsed ? 'center' : 'flex-start',
-                  borderLeft: '2px solid',
-                  borderLeftColor: selected ? 'primary.main' : 'transparent',
+                  position: 'relative',
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    left: 4,
+                    top: 11,
+                    bottom: 11,
+                    width: 2,
+                    borderRadius: 2,
+                    bgcolor: selected ? 'primary.main' : 'transparent',
+                  },
                   '&.Mui-selected': {
-                    color: (theme) => theme.palette.mode === 'dark' ? '#d8e2ff' : '#0b57d0',
-                    '& .MuiListItemText-secondary': {
-                      color: (theme) => theme.palette.mode === 'dark' ? '#d3e4fe' : '#315d94',
-                    },
+                    color: 'text.primary',
                   },
                 }}
               >
-                <ListItemIcon sx={{ minWidth: collapsed ? 0 : 36, color: item.color }}>
-                  <Icon sx={{ fontSize: 20 }} />
+                <ListItemIcon sx={{ minWidth: collapsed ? 0 : 34, color: item.color, justifyContent: 'center' }}>
+                  <Icon sx={{ fontSize: 19 }} />
                 </ListItemIcon>
                 {!collapsed && (
                   <ListItemText
                     primary={item.label}
-                    secondary={item.helper}
                     sx={{ my: 0 }}
-                    primaryTypographyProps={{ fontSize: '0.9rem', fontWeight: 800, lineHeight: 1.32, noWrap: true }}
-                    secondaryTypographyProps={{ fontSize: '0.72rem', lineHeight: 1.35, noWrap: true }}
+                    primaryTypographyProps={{ fontSize: '0.86rem', fontWeight: selected ? 600 : 500, lineHeight: 1.3, noWrap: true }}
                   />
                 )}
               </ListItemButton>
@@ -171,19 +127,21 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
       </List>
 
       <Box sx={{ mt: 'auto', p: collapsed ? 0.75 : 1 }}>
+        <Divider sx={{ mb: 0.75 }} />
         <Tooltip title={collapsed ? '设置' : ''} placement="right">
           <Button
+            aria-label="设置"
             fullWidth
             size="small"
             startIcon={collapsed ? undefined : <SettingsIcon />}
             onClick={() => setSettingsOpen(true)}
-            variant={collapsed ? 'text' : 'outlined'}
+            variant="text"
             sx={{
               minWidth: 0,
-              height: collapsed ? 44 : 38,
+              height: 38,
               px: collapsed ? 0.5 : 1.25,
               color: 'text.secondary',
-              borderColor: 'divider',
+              justifyContent: collapsed ? 'center' : 'flex-start',
             }}
           >
             {collapsed ? <SettingsIcon fontSize="small" /> : '设置'}

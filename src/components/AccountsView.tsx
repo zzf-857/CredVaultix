@@ -7,7 +7,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   Fade,
   IconButton,
   InputAdornment,
@@ -22,6 +21,7 @@ import {
   Tooltip,
   Typography,
   Alert,
+  useMediaQuery,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
@@ -52,6 +52,9 @@ import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import { v4 as uuidv4 } from 'uuid'
 import AccountPlatformDialog from './AccountPlatformDialog'
 import TotpCodeDisplay from './TotpCodeDisplay'
+import EmptyState from './common/EmptyState'
+import PageHeader from './common/PageHeader'
+import SectionLabel from './common/SectionLabel'
 import { useStore } from '../stores/useStore'
 import { AccountRow, AccountTagUsageRow, CustomFieldRow, TagRow, UpdateAccountData } from '../types'
 import {
@@ -74,41 +77,45 @@ type AccountNotice = { severity: 'success' | 'error' | 'info'; text: string }
 const PLATFORM_ACCENTS: Record<AccountPlatform, string> = {
   google: '#8ddc9f',
   microsoft: '#adc6ff',
-  other: '#ffb4ab',
-}
-
-const sectionLabelSx = {
-  fontWeight: 800,
-  color: 'text.secondary',
-  fontSize: '0.76rem',
-  letterSpacing: 0,
-  mb: 1.25,
-  display: 'block',
-  lineHeight: 1.45,
-  textTransform: 'uppercase',
+  other: '#8fa3ba',
 }
 
 const panelSx = {
-  p: 2,
-  borderRadius: 2,
-  mb: 2.4,
-  bgcolor: (theme: any) => theme.palette.mode === 'dark' ? '#1c1b1b' : '#ffffff',
-  borderColor: 'divider',
+  p: 1.5,
+  borderRadius: 1,
+  mb: 2,
+  bgcolor: 'surface.raised',
+  borderColor: 'border.subtle',
+  boxShadow: 'none',
+}
+
+const fieldPanelSx = {
+  p: 0,
+  borderRadius: 1,
+  mb: 2,
+  overflow: 'hidden',
+  bgcolor: 'surface.raised',
+  borderColor: 'border.subtle',
+  boxShadow: 'none',
 }
 
 const fieldBoxSx = {
   display: 'flex',
   alignItems: 'center',
-  gap: 1.65,
-  px: 1.7,
-  py: 1.55,
-  borderRadius: 2,
-  border: '1px solid',
-  borderColor: 'divider',
-  bgcolor: (theme: any) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+  gap: 1.25,
+  minHeight: 56,
+  px: 1.5,
+  py: 1,
+  borderRadius: 0,
+  border: 0,
+  borderBottom: '1px solid',
+  borderColor: 'border.subtle',
+  bgcolor: 'transparent',
+  '&:last-child': {
+    borderBottom: 0,
+  },
   '&:hover': {
-    borderColor: 'primary.main',
-    bgcolor: (theme: any) => theme.palette.mode === 'dark' ? '#2a2a2a' : '#ffffff',
+    bgcolor: 'action.hover',
   },
 }
 
@@ -130,8 +137,8 @@ function PlatformChip({ platform }: { platform: AccountPlatform }) {
       size="small"
       label={getAccountPlatformLabel(platform)}
       sx={{
-        height: 26,
-        fontWeight: 700,
+        height: 24,
+        fontWeight: 600,
         bgcolor: `${accent}22`,
         color: accent,
         border: '1px solid',
@@ -200,14 +207,19 @@ function SensitiveField({
               <Box sx={{ display: 'flex', alignItems: 'center' }}>
                 {onGenerate && (
                   <Tooltip title="随机生成高强度密码">
-                    <IconButton size="small" onClick={onGenerate}>
+                    <IconButton size="small" aria-label="随机生成高强度密码" onClick={onGenerate}>
                       <RefreshIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
                 )}
                 {isSecretField && (
                   <Tooltip title={visible ? '隐藏敏感值' : '显示敏感值'}>
-                    <IconButton size="small" onClick={() => setVisible((current) => !current)} edge="end">
+                    <IconButton
+                      size="small"
+                      aria-label={visible ? `隐藏${label}` : `显示${label}`}
+                      onClick={() => setVisible((current) => !current)}
+                      edge="end"
+                    >
                       {visible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
                     </IconButton>
                   </Tooltip>
@@ -232,34 +244,18 @@ function SensitiveField({
 
   return (
     <Box
-      role={canCopy ? 'button' : undefined}
-      tabIndex={canCopy ? 0 : undefined}
-      onClick={handleCopy}
-      onKeyDown={(event) => {
-        if (!canCopy) return
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault()
-          handleCopy()
-        }
-      }}
       sx={{
         ...fieldBoxSx,
-        mb: 1.15,
-        cursor: canCopy ? 'pointer' : 'default',
-        '&:focus-visible': {
-          outline: '2px solid',
-          outlineColor: 'primary.main',
-          outlineOffset: 2,
-        },
+        mb: 0,
       }}
     >
       <Box
         sx={{
-          width: 40,
-          height: 40,
-          borderRadius: 2,
+          width: 32,
+          height: 32,
+          borderRadius: 1,
           color: 'primary.main',
-          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(173, 198, 255, 0.10)' : 'rgba(11, 87, 208, 0.08)',
+          bgcolor: 'surface.sunken',
           display: 'grid',
           placeItems: 'center',
           flexShrink: 0,
@@ -268,41 +264,49 @@ function SensitiveField({
         {icon}
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block', fontWeight: 800, lineHeight: 1.42 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600 }}>
           {label}
         </Typography>
         <Typography
           variant="body2"
           className={isSecretField ? 'mono-data' : undefined}
-          sx={{ fontSize: '0.96rem', color: 'text.primary', mt: 0.35, lineHeight: 1.5, fontWeight: 650 }}
+          sx={{ color: 'text.primary', mt: 0.2, fontWeight: 600 }}
           noWrap
         >
           {isSecretField && !visible ? '••••••••' : value}
         </Typography>
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.85, flexShrink: 0 }}>
-        {copiedField === fieldKey && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: 'success.main', fontSize: '0.78rem', fontWeight: 800 }}>
-            <CheckIcon sx={{ fontSize: 16 }} />
-            已复制
-          </Box>
-        )}
         {requiresRevealBeforeCopy && !visible && (
           <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.74rem', lineHeight: 1.35 }}>
             先显示
           </Typography>
         )}
+        {canCopy && (
+          <Tooltip title={copiedField === fieldKey ? '已复制' : `复制${label}`}>
+            <IconButton
+              size="small"
+              aria-label={`复制${label}`}
+              onClick={handleCopy}
+              sx={{ color: copiedField === fieldKey ? 'success.main' : 'text.secondary' }}
+            >
+              {copiedField === fieldKey
+                ? <CheckIcon sx={{ fontSize: 16 }} />
+                : <ContentCopyIcon sx={{ fontSize: 16 }} />}
+            </IconButton>
+          </Tooltip>
+        )}
         {isSecretField && (
-          <IconButton
-            size="small"
-            onClick={(event) => {
-              event.stopPropagation()
-              setVisible(!visible)
-            }}
-            sx={{ color: 'text.secondary' }}
-          >
-            {visible ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <VisibilityIcon sx={{ fontSize: 16 }} />}
-          </IconButton>
+          <Tooltip title={visible ? `隐藏${label}` : `显示${label}`}>
+            <IconButton
+              size="small"
+              aria-label={visible ? `隐藏${label}` : `显示${label}`}
+              onClick={() => setVisible(!visible)}
+              sx={{ color: 'text.secondary' }}
+            >
+              {visible ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <VisibilityIcon sx={{ fontSize: 16 }} />}
+            </IconButton>
+          </Tooltip>
         )}
       </Box>
     </Box>
@@ -836,7 +840,7 @@ function AccountDetail({
 
   if (!account) {
     return (
-      <Box sx={{ flex: 1, p: 3, borderLeft: '1px solid', borderColor: 'divider' }}>
+      <Box sx={{ flex: 1, minWidth: 0, p: 2 }}>
         {accountLoadError ? (
           <Alert
             severity="error"
@@ -877,10 +881,8 @@ function AccountDetail({
 
   const renderAccountInfoSection = () => (
     <React.Fragment key="account-info">
-      <Typography variant="caption" sx={sectionLabelSx}>
-        账号信息
-      </Typography>
-      <Paper variant="outlined" sx={panelSx}>
+      <SectionLabel>账号信息</SectionLabel>
+      <Paper variant="outlined" sx={editing ? panelSx : fieldPanelSx}>
         {editing ? (
           <TextField
             select
@@ -905,14 +907,14 @@ function AccountDetail({
             <MenuItem value="other">其他</MenuItem>
           </TextField>
         ) : (
-          <Box sx={{ ...fieldBoxSx, mb: 1 }}>
+          <Box sx={fieldBoxSx}>
             <Box
               sx={{
-                width: 40,
-                height: 40,
-                borderRadius: 2,
+                width: 32,
+                height: 32,
+                borderRadius: 1,
                 color: 'primary.main',
-                bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(173, 198, 255, 0.10)' : 'rgba(11, 87, 208, 0.08)',
+                bgcolor: 'surface.sunken',
                 display: 'grid',
                 placeItems: 'center',
                 flexShrink: 0,
@@ -921,7 +923,7 @@ function AccountDetail({
               <PublicOutlinedIcon sx={{ fontSize: 18 }} />
             </Box>
             <Box>
-              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block', fontWeight: 800, lineHeight: 1.42 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600 }}>
                 主账号类型
               </Typography>
               <PlatformChip platform={account.platform} />
@@ -970,9 +972,7 @@ function AccountDetail({
 
   const renderRealtimeCodeSection = () => (
     <React.Fragment key="realtime-code">
-      <Typography variant="caption" sx={sectionLabelSx}>
-        实时验证码
-      </Typography>
+      <SectionLabel>实时验证码</SectionLabel>
       <Box sx={{ mb: 2 }}>
         <TotpCodeDisplay
           secret={displayedTotpSecret}
@@ -993,7 +993,7 @@ function AccountDetail({
 
   const renderTagsSection = () => (
     <React.Fragment key="registered-platform-tags">
-      <Typography variant="caption" sx={sectionLabelSx}>注册平台标签</Typography>
+      <SectionLabel>注册平台标签</SectionLabel>
       <Paper variant="outlined" sx={panelSx}>
         {(account.tags || []).length > 0 ? (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.85, mb: 1.65 }}>
@@ -1074,7 +1074,7 @@ function AccountDetail({
 
         {createdTagSuggestions.length > 0 && (
           <>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.2, lineHeight: 1.45, fontSize: '0.75rem', fontWeight: 800 }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.2, lineHeight: 1.45, fontSize: '0.75rem', fontWeight: 600 }}>
               已创建标签（{createdTagSuggestions.length}）
             </Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.95, maxHeight: 168, overflowY: 'auto', pr: 0.5 }}>
@@ -1104,58 +1104,94 @@ function AccountDetail({
 
   const renderCustomFieldsSection = () => (
     <React.Fragment key="custom-fields">
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-        <Typography variant="caption" sx={{ ...sectionLabelSx, flex: 1, mb: 0 }}>
-          自定义字段
-        </Typography>
-        {!editing && (
-          <IconButton size="small" onClick={openAddCustomField} disabled={fieldBusy} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
-            <AddCircleOutlineIcon sx={{ fontSize: 18 }} />
-          </IconButton>
-        )}
-      </Box>
+      <SectionLabel
+        action={!editing ? (
+          <Tooltip title="添加自定义字段">
+            <span>
+              <IconButton
+                size="small"
+                aria-label="添加自定义字段"
+                onClick={openAddCustomField}
+                disabled={fieldBusy}
+                sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+              >
+                <AddCircleOutlineIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        ) : undefined}
+      >
+        自定义字段
+      </SectionLabel>
 
       {customFields.length > 0 && (
-        <Paper variant="outlined" sx={panelSx}>
-          {customFields.map((field, index) => (
-            <Box key={field.id}>
-              {index > 0 && <Box sx={{ height: 10 }} />}
-              <Box sx={{ ...fieldBoxSx, '&:hover .cf-actions': { opacity: 1 } }}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block', fontWeight: 800, lineHeight: 1.42 }}>
-                    {field.field_name} {field.is_secret ? '敏感' : ''}
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    className={field.is_secret ? 'mono-data' : undefined}
-                    sx={{ fontSize: '0.96rem', color: 'text.primary', mt: 0.35, lineHeight: 1.5, fontWeight: 650 }}
-                    noWrap
-                  >
-                    {field.is_secret && !visibleCustomFieldIds.includes(field.id)
-                      ? '••••••••'
-                      : field.field_value || '(空)'}
-                  </Typography>
-                </Box>
-                <Box className="cf-actions" sx={{ display: 'flex', gap: 0.35, opacity: 0.82, transition: 'opacity 0.15s' }}>
+        <Paper variant="outlined" sx={fieldPanelSx}>
+          {customFields.map((field) => (
+            <Box key={field.id} sx={{ ...fieldBoxSx, '&:hover .cf-actions': { opacity: 1 } }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600 }}>
+                  {field.field_name} {field.is_secret ? '敏感' : ''}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  className={field.is_secret ? 'mono-data' : undefined}
+                  sx={{ color: 'text.primary', mt: 0.2, fontWeight: 600 }}
+                  noWrap
+                >
+                  {field.is_secret && !visibleCustomFieldIds.includes(field.id)
+                    ? '••••••••'
+                    : field.field_value || '(空)'}
+                </Typography>
+              </Box>
+              <Box className="cf-actions" sx={{ display: 'flex', gap: 0.35, opacity: 0.82, transition: 'opacity 0.15s' }}>
                   {Boolean(field.is_secret) && (
                     <Tooltip title={visibleCustomFieldIds.includes(field.id) ? '隐藏' : '显示'}>
-                    <IconButton size="small" disabled={fieldBusy} onClick={() => toggleCustomFieldVisibility(field.id)} sx={{ color: 'text.secondary' }}>
+                    <IconButton
+                      size="small"
+                      aria-label={visibleCustomFieldIds.includes(field.id) ? `隐藏${field.field_name}` : `显示${field.field_name}`}
+                      disabled={fieldBusy}
+                      onClick={() => toggleCustomFieldVisibility(field.id)}
+                      sx={{ color: 'text.secondary' }}
+                    >
                         {visibleCustomFieldIds.includes(field.id)
                           ? <VisibilityOffIcon sx={{ fontSize: 14 }} />
                           : <VisibilityIcon sx={{ fontSize: 14 }} />}
                       </IconButton>
                     </Tooltip>
                   )}
-                  <IconButton size="small" disabled={fieldBusy} onClick={() => copy(field.field_value, field.id)} sx={{ color: copiedField === field.id ? 'success.main' : 'text.secondary' }}>
-                    {copiedField === field.id ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
-                  </IconButton>
-                  <IconButton size="small" disabled={fieldBusy} onClick={() => openEditCustomField(field)} sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}>
-                    <EditIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
-                  <IconButton size="small" disabled={fieldBusy} onClick={() => setCustomFieldDeleteId(field.id)} sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}>
-                    <DeleteOutlineIcon sx={{ fontSize: 14 }} />
-                  </IconButton>
-                </Box>
+                  <Tooltip title={copiedField === field.id ? '已复制' : `复制${field.field_name}`}>
+                    <IconButton
+                      size="small"
+                      aria-label={`复制${field.field_name}`}
+                      disabled={fieldBusy}
+                      onClick={() => copy(field.field_value, field.id)}
+                      sx={{ color: copiedField === field.id ? 'success.main' : 'text.secondary' }}
+                    >
+                      {copiedField === field.id ? <CheckIcon sx={{ fontSize: 14 }} /> : <ContentCopyIcon sx={{ fontSize: 14 }} />}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={`编辑${field.field_name}`}>
+                    <IconButton
+                      size="small"
+                      aria-label={`编辑${field.field_name}`}
+                      disabled={fieldBusy}
+                      onClick={() => openEditCustomField(field)}
+                      sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+                    >
+                      <EditIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title={`删除${field.field_name}`}>
+                    <IconButton
+                      size="small"
+                      aria-label={`删除${field.field_name}`}
+                      disabled={fieldBusy}
+                      onClick={() => setCustomFieldDeleteId(field.id)}
+                      sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
+                    >
+                      <DeleteOutlineIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Tooltip>
               </Box>
             </Box>
           ))}
@@ -1191,7 +1227,12 @@ function AccountDetail({
               endAdornment: newFieldIsSecret ? (
                 <InputAdornment position="end">
                   <Tooltip title={newFieldValueVisible ? '隐藏敏感值' : '显示敏感值'}>
-                    <IconButton size="small" onClick={() => setNewFieldValueVisible((current) => !current)} edge="end">
+                    <IconButton
+                      size="small"
+                      aria-label={newFieldValueVisible ? '隐藏字段值' : '显示字段值'}
+                      onClick={() => setNewFieldValueVisible((current) => !current)}
+                      edge="end"
+                    >
                       {newFieldValueVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
                     </IconButton>
                   </Tooltip>
@@ -1227,9 +1268,7 @@ function AccountDetail({
 
   const renderNotesSection = () => (
     <React.Fragment key="notes">
-      <Typography variant="caption" sx={sectionLabelSx}>
-        备注
-      </Typography>
+      <SectionLabel>备注</SectionLabel>
       {editing ? (
         <TextField
           fullWidth
@@ -1248,7 +1287,7 @@ function AccountDetail({
           }}
           sx={{
             '& .MuiInputBase-root': { fontSize: '0.95rem', lineHeight: 1.7 },
-            '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#ffffff' },
+            '& .MuiOutlinedInput-root': { borderRadius: 1, bgcolor: 'surface.raised' },
           }}
         />
       ) : account.notes ? (
@@ -1288,10 +1327,9 @@ function AccountDetail({
     <Box
       sx={{
         flex: 1,
+        minWidth: 0,
         display: 'flex',
         flexDirection: 'column',
-        borderLeft: '1px solid',
-        borderColor: 'divider',
         height: '100%',
         overflow: 'hidden',
         bgcolor: 'background.default',
@@ -1299,91 +1337,117 @@ function AccountDetail({
     >
       <Box
         sx={{
-          p: 3,
+          minHeight: 68,
+          px: 2,
+          py: 1.25,
           display: 'flex',
           alignItems: 'center',
-          gap: 1.95,
+          gap: 1.25,
           borderBottom: '1px solid',
-          borderColor: 'divider',
+          borderColor: 'border.subtle',
           flexShrink: 0,
           bgcolor: 'background.paper',
         }}
       >
         <Box
           sx={{
-            width: 56,
-            height: 56,
-            borderRadius: 3,
+            width: 40,
+            height: 40,
+            borderRadius: 1,
             display: 'grid',
             placeItems: 'center',
-            bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+            bgcolor: 'surface.raised',
             border: '1px solid',
-            borderColor: 'divider',
+            borderColor: 'border.subtle',
             color: 'primary.main',
             flexShrink: 0,
           }}
         >
-          <AccountBoxIcon sx={{ fontSize: 30 }} />
+          <AccountBoxIcon sx={{ fontSize: 21 }} />
         </Box>
         {editing ? (
           <TextField
             size="small"
             value={editData.name}
             onChange={(event) => setEditData({ ...editData, name: event.target.value })}
-            sx={{ flex: 1 }}
+            sx={{ flex: 1, minWidth: 0 }}
             variant="standard"
-            inputProps={{ style: { fontSize: '1.1rem', fontWeight: 600 } }}
+            inputProps={{ 'aria-label': '账号名称', style: { fontSize: '1rem', fontWeight: 600 } }}
           />
         ) : (
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.28rem', lineHeight: 1.3 }} noWrap>
-              {account.name}
-            </Typography>
-            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.45, fontSize: '0.82rem', lineHeight: 1.45 }} noWrap>
-              {account.username || '未设置主邮箱 / 登录账号'}
-            </Typography>
-            <Box sx={{ mt: 1.1, display: 'flex', gap: 0.85, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.65, minWidth: 0 }}>
+              <Typography variant="h6" sx={{ flex: 1, minWidth: 0, fontSize: '1.05rem' }} noWrap>
+                {account.name}
+              </Typography>
               <PlatformChip platform={account.platform} />
               {account.totp_secret && account.totp_secret.trim() && (
-                <Chip size="small" label="已记录 2FA" variant="outlined" sx={{ color: 'success.main', borderColor: 'rgba(141, 220, 159, 0.45)' }} />
+                <Chip size="small" label="2FA" variant="outlined" sx={{ height: 24, color: 'success.main', borderColor: 'success.main' }} />
               )}
             </Box>
+            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }} noWrap>
+              {account.username || '未设置主邮箱 / 登录账号'}
+            </Typography>
           </Box>
         )}
 
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0 }}>
           {editing ? (
             <>
-              <IconButton size="small" onClick={handleSave} disabled={saveBusy || !editData.name.trim() || !hasUnsavedAccountChanges} sx={{ color: 'success.main' }}>
-                <SaveIcon sx={{ fontSize: 20 }} />
-              </IconButton>
-              <IconButton size="small" onClick={handleCancelEdit} disabled={saveBusy} sx={{ color: 'text.secondary' }}>
-                <CloseIcon sx={{ fontSize: 20 }} />
-              </IconButton>
+              <Tooltip title="保存修改">
+                <span>
+                  <IconButton
+                    size="small"
+                    aria-label="保存账号修改"
+                    onClick={handleSave}
+                    disabled={saveBusy || !editData.name.trim() || !hasUnsavedAccountChanges}
+                    sx={{ color: 'success.main' }}
+                  >
+                    <SaveIcon sx={{ fontSize: 19 }} />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title="取消编辑">
+                <span>
+                  <IconButton size="small" aria-label="取消编辑账号" onClick={handleCancelEdit} disabled={saveBusy} sx={{ color: 'text.secondary' }}>
+                    <CloseIcon sx={{ fontSize: 19 }} />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </>
           ) : (
             <>
               <Tooltip title={isPinned ? "取消置顶" : "置顶主账号"} arrow TransitionComponent={Fade}>
                 <IconButton
                   size="small"
+                  aria-label={isPinned ? '取消置顶主账号' : '置顶主账号'}
                   onClick={onTogglePin}
                   sx={{ color: isPinned ? 'primary.main' : 'text.secondary' }}
                 >
-                  {isPinned ? <PushPinIcon sx={{ fontSize: 20 }} /> : <PushPinOutlinedIcon sx={{ fontSize: 20 }} />}
+                  {isPinned ? <PushPinIcon sx={{ fontSize: 19 }} /> : <PushPinOutlinedIcon sx={{ fontSize: 19 }} />}
                 </IconButton>
               </Tooltip>
-              <IconButton size="small" onClick={() => setEditing(true)} sx={{ color: 'text.secondary' }}>
-                <EditIcon sx={{ fontSize: 20 }} />
-              </IconButton>
-              <IconButton size="small" onClick={() => setDeleteConfirmOpen(true)} sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}>
-                <DeleteOutlineIcon sx={{ fontSize: 20 }} />
-              </IconButton>
+              <Tooltip title="编辑账号">
+                <IconButton size="small" aria-label="编辑账号" onClick={() => setEditing(true)} sx={{ color: 'text.secondary' }}>
+                  <EditIcon sx={{ fontSize: 19 }} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="移入回收站">
+                <IconButton
+                  size="small"
+                  aria-label="将账号移入回收站"
+                  onClick={() => setDeleteConfirmOpen(true)}
+                  sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
+                >
+                  <DeleteOutlineIcon sx={{ fontSize: 19 }} />
+                </IconButton>
+              </Tooltip>
             </>
           )}
         </Box>
       </Box>
 
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 3.1 }}>
+      <Box sx={{ flex: 1, minWidth: 0, overflowY: 'auto', px: 2.25, py: 2 }}>
         {accountLoadError && (
           <Alert
             severity="error"
@@ -1522,7 +1586,12 @@ function AccountDetail({
               endAdornment: (
                 <InputAdornment position="end">
                   <Tooltip title={linkSecretVisible ? '隐藏密钥' : '显示密钥'}>
-                    <IconButton size="small" onClick={() => setLinkSecretVisible((current) => !current)} edge="end">
+                    <IconButton
+                      size="small"
+                      aria-label={linkSecretVisible ? '隐藏 2FA 密钥' : '显示 2FA 密钥'}
+                      onClick={() => setLinkSecretVisible((current) => !current)}
+                      edge="end"
+                    >
                       {linkSecretVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
                     </IconButton>
                   </Tooltip>
@@ -1613,7 +1682,9 @@ export default function AccountsView() {
   const [draggedId, setDraggedId] = useState<string | null>(null)
 
   // List container custom width states
-  const [listWidth, setListWidth] = useState(320)
+  const compactViewport = useMediaQuery('(max-width:1080px)')
+  const [listWidth, setListWidth] = useState(300)
+  const renderedListWidth = compactViewport ? 280 : listWidth
 
   useEffect(() => {
     let mounted = true
@@ -1624,13 +1695,13 @@ export default function AccountsView() {
         const legacyWidthValue = localStorage.getItem('accounts_list_width')
         const legacyWidth = legacyWidthValue === null ? Number.NaN : Number(legacyWidthValue)
         if (Number.isFinite(legacyWidth)) {
-          savedWidth = Math.max(300, Math.min(560, legacyWidth))
+          savedWidth = Math.max(280, Math.min(420, legacyWidth))
           void window.electronAPI.updateAppPreferences({ accountsListWidth: savedWidth })
           localStorage.removeItem('accounts_list_width')
         }
       }
       if (typeof savedWidth === 'number') {
-        const normalizedWidth = Math.max(300, Math.min(560, savedWidth))
+        const normalizedWidth = Math.max(280, Math.min(420, savedWidth))
         setListWidth(normalizedWidth)
         if (normalizedWidth !== savedWidth) {
           void window.electronAPI.updateAppPreferences({ accountsListWidth: normalizedWidth })
@@ -1647,7 +1718,7 @@ export default function AccountsView() {
     let latestWidth = startWidth
 
     const doDrag = (moveEvent: MouseEvent) => {
-      const newWidth = Math.max(300, Math.min(560, startWidth + (moveEvent.clientX - startX)))
+      const newWidth = Math.max(280, Math.min(420, startWidth + (moveEvent.clientX - startX)))
       latestWidth = newWidth
       setListWidth(newWidth)
     }
@@ -1882,30 +1953,55 @@ export default function AccountsView() {
     <Box sx={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
       <Box
         sx={{
-          width: listWidth,
-          minWidth: listWidth,
+          width: renderedListWidth,
+          minWidth: renderedListWidth,
           borderRight: '1px solid',
-          borderColor: 'divider',
+          borderColor: 'border.subtle',
           display: 'flex',
           flexDirection: 'column',
           height: '100%',
-          bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0e0e0e' : '#ffffff',
+          bgcolor: 'surface.sunken',
         }}
       >
-        <Box sx={{ p: 2.55, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Box sx={{ display: 'grid', gap: 0.75 }}>
-            <Typography variant="h6" sx={{ fontSize: '1.12rem', fontWeight: 850, lineHeight: 1.38 }}>
-              主账号仓库
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.86rem', lineHeight: 1.68 }}>
-              集中管理 Google / Microsoft 主账号。
-              <Box component="span" sx={{ display: 'block', mt: 0.2 }}>
-                用标签记录它们登录过的平台。
-              </Box>
-            </Typography>
-          </Box>
+        <PageHeader
+          compact
+          title="主账号"
+          description={`${accounts.length} 个账号`}
+          actions={(
+            <>
+              <Tooltip title="导入 CSV" arrow>
+                <IconButton size="small" aria-label="导入账号 CSV" onClick={handleImportCsv}>
+                  <FileUploadOutlinedIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="新建主账号" arrow>
+                <IconButton size="small" aria-label="新建主账号" onClick={() => setPlatformDialogOpen(true)} sx={{ color: 'primary.main' }}>
+                  <AddIcon sx={{ fontSize: 19 }} />
+                </IconButton>
+              </Tooltip>
+            </>
+          )}
+        />
 
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.85, mt: 2.25 }}>
+        <Box sx={{ p: 1.25, borderBottom: '1px solid', borderColor: 'border.subtle', flexShrink: 0 }}>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="搜索主账号..."
+            value={accountSearchQuery}
+            disabled={Boolean(navigationBlockReason)}
+            onChange={(event) => setAccountSearchQuery(event.target.value)}
+            inputProps={{ 'aria-label': '搜索主账号' }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.9, overflowX: 'auto', pb: 0.1 }}>
             {([
               ['all', '全部'],
               ['google', 'Google'],
@@ -1917,42 +2013,16 @@ export default function AccountsView() {
                 label={label}
                 variant={accountPlatformFilter === value ? 'filled' : 'outlined'}
                 color={accountPlatformFilter === value ? 'primary' : 'default'}
+                aria-pressed={accountPlatformFilter === value}
                 disabled={Boolean(navigationBlockReason)}
                 onClick={() => setAccountPlatformFilter(value)}
+                sx={{ height: 24, flexShrink: 0 }}
               />
             ))}
           </Box>
         </Box>
 
-        <Box sx={{ p: 1.8, display: 'flex', gap: 1.15, borderBottom: '1px solid', borderColor: 'divider', flexShrink: 0 }}>
-          <TextField
-            size="small"
-            placeholder="搜索主账号..."
-            value={accountSearchQuery}
-            disabled={Boolean(navigationBlockReason)}
-            onChange={(event) => setAccountSearchQuery(event.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ flex: 1 }}
-          />
-          <Tooltip title="导入 CSV" arrow>
-            <IconButton onClick={handleImportCsv} sx={{ color: 'text.secondary', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', '&:hover': { color: 'primary.main', bgcolor: 'action.hover' } }}>
-              <FileUploadOutlinedIcon />
-            </IconButton>
-          </Tooltip>
-          <Tooltip title="新建主账号" arrow>
-            <IconButton onClick={() => setPlatformDialogOpen(true)} sx={{ color: 'primary.main', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', '&:hover': { bgcolor: 'action.hover' } }}>
-              <AddIcon />
-            </IconButton>
-          </Tooltip>
-        </Box>
-
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 1.3 }}>
+        <Box sx={{ flex: 1, overflowY: 'auto', p: 0.75 }}>
           {listLoadState === 'loading' ? (
             <LinearProgress aria-label="正在读取账号列表" />
           ) : listLoadState === 'error' ? (
@@ -1963,15 +2033,17 @@ export default function AccountsView() {
               {listLoadError}
             </Alert>
           ) : accounts.length === 0 ? (
-            <Box sx={{ textAlign: 'center', py: 8, px: 3, border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
-              <AccountBoxIcon sx={{ fontSize: 44, color: 'text.secondary', opacity: 0.42, mb: 1.5 }} />
-              <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
-                当前筛选下还没有主账号
-              </Typography>
-              <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={() => setPlatformDialogOpen(true)}>
-                添加账号
-              </Button>
-            </Box>
+            <EmptyState
+              compact
+              icon={<AccountBoxIcon sx={{ fontSize: 20 }} />}
+              title="没有符合条件的主账号"
+              description="调整搜索或筛选条件，或者创建一个新账号。"
+              action={(
+                <Button variant="outlined" size="small" startIcon={<AddIcon />} onClick={() => setPlatformDialogOpen(true)}>
+                  添加账号
+                </Button>
+              )}
+            />
           ) : (
             sortedAccounts.map((account) => (
               <Box
@@ -1981,44 +2053,63 @@ export default function AccountsView() {
                 onDragOver={(e) => handleDragOver(e, account.id)}
                 onDrop={(e) => handleDrop(e, account.id)}
                 onDragEnd={handleDragEnd}
-                onClick={() => requestAccountSelection(account.id)}
                 onContextMenu={(event) => handleContextMenu(event, account.id)}
                 onMouseEnter={() => setHoveredId(account.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 sx={{
-                  px: 1.7,
-                  py: 1.55,
-                  mb: 1.05,
+                  px: 1.1,
+                  py: 1,
+                  mb: 0.5,
                   cursor: 'grab',
                   border: '1px solid',
-                  borderColor: selectedAccountId === account.id ? 'primary.main' : 'transparent',
+                  borderColor: selectedAccountId === account.id ? 'border.strong' : 'transparent',
                   borderLeft: '2px solid',
                   borderLeftColor: selectedAccountId === account.id
                     ? 'primary.main'
                     : accountsPinnedIds.includes(account.id)
                       ? 'secondary.main'
                       : 'transparent',
-                  borderRadius: 2,
+                  borderRadius: 1,
                   bgcolor: selectedAccountId === account.id
                     ? 'action.selected'
-                    : (theme) => theme.palette.mode === 'dark' ? '#131313' : '#ffffff',
+                    : 'transparent',
                   opacity: draggedId === account.id ? 0.35 : 1,
                   transform: draggedId === account.id ? 'scale(0.98)' : 'scale(1)',
                   transition: 'background-color 0.15s ease, border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease',
                   '&:active': { cursor: 'grabbing' },
                   '&:hover': {
                     bgcolor: selectedAccountId === account.id ? 'action.selected' : 'action.hover',
-                    borderColor: draggedId && draggedId !== account.id ? 'primary.main' : 'divider',
-                    borderLeftColor: selectedAccountId === account.id ? 'primary.main' : accountsPinnedIds.includes(account.id) ? 'secondary.main' : 'divider',
+                    borderColor: draggedId && draggedId !== account.id ? 'primary.main' : 'border.subtle',
+                    borderLeftColor: selectedAccountId === account.id ? 'primary.main' : accountsPinnedIds.includes(account.id) ? 'secondary.main' : 'border.subtle',
                   },
                 }}
               >
-                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.45 }}>
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                  <Box
+                    component="button"
+                    type="button"
+                    aria-current={selectedAccountId === account.id ? 'true' : undefined}
+                    aria-label={`打开账号 ${account.name}`}
+                    onClick={() => requestAccountSelection(account.id)}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 1,
+                      flex: 1,
+                      minWidth: 0,
+                      p: 0,
+                      border: 0,
+                      bgcolor: 'transparent',
+                      color: 'inherit',
+                      textAlign: 'left',
+                      cursor: 'inherit',
+                    }}
+                  >
                   <Box
                     sx={{
-                      width: 42,
-                      height: 42,
-                      borderRadius: 2,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 1,
                       display: 'grid',
                       placeItems: 'center',
                       flexShrink: 0,
@@ -2028,29 +2119,30 @@ export default function AccountsView() {
                       borderColor: `${PLATFORM_ACCENTS[account.platform]}55`,
                     }}
                   >
-                    <AccountBoxIcon sx={{ fontSize: 22 }} />
+                    <AccountBoxIcon sx={{ fontSize: 19 }} />
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.85, mb: 0.85, flexWrap: 'wrap' }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '0.95rem', lineHeight: 1.4, flex: 1, minWidth: 0 }} noWrap>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.55, mb: 0.25 }}>
+                      <Typography variant="subtitle2" sx={{ flex: 1, minWidth: 0 }} noWrap>
                         {account.name}
                       </Typography>
                       <PlatformChip platform={account.platform} />
                     </Box>
 
-                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.78rem', display: 'block', lineHeight: 1.42 }} noWrap>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }} noWrap>
                       {account.username || '未设置主邮箱 / 登录账号'}
                     </Typography>
 
                     {(account.tags || []).length > 0 && (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mt: 1.1 }}>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4, mt: 0.65, maxHeight: 22, overflow: 'hidden' }}>
                         {getVisibleAccountPreviewTags(account.tags || []).map((tag) => (
                           <Chip
                             key={tag.id}
                             label={tag.name}
                             size="small"
                             sx={{
-                              height: 23,
+                              height: 21,
+                              fontSize: '0.68rem',
                               bgcolor: `${tag.color}22`,
                               color: tag.color,
                               border: '1px solid',
@@ -2061,15 +2153,17 @@ export default function AccountsView() {
                       </Box>
                     )}
                   </Box>
+                  </Box>
 
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
                     <Tooltip title={accountsPinnedIds.includes(account.id) ? "取消置顶" : "置顶主账号"} arrow TransitionComponent={Fade}>
                       <IconButton
                         size="small"
+                        aria-label={accountsPinnedIds.includes(account.id) ? `取消置顶 ${account.name}` : `置顶 ${account.name}`}
                         onClick={(event) => { event.stopPropagation(); togglePinAccount(account.id) }}
                         sx={{
                           color: accountsPinnedIds.includes(account.id) ? 'primary.main' : 'text.secondary',
-                          opacity: accountsPinnedIds.includes(account.id) ? 1 : (hoveredId === account.id ? 0.85 : 0.25),
+                          opacity: accountsPinnedIds.includes(account.id) ? 1 : (hoveredId === account.id ? 0.9 : 0.55),
                           transition: 'opacity 0.15s',
                           '&:hover': { color: 'primary.main', opacity: 1 }
                         }}
@@ -2080,13 +2174,14 @@ export default function AccountsView() {
 
                     {account.totp_secret && account.totp_secret.trim() && (
                       <Tooltip title="已启用 2FA" arrow>
-                        <ShieldIcon sx={{ fontSize: 16, color: '#81c995' }} />
+                        <ShieldIcon sx={{ fontSize: 16, color: 'success.main' }} />
                       </Tooltip>
                     )}
                     {hoveredId === account.id && account.password && (
                       <Tooltip title={copiedField === `pwd-${account.id}` ? '已复制!' : '复制密码'} arrow TransitionComponent={Fade}>
                         <IconButton
                           size="small"
+                          aria-label={`复制 ${account.name} 的密码`}
                           onClick={(event) => {
                             event.stopPropagation()
                             copy(account.password, `pwd-${account.id}`)
@@ -2105,29 +2200,33 @@ export default function AccountsView() {
         </Box>
       </Box>
 
-      {/* 垂直拖动分割条 */}
-      <Box
-        onMouseDown={handleListResizeStart}
-        sx={{
-          width: 6,
-          cursor: 'col-resize',
-          bgcolor: 'transparent',
-          transition: 'background-color 0.2s',
-          position: 'relative',
-          zIndex: 10,
-          '&:hover': {
-            bgcolor: 'primary.main',
-          },
-          '&::after': {
-            content: '""',
-            position: 'absolute',
-            top: 0,
-            left: '-4px',
-            right: '-4px',
-            bottom: 0,
-          }
-        }}
-      />
+      {!compactViewport && (
+        <Box
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整账号列表宽度"
+          onMouseDown={handleListResizeStart}
+          sx={{
+            width: 5,
+            cursor: 'col-resize',
+            bgcolor: 'transparent',
+            transition: 'background-color 0.16s ease',
+            position: 'relative',
+            zIndex: 10,
+            '&:hover': {
+              bgcolor: 'primary.main',
+            },
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              top: 0,
+              left: '-4px',
+              right: '-4px',
+              bottom: 0,
+            },
+          }}
+        />
+      )}
 
       {selectedAccountId ? (
         <AccountDetail
@@ -2140,30 +2239,17 @@ export default function AccountsView() {
           onNotice={setNotice}
         />
       ) : (
-        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
-          <Box
-            sx={{
-              textAlign: 'center',
-              px: 4,
-              py: 5,
-              maxWidth: 420,
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 3,
-              bgcolor: 'background.paper',
-            }}
-          >
-            <LockIcon sx={{ fontSize: 56, color: 'primary.main', opacity: 0.32, mb: 2 }} />
-            <Typography variant="h6" sx={{ color: 'text.primary', mb: 1, fontWeight: 800 }}>
-              选择或创建一个主账号
-            </Typography>
-            <Typography variant="body2" sx={{ color: 'text.secondary', opacity: 0.8, mb: 3 }}>
-              这里专门记录你的 Google / Microsoft 账号、2FA 密钥和它们登录过的平台标签。
-            </Typography>
-            <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setPlatformDialogOpen(true)}>
-              立刻添加主账号
-            </Button>
-          </Box>
+        <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
+          <EmptyState
+            icon={<LockIcon sx={{ fontSize: 22 }} />}
+            title="选择或创建一个主账号"
+            description="管理 Google / Microsoft 账号、2FA 密钥和注册平台标签。"
+            action={(
+              <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setPlatformDialogOpen(true)}>
+                添加主账号
+              </Button>
+            )}
+          />
         </Box>
       )}
 

@@ -31,11 +31,13 @@ import { v4 as uuidv4 } from 'uuid'
 import { useStore } from '../../stores/useStore'
 import type { SecretGroupRow, SecretServiceRow, ServiceInfoSortMode } from '../../types'
 import { getGroupedItems, moveIdsBefore, sortServiceInfoItems } from '../../utils/serviceInfoGrouping'
+import EmptyState from '../common/EmptyState'
+import PageHeader from '../common/PageHeader'
 import BatchActionBar from './BatchActionBar'
 import ServiceGroupList from './ServiceGroupList'
 import ServiceDetail from './ServiceDetail'
 
-const GROUP_COLORS = ['#adc6ff', '#b7c8e1', '#ffb786', '#8ddc9f', '#ffb4ab', '#c4b5fd']
+const GROUP_COLORS = ['#7d98d5', '#70a6b5', '#d09a61', '#64b58a', '#9c8ccf', '#8a90a0']
 
 const sortOptions: { value: ServiceInfoSortMode; label: string }[] = [
   { value: 'manual', label: '手动排序' },
@@ -445,43 +447,68 @@ export default function ServiceInfoManager() {
     <Box sx={{ display: 'flex', width: '100%', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
       <Box
         sx={{
-          width: 360,
-          minWidth: 340,
+          flex: '0 1 320px',
+          width: 320,
+          minWidth: 280,
+          maxWidth: 328,
           borderRight: '1px solid',
-          borderColor: 'divider',
+          borderColor: 'border.subtle',
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: (theme) => theme.palette.mode === 'dark' ? '#0e0e0e' : '#ffffff',
+          bgcolor: 'background.paper',
+          overflow: 'hidden',
         }}
       >
-        <Box sx={{ px: 2.45, py: 2.2, borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.35, mb: 1.65 }}>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.12rem', lineHeight: 1.35 }}>
-                服务信息
-              </Typography>
-              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.3, lineHeight: 1.45, fontSize: '0.76rem' }}>
-                {secretServices.length} 项记录
-              </Typography>
-            </Box>
-            <Box sx={{ display: 'flex', gap: 0.9 }}>
+        <PageHeader
+          compact
+          title="服务信息"
+          description={`${secretServices.length} 项记录`}
+          actions={
+            <>
               <Tooltip title="新建分组">
-                <IconButton size="small" onClick={openCreateGroupDialog} disabled={mutationBusy} sx={{ border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+                <IconButton
+                  size="small"
+                  onClick={openCreateGroupDialog}
+                  disabled={mutationBusy}
+                  aria-label="新建服务分组"
+                  sx={{ border: '1px solid', borderColor: 'border.subtle', bgcolor: 'surface.raised' }}
+                >
                   <CreateNewFolderIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateServiceDialog} disabled={mutationBusy}>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={openCreateServiceDialog}
+                disabled={mutationBusy}
+                aria-label="新建服务"
+              >
                 新建服务
               </Button>
-            </Box>
-          </Box>
+            </>
+          }
+        />
 
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1fr) minmax(108px, 0.72fr)',
+            gap: 0.75,
+            px: 1.25,
+            py: 1,
+            borderBottom: '1px solid',
+            borderColor: 'border.subtle',
+            bgcolor: 'background.paper',
+          }}
+        >
           <TextField
             size="small"
             fullWidth
             value={serviceSearchQuery}
             onChange={(event) => setServiceSearchQuery(event.target.value)}
-            placeholder="搜索服务或用途"
+            placeholder="搜索服务"
+            inputProps={{ 'aria-label': '搜索服务或用途' }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -490,7 +517,7 @@ export default function ServiceInfoManager() {
               ),
               endAdornment: serviceSearchQuery ? (
                 <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setServiceSearchQuery('')}>
+                  <IconButton size="small" onClick={() => setServiceSearchQuery('')} aria-label="清空服务搜索">
                     <ClearIcon fontSize="small" />
                   </IconButton>
                 </InputAdornment>
@@ -498,14 +525,12 @@ export default function ServiceInfoManager() {
             }}
           />
 
-          <FormControl size="small" fullWidth sx={{ mt: 1 }}>
-            <InputLabel id="service-info-sort-label">排序</InputLabel>
+          <FormControl size="small" fullWidth>
             <Select
-              labelId="service-info-sort-label"
-              label="排序"
               value={serviceSortMode}
               onChange={(event) => setServiceSortMode(event.target.value as ServiceInfoSortMode)}
-              startAdornment={<SortIcon sx={{ fontSize: 17, mr: 0.75, color: 'text.secondary' }} />}
+              inputProps={{ 'aria-label': '服务排序方式' }}
+              startAdornment={<SortIcon sx={{ fontSize: 16, mr: 0.5, color: 'text.secondary' }} />}
             >
               {sortOptions.map((option) => (
                 <MenuItem key={option.value} value={option.value}>
@@ -524,7 +549,7 @@ export default function ServiceInfoManager() {
           onUngroup={ungroupSelected}
         />
 
-        <Box sx={{ flex: 1, overflowY: 'auto', py: 0.75 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', bgcolor: 'surface.sunken' }}>
           {listLoadState === 'loading' ? (
             <LinearProgress aria-label="正在读取服务信息" sx={{ mx: 2, mt: 1 }} />
           ) : listLoadState === 'error' ? (
@@ -536,12 +561,12 @@ export default function ServiceInfoManager() {
               {listLoadError}
             </Alert>
           ) : visibleServices.length === 0 ? (
-            <Box sx={{ mx: 2, my: 3, px: 2.5, py: 4.25, textAlign: 'center', border: '1px dashed', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
-              <VpnKeyOutlinedIcon sx={{ fontSize: 40, color: 'text.secondary', opacity: 0.45, mb: 1 }} />
-              <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 700, lineHeight: 1.5 }}>
-                暂无符合条件的内容
-              </Typography>
-            </Box>
+            <EmptyState
+              compact
+              icon={<VpnKeyOutlinedIcon fontSize="small" />}
+              title="暂无符合条件的服务"
+              description={serviceSearchQuery ? '没有匹配当前搜索的记录' : undefined}
+            />
           ) : (
             <>
               <ServiceGroupList

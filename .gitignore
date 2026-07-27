@@ -5,6 +5,8 @@ release/
 .temp/
 .cache/
 .codex-runlogs/
+.playwright-cli/
+output/playwright/
 
 # Local databases and backup material
 *.db

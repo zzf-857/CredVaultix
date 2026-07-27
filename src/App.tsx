@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react'
-import { ThemeProvider, CssBaseline, Box, CircularProgress } from '@mui/material'
+import { ThemeProvider, CssBaseline, Box, CircularProgress, useMediaQuery } from '@mui/material'
 import { darkTheme, lightTheme } from './theme'
 import { useStore } from './stores/useStore'
 import TitleBar from './components/TitleBar'
@@ -16,16 +16,18 @@ export default function App() {
   const activeView = useStore((s) => s.activeView)
   const loadAppPreferences = useStore((s) => s.loadAppPreferences)
 
-  const [sidebarWidth, setSidebarWidth] = useState(240)
+  const [sidebarWidth, setSidebarWidth] = useState(224)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const compactViewport = useMediaQuery('(max-width:1080px)')
+  const effectiveSidebarCollapsed = sidebarCollapsed || compactViewport
 
   useEffect(() => {
     let mounted = true
 
     void loadAppPreferences().then((preferences) => {
       if (!mounted) return
-      const savedWidth = typeof preferences.sidebarWidth === 'number' ? preferences.sidebarWidth : 240
-      const normalizedWidth = Math.max(200, Math.min(420, savedWidth))
+      const savedWidth = typeof preferences.sidebarWidth === 'number' ? preferences.sidebarWidth : 224
+      const normalizedWidth = Math.max(192, Math.min(360, savedWidth))
       setSidebarWidth(normalizedWidth)
       if (normalizedWidth !== savedWidth) {
         void window.electronAPI.updateAppPreferences({ sidebarWidth: normalizedWidth })
@@ -66,15 +68,16 @@ export default function App() {
         <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
           <ResizableSidebar
             width={sidebarWidth}
-            collapsed={sidebarCollapsed}
+            collapsed={effectiveSidebarCollapsed}
+            collapseLocked={compactViewport}
             onWidthChange={persistSidebarWidth}
             onCollapsedChange={persistSidebarCollapsed}
           >
-            <Sidebar collapsed={sidebarCollapsed} />
+            <Sidebar collapsed={effectiveSidebarCollapsed} />
           </ResizableSidebar>
           <Box 
             key={activeView} 
-            className="fade-in-up" 
+            className="content-fade"
             sx={{ flex: 1, display: 'flex', overflow: 'hidden' }}
           >
             <Suspense

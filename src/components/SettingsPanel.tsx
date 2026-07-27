@@ -9,7 +9,8 @@ import {
   DialogTitle,
   LinearProgress,
   Snackbar,
-  Stack,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material'
 import DarkModeIcon from '@mui/icons-material/DarkMode'
@@ -22,6 +23,8 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SearchIcon from '@mui/icons-material/Search'
 import SettingsIcon from '@mui/icons-material/Settings'
+import StorageOutlinedIcon from '@mui/icons-material/StorageOutlined'
+import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined'
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt'
 import { useStore } from '../stores/useStore'
 import type { UpdateSnapshot } from '../types'
@@ -66,16 +69,6 @@ function getUpdateStatusText(update: UpdateSnapshot | null) {
       return '开发环境不执行自动更新'
     default:
       return '点击检查更新以获取 GitHub 最新版本'
-  }
-}
-
-function sectionSx() {
-  return {
-    p: 2,
-    border: '1px solid',
-    borderColor: 'divider',
-    borderRadius: 2,
-    bgcolor: (theme: any) => theme.palette.mode === 'dark' ? '#171717' : '#f8fafd',
   }
 }
 
@@ -201,29 +194,44 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   return (
     <>
-      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
         <SettingsIcon sx={{ color: 'primary.main' }} />
         设置
       </DialogTitle>
-      <DialogContent dividers sx={{ p: 3 }}>
-        <Stack spacing={2}>
-          <Box sx={sectionSx()}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, mb: 1.5 }}>
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 850, lineHeight: 1.35 }}>
-                  版本与更新
-                </Typography>
-                <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.3 }}>
+      <DialogContent
+        dividers
+        sx={{
+          p: 0,
+          display: 'grid',
+          gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1.25fr) minmax(260px, 0.9fr)' },
+        }}
+      >
+          <Box
+            sx={{
+              px: 2.5,
+              py: 2.25,
+              gridRow: { sm: '1 / span 2' },
+              borderRight: { sm: '1px solid' },
+              borderBottom: { xs: '1px solid', sm: 0 },
+              borderColor: 'divider',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.5 }}>
+              <Box sx={{ width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 1, bgcolor: 'surface.raised', color: 'primary.main', border: '1px solid', borderColor: 'divider' }}>
+                <SystemUpdateAltIcon sx={{ fontSize: 19 }} />
+              </Box>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="subtitle2">版本与更新</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.2 }}>
                   当前版本 v{updateState?.currentVersion || '-'}
                 </Typography>
               </Box>
-              <SystemUpdateAltIcon sx={{ color: 'text.secondary' }} />
             </Box>
-            <Alert severity="info" variant="outlined" sx={{ mb: 1.5 }}>
+            <Alert severity="info" variant="outlined" sx={{ mb: 1.25 }}>
               升级不会删除本地数据库，建议定期导出备份。
             </Alert>
-            <Typography variant="body2" sx={{ fontWeight: 650, lineHeight: 1.55 }}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
               {updateStatusText}
             </Typography>
             {updateStatus === 'downloading' && (
@@ -239,7 +247,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 {getFriendlyUpdateError(displayedUpdateError)}
               </Alert>
             )}
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.75 }}>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: 1.5 }}>
               <Button
                 onClick={handleCheckUpdates}
                 disabled={busy || Boolean(updateState?.canInstall) || updateStatus === 'unsupported'}
@@ -264,7 +272,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   {updateStatus === 'installing' ? '正在安装' : '重启安装'}
                 </Button>
               )}
-              <Button onClick={handleOpenReleasePage} startIcon={<OpenInNewIcon />} variant="outlined">
+              <Button onClick={handleOpenReleasePage} startIcon={<OpenInNewIcon />} variant="text">
                 GitHub Releases
               </Button>
               <Button onClick={handleOpenUpdateLog} startIcon={<FolderOpenIcon />} variant="text">
@@ -273,11 +281,14 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             </Box>
           </Box>
 
-          <Box sx={sectionSx()}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 850, lineHeight: 1.35, mb: 1.5 }}>
-              数据
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ px: 2.5, py: 2.25, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.5 }}>
+              <Box sx={{ width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 1, bgcolor: 'surface.raised', color: 'secondary.main', border: '1px solid', borderColor: 'divider' }}>
+                <StorageOutlinedIcon sx={{ fontSize: 19 }} />
+              </Box>
+              <Typography variant="subtitle2">数据</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
               <Button
                 startIcon={<FileUploadIcon />}
                 variant="outlined"
@@ -300,19 +311,32 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             )}
           </Box>
 
-          <Box sx={sectionSx()}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 850, lineHeight: 1.35, mb: 1.5 }}>
-              外观
-            </Typography>
-            <Button
-              startIcon={themeMode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
-              variant="outlined"
-              onClick={toggleTheme}
+          <Box sx={{ px: 2.5, py: 2.25 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.5 }}>
+              <Box sx={{ width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 1, bgcolor: 'surface.raised', color: 'warning.main', border: '1px solid', borderColor: 'divider' }}>
+                <PaletteOutlinedIcon sx={{ fontSize: 19 }} />
+              </Box>
+              <Typography variant="subtitle2">外观</Typography>
+            </Box>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={themeMode}
+              onChange={(_, value) => {
+                if (value && value !== themeMode) toggleTheme()
+              }}
+              aria-label="界面主题"
             >
-              {themeMode === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
-            </Button>
+              <ToggleButton value="light" aria-label="浅色模式">
+                <LightModeIcon sx={{ fontSize: 17, mr: 0.75 }} />
+                浅色
+              </ToggleButton>
+              <ToggleButton value="dark" aria-label="深色模式">
+                <DarkModeIcon sx={{ fontSize: 17, mr: 0.75 }} />
+                深色
+              </ToggleButton>
+            </ToggleButtonGroup>
           </Box>
-        </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>关闭</Button>

@@ -72,36 +72,41 @@ export default function ServiceGroupList({
       onDragOver={(event) => event.preventDefault()}
       onDrop={handleDrop}
       sx={{
-        px: 1.35,
-        py: 1.15,
-        mx: 1.1,
-        my: 1,
-        borderRadius: 2,
-        border: '1px solid',
-        borderColor: draggingServiceId ? 'primary.main' : 'transparent',
-        bgcolor: draggingServiceId
-          ? 'action.hover'
-          : (theme) => theme.palette.mode === 'dark' ? '#131313' : '#ffffff',
+        px: 1,
+        py: 0.5,
+        borderBottom: '1px solid',
+        borderColor: draggingServiceId ? 'primary.main' : 'border.subtle',
+        bgcolor: draggingServiceId ? 'action.hover' : 'transparent',
       }}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, minHeight: 42, px: 0.45 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minHeight: 36 }}>
         {group ? (
           <Tooltip title={collapsed ? '展开分组' : '折叠分组'}>
-            <IconButton size="small" onClick={() => onToggleCollapsed?.(group)}>
+            <IconButton
+              size="small"
+              onClick={() => onToggleCollapsed?.(group)}
+              aria-label={`${collapsed ? '展开' : '折叠'}分组 ${group.name}`}
+              sx={{ width: 28, height: 28 }}
+            >
               {collapsed ? <KeyboardArrowRightIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
             </IconButton>
           </Tooltip>
         ) : (
-          <Box sx={{ width: 30 }} />
+          <Box sx={{ width: 28 }} />
         )}
-        <Box sx={{ width: 8, height: 18, borderRadius: 99, bgcolor: color || 'divider' }} />
-        <Typography variant="caption" sx={{ flex: 1, minWidth: 0, fontWeight: 800, color: 'text.secondary', fontSize: '0.76rem', lineHeight: 1.45, textTransform: 'uppercase' }} noWrap>
+        <Box sx={{ width: 3, height: 14, borderRadius: 1, bgcolor: color || 'border.strong' }} />
+        <Typography variant="caption" sx={{ flex: 1, minWidth: 0, fontWeight: 600, color: 'text.secondary' }} noWrap>
           {groupTitle(title, services.length)}
         </Typography>
         {group && (
           <>
             <Tooltip title="分组菜单">
-              <IconButton size="small" onClick={(event) => setMenuAnchor(event.currentTarget)}>
+              <IconButton
+                size="small"
+                onClick={(event) => setMenuAnchor(event.currentTarget)}
+                aria-label={`${group.name} 分组菜单`}
+                sx={{ width: 28, height: 28 }}
+              >
                 <MoreHorizIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -128,9 +133,9 @@ export default function ServiceGroupList({
       </Box>
 
       {!collapsed && (
-        <Box sx={{ pt: 0.65, minHeight: services.length ? 0 : 32 }}>
+        <Box sx={{ pt: 0.25, minHeight: services.length ? 0 : 30 }}>
           {services.length === 0 ? (
-            <Typography variant="caption" sx={{ display: 'block', px: 5.25, py: 1.45, color: 'text.disabled', fontSize: '0.76rem', lineHeight: 1.5 }}>
+            <Typography variant="caption" sx={{ display: 'block', pl: 5.75, py: 1, color: 'text.disabled' }}>
               暂无服务
             </Typography>
           ) : (

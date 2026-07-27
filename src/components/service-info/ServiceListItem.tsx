@@ -1,5 +1,5 @@
 import React from 'react'
-import { Box, Checkbox, IconButton, ListItemButton, Tooltip, Typography } from '@mui/material'
+import { Box, Checkbox, IconButton, Tooltip, Typography } from '@mui/material'
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator'
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
 import StarIcon from '@mui/icons-material/Star'
@@ -30,10 +30,8 @@ export default function ServiceListItem({
   onToggleFavorite: () => void
 }) {
   return (
-    <ListItemButton
-      selected={selected}
+    <Box
       draggable={canDrag}
-      onClick={onClick}
       onDragStart={(event) => {
         if (!canDrag) {
           event.preventDefault()
@@ -59,22 +57,22 @@ export default function ServiceListItem({
       }}
       sx={{
         display: 'grid',
-        gridTemplateColumns: '32px 24px 42px minmax(0, 1fr) 36px',
+        gridTemplateColumns: '26px 18px minmax(0, 1fr) 30px',
         alignItems: 'center',
-        gap: 1.15,
-        borderRadius: 2,
-        mb: 1.05,
-        px: 1.6,
-        py: 1.45,
+        gap: 0.75,
+        width: '100%',
+        minWidth: 0,
+        mb: 0.25,
+        px: 1,
+        py: 0.625,
         border: '1px solid',
         borderColor: selected ? 'primary.main' : 'transparent',
-        borderLeft: '2px solid',
-        borderLeftColor: selected ? 'primary.main' : 'transparent',
-        bgcolor: selected ? 'action.selected' : (theme) => theme.palette.mode === 'dark' ? '#131313' : '#ffffff',
+        borderRadius: 1,
+        bgcolor: selected ? 'action.selected' : 'transparent',
+        overflow: 'hidden',
         '&:hover': {
           bgcolor: selected ? 'action.selected' : 'action.hover',
-          borderColor: 'divider',
-          borderLeftColor: selected ? 'primary.main' : 'divider',
+          borderColor: selected ? 'primary.main' : 'border.subtle',
         },
       }}
     >
@@ -87,30 +85,53 @@ export default function ServiceListItem({
         sx={{ p: 0.35 }}
       />
       <Tooltip title={canDrag ? '拖动调整顺序或分组' : '切换到手动排序后可拖动'}>
-        <DragIndicatorIcon sx={{ fontSize: 18, color: 'text.disabled', opacity: canDrag ? 1 : 0.35 }} />
+        <Box component="span" sx={{ display: 'grid', placeItems: 'center' }}>
+          <DragIndicatorIcon sx={{ fontSize: 17, color: 'text.disabled', opacity: canDrag ? 1 : 0.35 }} />
+        </Box>
       </Tooltip>
       <Box
+        component="button"
+        type="button"
+        aria-current={selected ? 'true' : undefined}
+        aria-label={`打开服务 ${service.name}`}
+        onClick={onClick}
         sx={{
-          width: 40,
-          height: 40,
-          borderRadius: 2,
           display: 'grid',
-          placeItems: 'center',
-          bgcolor: service.is_favorite ? 'rgba(255, 183, 134, 0.16)' : 'rgba(173, 198, 255, 0.10)',
-          color: service.is_favorite ? 'warning.main' : 'primary.main',
-          border: '1px solid',
-          borderColor: service.is_favorite ? 'rgba(255, 183, 134, 0.42)' : 'rgba(173, 198, 255, 0.28)',
+          gridTemplateColumns: '34px minmax(0, 1fr)',
+          alignItems: 'center',
+          gap: 0.75,
+          minWidth: 0,
+          p: 0,
+          border: 0,
+          bgcolor: 'transparent',
+          color: 'inherit',
+          textAlign: 'left',
+          cursor: 'pointer',
         }}
       >
-        <VpnKeyOutlinedIcon sx={{ fontSize: 20 }} />
-      </Box>
-      <Box sx={{ minWidth: 0 }}>
-        <Typography variant="body2" noWrap sx={{ fontWeight: 800, color: 'text.primary', fontSize: '0.95rem', lineHeight: 1.42 }}>
-          {service.name}
-        </Typography>
-        <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', mt: 0.35, fontSize: '0.78rem', lineHeight: 1.42 }}>
-          {service.description || service.url || '未填写用途说明'}
-        </Typography>
+        <Box
+          sx={{
+            width: 32,
+            height: 32,
+            borderRadius: 1,
+            display: 'grid',
+            placeItems: 'center',
+            bgcolor: 'surface.raised',
+            color: service.is_favorite ? 'warning.main' : 'primary.main',
+            border: '1px solid',
+            borderColor: service.is_favorite ? 'warning.main' : 'border.subtle',
+          }}
+        >
+          <VpnKeyOutlinedIcon sx={{ fontSize: 18 }} />
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="body2" noWrap sx={{ fontWeight: 600, color: 'text.primary', fontSize: '0.875rem', lineHeight: 1.35 }}>
+            {service.name}
+          </Typography>
+          <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', mt: 0.15 }}>
+            {service.description || service.url || '未填写用途说明'}
+          </Typography>
+        </Box>
       </Box>
       <Tooltip title={service.is_favorite ? '取消收藏' : '收藏'}>
         <IconButton
@@ -119,7 +140,8 @@ export default function ServiceListItem({
             event.stopPropagation()
             onToggleFavorite()
           }}
-          sx={{ width: 30, height: 30 }}
+          aria-label={`${service.is_favorite ? '取消收藏' : '收藏'} ${service.name}`}
+          sx={{ width: 28, height: 28 }}
         >
           {service.is_favorite ? (
             <StarIcon sx={{ fontSize: 18, color: 'warning.main' }} />
@@ -128,6 +150,6 @@ export default function ServiceListItem({
           )}
         </IconButton>
       </Tooltip>
-    </ListItemButton>
+    </Box>
   )
 }

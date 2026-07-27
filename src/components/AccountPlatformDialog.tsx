@@ -2,14 +2,17 @@ import React from 'react'
 import {
   Box,
   Button,
+  ButtonBase,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  Paper,
+  IconButton,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import AccountCircleOutlinedIcon from '@mui/icons-material/AccountCircleOutlined'
+import CloseIcon from '@mui/icons-material/Close'
 import type { AccountPlatform } from '../utils/accountPlatform'
 
 interface AccountPlatformDialogProps {
@@ -51,91 +54,87 @@ export default function AccountPlatformDialog({
       onClose={() => { if (!busy) onClose() }}
       maxWidth="sm"
       fullWidth
-      PaperProps={{ sx: { maxWidth: 660 } }}
+      PaperProps={{ sx: { maxWidth: 600 } }}
     >
       <DialogTitle
         sx={{
           display: 'flex',
-          alignItems: 'flex-start',
-          gap: 1.6,
-          px: 3,
-          pt: 2.6,
-          pb: 2.2,
+          alignItems: 'center',
+          gap: 1.25,
+          px: 2.5,
+          py: 1.75,
         }}
       >
         <Box
           sx={{
-            width: 42,
-            height: 42,
-            borderRadius: 2.25,
+            width: 40,
+            height: 40,
+            borderRadius: 1,
             display: 'grid',
             placeItems: 'center',
-            bgcolor: 'rgba(173, 198, 255, 0.13)',
+            bgcolor: 'surface.raised',
             border: '1px solid',
-            borderColor: 'rgba(173, 198, 255, 0.28)',
+            borderColor: 'border.subtle',
             color: 'primary.main',
             flexShrink: 0,
-            mt: 0.1,
           }}
         >
-          <AccountCircleOutlinedIcon />
+          <AccountCircleOutlinedIcon sx={{ fontSize: 21 }} />
         </Box>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h6" sx={{ fontWeight: 850, fontSize: '1.18rem', lineHeight: 1.32 }}>
-            选择主账号类型
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.65, lineHeight: 1.58 }}>
-            先选择这个主账号属于哪一类，后面再填写邮箱、密码、2FA 和平台标签。
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="h6" sx={{ fontSize: '1.05rem' }}>
+            新建主账号
           </Typography>
         </Box>
+        <Tooltip title="关闭">
+          <span>
+            <IconButton size="small" aria-label="关闭账号类型选择" onClick={onClose} disabled={busy}>
+              <CloseIcon sx={{ fontSize: 19 }} />
+            </IconButton>
+          </span>
+        </Tooltip>
       </DialogTitle>
-      <DialogContent sx={{ px: 3, pt: 2.35, pb: 2.75 }}>
-        <Box
-          sx={{
-            px: 2,
-            py: 1.55,
-            mb: 2.25,
-            borderRadius: 2,
-            border: '1px solid',
-            borderColor: 'divider',
-            bgcolor: (theme) => theme.palette.mode === 'dark' ? '#171717' : '#f8fafd',
-          }}
-        >
-          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 800, lineHeight: 1.4, mb: 0.45 }}>
-            当前支持范围
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.68 }}>
-            1.x 版本专注整理 Google 和 Microsoft 主账号；其他网站或应用先作为平台标签记录在主账号下。
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'grid', gap: 1.85 }}>
-          {OPTIONS.map((option) => (
-            <Paper
+      <DialogContent sx={{ px: 2.5, pt: 2, pb: 2.25 }}>
+        <Box sx={{ display: 'grid', gap: 1 }}>
+          {OPTIONS.map((option, index) => (
+            <ButtonBase
               key={option.platform}
-              variant="outlined"
-              aria-disabled={busy}
+              type="button"
+              autoFocus={index === 0}
+              aria-label={`选择${option.title}`}
+              aria-describedby={`account-platform-${option.platform}-description`}
+              disabled={busy}
               onClick={() => { if (!busy) onSelect(option.platform) }}
               sx={{
-                px: 2.6,
-                py: 2.35,
-                minHeight: 104,
-                borderRadius: 3,
+                width: '100%',
+                px: 1.75,
+                py: 1.5,
+                minHeight: 84,
+                display: 'block',
+                textAlign: 'left',
+                color: 'text.primary',
+                border: '1px solid',
+                borderRadius: 1,
                 cursor: busy ? 'wait' : 'pointer',
-                opacity: busy ? 0.62 : 1,
-                borderColor: `${option.accent}66`,
-                bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
+                borderColor: 'border.subtle',
+                bgcolor: 'surface.raised',
+                transition: 'background-color 0.16s ease, border-color 0.16s ease',
                 '&:hover': {
                   borderColor: option.accent,
                   bgcolor: 'action.hover',
                 },
+                '&.Mui-focusVisible': {
+                  borderColor: 'primary.main',
+                  bgcolor: 'action.hover',
+                },
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <Box
                   sx={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 2.25,
+                    width: 40,
+                    height: 40,
+                    borderRadius: 1,
                     bgcolor: `${option.accent}22`,
                     color: option.accent,
                     display: 'flex',
@@ -146,20 +145,20 @@ export default function AccountPlatformDialog({
                 >
                   <AccountCircleOutlinedIcon fontSize="small" />
                 </Box>
-                <Box sx={{ minWidth: 0, pt: 0.15 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 850, fontSize: '0.98rem', lineHeight: 1.38, mb: 0.65 }}>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 0.35 }}>
                     {option.title}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.88rem', lineHeight: 1.68 }}>
+                  <Typography id={`account-platform-${option.platform}-description`} variant="body2" sx={{ color: 'text.secondary' }}>
                     {option.description}
                   </Typography>
                 </Box>
               </Box>
-            </Paper>
+            </ButtonBase>
           ))}
         </Box>
       </DialogContent>
-      <DialogActions sx={{ px: 3, py: 2.1, borderTop: '1px solid', borderColor: 'divider' }}>
+      <DialogActions sx={{ px: 2.5, py: 1.5, borderTop: '1px solid', borderColor: 'border.subtle' }}>
         <Button onClick={onClose} disabled={busy}>{busy ? '创建中...' : '取消'}</Button>
       </DialogActions>
     </Dialog>

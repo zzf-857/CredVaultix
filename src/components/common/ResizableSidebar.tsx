@@ -6,15 +6,17 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 export default function ResizableSidebar({
   width,
   collapsed,
-  minWidth = 200,
-  maxWidth = 420,
-  collapseThreshold = 128,
+  collapseLocked = false,
+  minWidth = 192,
+  maxWidth = 360,
+  collapseThreshold = 116,
   onWidthChange,
   onCollapsedChange,
   children,
 }: {
   width: number
   collapsed: boolean
+  collapseLocked?: boolean
   minWidth?: number
   maxWidth?: number
   collapseThreshold?: number
@@ -64,7 +66,7 @@ export default function ResizableSidebar({
     window.addEventListener('mouseup', stop)
   }
 
-  const renderedWidth = collapsed ? 64 : draftWidth
+  const renderedWidth = collapsed ? 56 : draftWidth
 
   return (
     <Box sx={{ display: 'flex', height: '100%', position: 'relative' }}>
@@ -81,27 +83,27 @@ export default function ResizableSidebar({
       >
         {children}
       </Box>
-      <Tooltip title={collapsed ? '展开侧边栏' : '折叠侧边栏'}>
+      {!collapseLocked && <Tooltip title={collapsed ? '展开侧边栏' : '折叠侧边栏'}>
         <IconButton
           aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
           size="small"
           onClick={() => onCollapsedChange(!collapsed)}
           sx={{
             position: 'absolute',
-            right: -16,
-            top: 14,
+            right: -11,
+            top: 11,
             zIndex: 20,
             bgcolor: 'background.paper',
             border: '1px solid',
             borderColor: 'divider',
-            width: 28,
-            height: 28,
+            width: 22,
+            height: 22,
             '&:hover': { bgcolor: 'action.hover' },
           }}
         >
           {collapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
         </IconButton>
-      </Tooltip>
+      </Tooltip>}
       {!collapsed && (
         <Box
           onMouseDown={startResize}

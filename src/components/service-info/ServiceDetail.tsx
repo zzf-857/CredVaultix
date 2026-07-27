@@ -37,10 +37,12 @@ import { v4 as uuidv4 } from 'uuid'
 import { useStore } from '../../stores/useStore'
 import type { SecretFieldGroupRow, SecretFieldRow } from '../../types'
 import { getGroupedItems, moveIdsBefore, sortServiceInfoItems } from '../../utils/serviceInfoGrouping'
+import EmptyState from '../common/EmptyState'
+import SectionLabel from '../common/SectionLabel'
 import BatchActionBar from './BatchActionBar'
 import ServiceFieldGroup from './ServiceFieldGroup'
 
-const GROUP_COLORS = ['#adc6ff', '#b7c8e1', '#ffb786', '#8ddc9f', '#ffb4ab', '#c4b5fd']
+const GROUP_COLORS = ['#7d98d5', '#70a6b5', '#d09a61', '#64b58a', '#9c8ccf', '#8a90a0']
 
 type DeleteTarget = {
   kind: 'field' | 'field-group' | 'service'
@@ -122,16 +124,12 @@ export default function ServiceDetail() {
     }
 
     return (
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3, bgcolor: 'background.default' }}>
-        <Box sx={{ textAlign: 'center', px: 4.25, py: 5.25, maxWidth: 420, border: '1px solid', borderColor: 'divider', borderRadius: 3, bgcolor: 'background.paper' }}>
-          <VpnKeyOutlinedIcon sx={{ fontSize: 56, color: 'primary.main', opacity: 0.32, mb: 2 }} />
-          <Typography variant="h6" sx={{ color: 'text.primary', mb: 1, fontWeight: 800 }}>
-            选择一个服务信息
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.55 }}>
-            在左侧选择服务后，可以查看和整理它的自定义字段与字段组。
-          </Typography>
-        </Box>
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'background.default' }}>
+        <EmptyState
+          icon={<VpnKeyOutlinedIcon />}
+          title="选择一个服务信息"
+          description="服务字段与分组会显示在这里"
+        />
       </Box>
     )
   }
@@ -556,69 +554,81 @@ export default function ServiceDetail() {
 
   return (
     <Box aria-busy={mutationBusy} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
-      <Box sx={{ px: 3.1, py: 2.55, borderBottom: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2.2 }}>
-          <Box sx={{ minWidth: 0, display: 'flex', gap: 1.95 }}>
-            <Box
-              sx={{
-                width: 58,
-                height: 58,
-                borderRadius: 3,
-                display: 'grid',
-                placeItems: 'center',
-                bgcolor: (theme) => theme.palette.mode === 'dark' ? '#201f1f' : '#f8fafd',
-                border: '1px solid',
-                borderColor: 'divider',
-                color: 'primary.main',
-                flexShrink: 0,
-              }}
-            >
-              <VpnKeyOutlinedIcon sx={{ fontSize: 31 }} />
-            </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h6" noWrap sx={{ fontWeight: 800, fontSize: '1.3rem', lineHeight: 1.3 }}>
-                {service.name}
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'text.secondary', mt: 0.55, fontSize: '0.92rem', lineHeight: 1.55 }}>
+      <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'background.paper' }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) auto', alignItems: 'start', gap: 1.25, minWidth: 0 }}>
+          <Box
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: 1,
+              display: 'grid',
+              placeItems: 'center',
+              bgcolor: 'surface.raised',
+              border: '1px solid',
+              borderColor: 'border.subtle',
+              color: 'primary.main',
+              flexShrink: 0,
+            }}
+          >
+            <VpnKeyOutlinedIcon sx={{ fontSize: 22 }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h6" noWrap sx={{ fontSize: '1.05rem' }}>
+              {service.name}
+            </Typography>
+            <Tooltip title={service.description || ''} placement="bottom-start">
+              <Typography variant="caption" noWrap sx={{ display: 'block', color: 'text.secondary', mt: 0.2 }}>
                 {service.description || '未填写用途说明'}
               </Typography>
-              {service.url && (
-                <Button
-                  size="small"
-                  endIcon={<OpenInNewIcon sx={{ fontSize: '14px !important' }} />}
-                  onClick={() => void openServiceUrl()}
-                  sx={{ mt: 0.5, px: 0, minWidth: 0, textTransform: 'none', justifyContent: 'flex-start' }}
-                >
-                  <Typography component="span" variant="caption" noWrap>{service.url}</Typography>
-                </Button>
-              )}
-              {linkedAccount && (
-                <Button
-                  size="small"
-                  startIcon={<AccountCircleOutlinedIcon sx={{ fontSize: '15px !important' }} />}
-                  onClick={() => navigateToAccount(linkedAccount.id)}
-                  sx={{ display: 'flex', mt: 0.25, px: 0, minWidth: 0, justifyContent: 'flex-start' }}
-                >
-                  关联账号：{linkedAccount.name}
-                </Button>
-              )}
-            </Box>
+            </Tooltip>
+            {(service.url || linkedAccount) && (
+              <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.75, mt: 0.25, minWidth: 0 }}>
+                {service.url && (
+                  <Button
+                    size="small"
+                    endIcon={<OpenInNewIcon sx={{ fontSize: '14px !important' }} />}
+                    onClick={() => void openServiceUrl()}
+                    aria-label={`打开网址 ${service.url}`}
+                    sx={{ minHeight: 24, py: 0, px: 0.5, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start' }}
+                  >
+                    <Typography component="span" variant="caption" noWrap>{service.url}</Typography>
+                  </Button>
+                )}
+                {linkedAccount && (
+                  <Button
+                    size="small"
+                    startIcon={<AccountCircleOutlinedIcon sx={{ fontSize: '15px !important' }} />}
+                    onClick={() => navigateToAccount(linkedAccount.id)}
+                    aria-label={`打开关联账号 ${linkedAccount.name}`}
+                    sx={{ minHeight: 24, py: 0, px: 0.5, minWidth: 0, maxWidth: '100%', justifyContent: 'flex-start' }}
+                  >
+                    <Typography component="span" variant="caption" noWrap>{linkedAccount.name}</Typography>
+                  </Button>
+                )}
+              </Box>
+            )}
           </Box>
-          <Box sx={{ display: 'flex', gap: 0.75, WebkitAppRegion: 'no-drag', position: 'relative', zIndex: 2 }}>
+          <Box sx={{ display: 'flex', gap: 0.25, WebkitAppRegion: 'no-drag', position: 'relative', zIndex: 2 }}>
             <Tooltip title={service.is_favorite ? '取消收藏' : '收藏'}>
-              <IconButton size="small" onClick={toggleFavorite} disabled={mutationBusy}>
+              <IconButton
+                size="small"
+                onClick={toggleFavorite}
+                disabled={mutationBusy}
+                aria-label={service.is_favorite ? '取消收藏服务' : '收藏服务'}
+                sx={{ width: 30, height: 30 }}
+              >
                 {service.is_favorite
-                  ? <StarIcon fontSize="small" sx={{ color: '#fdd663' }} />
+                  ? <StarIcon fontSize="small" sx={{ color: 'warning.main' }} />
                   : <StarBorderIcon fontSize="small" />}
               </IconButton>
             </Tooltip>
             <Tooltip title="编辑服务">
-              <IconButton size="small" onClick={openEditServiceDialog} disabled={mutationBusy}>
+              <IconButton size="small" onClick={openEditServiceDialog} disabled={mutationBusy} aria-label="编辑服务" sx={{ width: 30, height: 30 }}>
                 <EditOutlinedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <Tooltip title="删除服务">
-              <IconButton size="small" onClick={deleteService} disabled={mutationBusy}>
+              <IconButton size="small" onClick={deleteService} disabled={mutationBusy} aria-label="删除服务" sx={{ width: 30, height: 30 }}>
                 <DeleteOutlineIcon fontSize="small" />
               </IconButton>
             </Tooltip>
@@ -626,16 +636,29 @@ export default function ServiceDetail() {
         </Box>
       </Box>
 
-      <Box sx={{ px: 2.65, py: 1.65, borderBottom: '1px solid', borderColor: 'divider', display: 'flex', justifyContent: 'space-between', gap: 1.35, flexWrap: 'wrap', bgcolor: 'background.paper' }}>
-        <Box sx={{ display: 'flex', gap: 1.2 }}>
-          <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={openCreateFieldDialog} disabled={mutationBusy}>
+      <Box sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'border.subtle', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', bgcolor: 'surface.raised' }}>
+        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={openCreateFieldDialog}
+            disabled={mutationBusy}
+            aria-label="新建字段"
+          >
             新建字段
           </Button>
-          <Button size="small" startIcon={<CreateNewFolderIcon />} onClick={openCreateGroupDialog} disabled={mutationBusy}>
+          <Button
+            size="small"
+            startIcon={<CreateNewFolderIcon />}
+            onClick={openCreateGroupDialog}
+            disabled={mutationBusy}
+            aria-label="新建字段组"
+          >
             新建字段组
           </Button>
         </Box>
-        <Typography variant="caption" sx={{ color: 'text.secondary', alignSelf: 'center', fontSize: '0.76rem', lineHeight: 1.45 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
           {fields.length} 个字段
         </Typography>
       </Box>
@@ -648,7 +671,7 @@ export default function ServiceDetail() {
         onUngroup={ungroupSelected}
       />
 
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 3.1 }}>
+      <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'surface.sunken' }}>
         <ServiceFieldGroup
           title="未分组"
           fields={groupedFields.ungrouped}
@@ -690,8 +713,8 @@ export default function ServiceDetail() {
             />
           ))}
         {service.notes && (
-          <Box sx={{ px: 2, py: 1.6, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.paper' }}>
-            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontWeight: 800, mb: 0.5 }}>备注</Typography>
+          <Box sx={{ pt: 1, borderTop: '1px solid', borderColor: 'border.subtle' }}>
+            <SectionLabel>备注</SectionLabel>
             <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.65 }}>{service.notes}</Typography>
           </Box>
         )}
@@ -785,7 +808,13 @@ export default function ServiceDetail() {
               endAdornment: fieldIsSecret ? (
                 <InputAdornment position="end">
                   <Tooltip title={fieldValueVisible ? '隐藏敏感值' : '显示敏感值'}>
-                    <IconButton size="small" onClick={() => setFieldValueVisible((current) => !current)} edge="end" disabled={mutationBusy}>
+                    <IconButton
+                      size="small"
+                      onClick={() => setFieldValueVisible((current) => !current)}
+                      edge="end"
+                      disabled={mutationBusy}
+                      aria-label={fieldValueVisible ? '隐藏敏感值' : '显示敏感值'}
+                    >
                       {fieldValueVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
                     </IconButton>
                   </Tooltip>

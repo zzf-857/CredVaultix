@@ -83,36 +83,53 @@ export default function TotpCodeDisplay({
   if (compact) {
     return (
       <Box
-        onClick={handleCopy}
         sx={{
           display: 'flex',
           alignItems: 'center',
           gap: 1,
-          cursor: 'pointer',
           py: 0.75,
           px: 1.5,
-          borderRadius: 2,
+          borderRadius: 1,
           border: '1px solid',
-          borderColor: isUrgent ? 'error.dark' : 'divider',
-          bgcolor: 'background.default',
-          '&:hover': { bgcolor: 'action.selected' },
-          transition: 'all 0.2s',
+          borderColor: isUrgent ? 'error.dark' : 'border.subtle',
+          bgcolor: 'surface.sunken',
+          '&:hover': { bgcolor: 'surface.elevated' },
+          transition: 'background-color 0.2s, border-color 0.2s',
           position: 'relative',
         }}
       >
-        <Typography
+        <Box
+          component="button"
+          type="button"
+          aria-label={`复制验证码 ${code}`}
+          onClick={() => { void handleCopy() }}
           sx={{
-            fontFamily: "'Inter', monospace",
-            fontWeight: 700,
-            letterSpacing: 0,
-            fontSize: '1.25rem',
-            color: isUrgent ? 'error.main' : 'primary.main',
+            all: 'unset',
+            display: 'flex',
+            alignItems: 'center',
             flex: 1,
-            transition: 'color 0.3s',
+            minWidth: 0,
+            alignSelf: 'stretch',
+            borderRadius: 0.5,
+            cursor: 'pointer',
+            '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
           }}
         >
-          {formattedCode}
-        </Typography>
+          <Typography
+            className="mono-data"
+            sx={{
+              minWidth: 0,
+              fontWeight: 700,
+              letterSpacing: 0,
+              fontSize: code.length > 6 ? '1.1rem' : '1.25rem',
+              whiteSpace: 'nowrap',
+              color: isUrgent ? 'error.main' : 'primary.main',
+              transition: 'color 0.3s',
+            }}
+          >
+            {formattedCode}
+          </Typography>
+        </Box>
         {isHotp ? (
           <Tooltip title="生成下一个验证码" arrow TransitionComponent={Fade}>
             <IconButton
@@ -122,6 +139,7 @@ export default function TotpCodeDisplay({
                 onIncrementCounter?.()
               }}
               disabled={incrementBusy}
+              aria-label="生成下一个验证码"
               sx={{ color: 'primary.main', p: 0.25 }}
             >
               <RefreshIcon sx={{ fontSize: 16 }} />
@@ -136,7 +154,12 @@ export default function TotpCodeDisplay({
           </Typography>
         )}
         <Tooltip title={copied ? '已复制!' : '复制验证码'} arrow TransitionComponent={Fade}>
-          <IconButton size="small" sx={{ color: copied ? 'success.main' : 'text.secondary', p: 0.25 }}>
+          <IconButton
+            size="small"
+            aria-label={copied ? '验证码已复制' : '复制验证码'}
+            onClick={(event) => { event.stopPropagation(); void handleCopy() }}
+            sx={{ color: copied ? 'success.main' : 'text.secondary', p: 0.25 }}
+          >
             {copied ? <CheckIcon sx={{ fontSize: 16 }} /> : <ContentCopyIcon sx={{ fontSize: 16 }} />}
           </IconButton>
         </Tooltip>
@@ -166,35 +189,54 @@ export default function TotpCodeDisplay({
   // Full-size display (for standalone use)
   return (
     <Box
-      onClick={handleCopy}
       sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 1.5,
-        cursor: 'pointer',
         py: 1,
         px: 1.5,
-        borderRadius: 2,
-        bgcolor: 'background.default',
-        '&:hover': { bgcolor: 'action.selected' },
+        borderRadius: 1,
+        border: '1px solid',
+        borderColor: isUrgent ? 'error.dark' : 'border.subtle',
+        bgcolor: 'surface.sunken',
+        '&:hover': { bgcolor: 'surface.elevated' },
         transition: 'background-color 0.15s',
         position: 'relative',
       }}
     >
-      <Typography
-        variant="h4"
+      <Box
+        component="button"
+        type="button"
+        aria-label={`复制验证码 ${code}`}
+        onClick={() => { void handleCopy() }}
         sx={{
-          fontFamily: "'Inter', monospace",
-          fontWeight: 700,
-          letterSpacing: 0,
-          fontSize: '1.75rem',
-          color: isUrgent ? 'error.main' : 'primary.main',
+          all: 'unset',
+          display: 'flex',
+          alignItems: 'center',
           flex: 1,
-          transition: 'color 0.3s',
+          minWidth: 0,
+          alignSelf: 'stretch',
+          borderRadius: 0.5,
+          cursor: 'pointer',
+          '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
         }}
       >
-        {formattedCode}
-      </Typography>
+        <Typography
+          variant="h4"
+          className="mono-data"
+          sx={{
+            minWidth: 0,
+            fontWeight: 700,
+            letterSpacing: 0,
+            fontSize: code.length > 6 ? '1.5rem' : '1.75rem',
+            whiteSpace: 'nowrap',
+            color: isUrgent ? 'error.main' : 'primary.main',
+            transition: 'color 0.3s',
+          }}
+        >
+          {formattedCode}
+        </Typography>
+      </Box>
       {isHotp ? (
         <Tooltip title="生成下一个验证码" arrow TransitionComponent={Fade}>
           <IconButton
@@ -204,6 +246,7 @@ export default function TotpCodeDisplay({
               onIncrementCounter?.()
             }}
             disabled={incrementBusy}
+            aria-label="生成下一个验证码"
             sx={{ color: 'primary.main' }}
           >
             <RefreshIcon sx={{ fontSize: 18 }} />
@@ -218,7 +261,12 @@ export default function TotpCodeDisplay({
         </Typography>
       )}
       <Tooltip title={copied ? '已复制!' : '点击复制'} arrow TransitionComponent={Fade}>
-        <IconButton size="small" sx={{ color: copied ? 'success.main' : 'text.secondary' }}>
+        <IconButton
+          size="small"
+          aria-label={copied ? '验证码已复制' : '复制验证码'}
+          onClick={(event) => { event.stopPropagation(); void handleCopy() }}
+          sx={{ color: copied ? 'success.main' : 'text.secondary' }}
+        >
           {copied ? <CheckIcon sx={{ fontSize: 18 }} /> : <ContentCopyIcon sx={{ fontSize: 18 }} />}
         </IconButton>
       </Tooltip>
