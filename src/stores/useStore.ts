@@ -12,6 +12,7 @@ import type {
   SecretServiceRow,
   ServiceInfoSortMode,
   TotpAccountRow,
+  TotpQrImagePayload,
   UpdateTotpData,
   UpdateAccountData,
 } from '../types'
@@ -98,6 +99,9 @@ interface AppState {
   updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<MutationRefreshResult>
   deleteTotpAccount: (id: string) => Promise<MutationRefreshResult>
   incrementTotpCounter: (id: string) => Promise<{ counter: number } & MutationRefreshResult>
+  getTotpQrImage: (id: string) => Promise<TotpQrImagePayload | null>
+  copyTotpQrImage: (id: string) => Promise<{ success: boolean }>
+  saveTotpQrImage: (id: string) => Promise<{ success: boolean; canceled?: boolean; filePath?: string }>
 
   createAccount: (name: string, platform?: AccountPlatform) => Promise<{ id: string } & MutationRefreshResult>
   updateAccount: (id: string, data: UpdateAccountData, reload?: boolean) => Promise<AccountUpdateResult>
@@ -362,6 +366,12 @@ export const useStore = create<AppState>((set, get) => ({
     const refreshFailed = await settleRefreshes('HOTP counter increment', [get().loadTotpAccounts()])
     return { counter: result.counter, refreshFailed }
   },
+
+  getTotpQrImage: (id) => window.electronAPI.getTotpQrImage(id),
+
+  copyTotpQrImage: (id) => window.electronAPI.copyTotpQrImage(id),
+
+  saveTotpQrImage: (id) => window.electronAPI.saveTotpQrImage(id),
 
   createAccount: async (name, platform = 'google') => {
     const id = uuidv4()

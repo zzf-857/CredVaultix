@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 
-export const SERVICE_INFO_BACKUP_VERSION = 5
+export const SERVICE_INFO_BACKUP_VERSION = 6
 
 interface BackupData {
   secretGroups?: any[]

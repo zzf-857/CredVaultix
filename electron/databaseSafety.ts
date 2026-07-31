@@ -6,6 +6,7 @@ import { isEncryptedValue } from './encryptionFormat'
 export const PROTECTED_TABLES = [
   'accounts',
   'totp_accounts',
+  'totp_qr_images',
   'tags',
   'account_custom_fields',
   'account_tags',
@@ -140,6 +141,10 @@ export function getExistingTableCounts(
 
 export function hasServiceInfoSchema(db: Database.Database) {
   return SERVICE_INFO_TABLES.every((tableName) => hasTable(db, tableName))
+}
+
+export function hasTotpQrImageSchema(db: Database.Database) {
+  return hasTable(db, 'totp_qr_images')
 }
 
 export function hasPlaintextTotpSecrets(db: Database.Database) {

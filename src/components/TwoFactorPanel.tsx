@@ -27,10 +27,15 @@ import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter'
 import GoogleIcon from '@mui/icons-material/Google'
 import MicrosoftIcon from '@mui/icons-material/Microsoft'
 import AppsIcon from '@mui/icons-material/Apps'
+import QrCode2Icon from '@mui/icons-material/QrCode2'
+import FileUploadOutlinedIcon from '@mui/icons-material/FileUploadOutlined'
+import FolderOpenIcon from '@mui/icons-material/FolderOpen'
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import * as OTPAuth from 'otpauth'
 import { useStore } from '../stores/useStore'
-import { TotpAccountRow } from '../types'
+import type { TotpAccountRow, TotpQrImageInput, TotpQrImagePayload, UpdateTotpData } from '../types'
 import { parseOtpAuthUri } from '../utils/otpAuth'
+import { decodeTotpQrImage } from '../utils/qrImage'
 import useCopyFeedback from '../hooks/useCopyFeedback'
 import EmptyState from './common/EmptyState'
 import PageHeader from './common/PageHeader'
@@ -40,6 +45,34 @@ interface OtpCode {
   code: string
   remaining: number
   period: number
+}
+
+interface ResolvedTotpData {
+  issuer: string
+  label: string
+  secret: string
+  algorithm: string
+  digits: number
+  period: number
+  otpType: string
+  counter: number
+  qrImage?: TotpQrImageInput | null
+}
+
+function getQrParameterSignature(data: {
+  secret: string
+  algorithm: string
+  digits: number
+  period: number
+  otpType: string
+}) {
+  return [
+    data.secret.replace(/\s/g, '').toUpperCase(),
+    data.algorithm.toUpperCase(),
+    data.digits,
+    data.period,
+    data.otpType.toLowerCase(),
+  ].join('|')
 }
 
 function generateOtpCode(account: TotpAccountRow): OtpCode {
@@ -111,6 +144,7 @@ function TotpCard({
   onIncrementCounter,
   counterBusy = false,
   onNavigateToAccount,
+  onViewQrImage,
 }: {
   account: TotpAccountRow
   isPinned?: boolean
@@ -119,6 +153,7 @@ function TotpCard({
   onIncrementCounter: (id: string) => void
   counterBusy?: boolean
   onNavigateToAccount?: (accountId: string) => void
+  onViewQrImage: (account: TotpAccountRow) => void
 }) {
   const [otpCode, setOtpCode] = useState<OtpCode>(() => generateOtpCode(account))
   const { copiedKey, copy } = useCopyFeedback()
@@ -230,6 +265,18 @@ function TotpCard({
         </Box>
 
         <Box sx={{ display: 'flex', gap: 0.25, ml: 0.75, flexShrink: 0 }}>
+          {account.has_qr_image && (
+            <Tooltip title="查看原始二维码">
+              <IconButton
+                size="small"
+                onClick={() => onViewQrImage(account)}
+                aria-label={`查看 ${account.issuer || account.label} 的原始二维码`}
+                sx={{ color: 'text.secondary', '&:hover': { color: 'success.main' } }}
+              >
+                <QrCode2Icon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="编辑 2FA 账户">
             <IconButton
               size="small"
@@ -623,6 +670,9 @@ export default function TwoFactorPanel() {
     updateTotpAccount,
     deleteTotpAccount,
     incrementTotpCounter,
+    getTotpQrImage,
+    copyTotpQrImage,
+    saveTotpQrImage,
     navigateToAccount,
     accountsPinnedIds,
     accountsCustomOrder,
@@ -702,7 +752,23 @@ export default function TwoFactorPanel() {
     })
   }
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [inputMode, setInputMode] = useState<'manual' | 'uri'>('manual')
+  const [inputMode, setInputMode] = useState<'manual' | 'uri' | 'qr'>('manual')
+  const qrFileInputRef = useRef<HTMLInputElement>(null)
+  const qrFormRequestRef = useRef(0)
+  const qrFormBusyRef = useRef(false)
+  const qrViewerRequestRef = useRef(0)
+  const [qrImage, setQrImage] = useState<TotpQrImageInput | null>(null)
+  const [qrImageChanged, setQrImageChanged] = useState(false)
+  const [qrImageSignature, setQrImageSignature] = useState('')
+  const [qrPreviewUrl, setQrPreviewUrl] = useState('')
+  const [qrImageError, setQrImageError] = useState('')
+  const [qrImageBusy, setQrImageBusy] = useState(false)
+  const [pageDragActive, setPageDragActive] = useState(false)
+  const [qrViewerAccount, setQrViewerAccount] = useState<TotpAccountRow | null>(null)
+  const [qrViewerImage, setQrViewerImage] = useState<TotpQrImagePayload | null>(null)
+  const [qrViewerBusy, setQrViewerBusy] = useState(false)
+  const [qrActionBusy, setQrActionBusy] = useState<'copy' | 'save' | null>(null)
+  const [qrCopied, setQrCopied] = useState(false)
   const [otpType, setOtpType] = useState<'totp' | 'hotp'>('totp')
   const [issuer, setIssuer] = useState('')
   const [label, setLabel] = useState('')
@@ -742,6 +808,12 @@ export default function TwoFactorPanel() {
   const [tempUri, setTempUri] = useState('')
   const [tempUriError, setTempUriError] = useState('')
   const [tempCounter, setTempCounter] = useState(0)
+
+  useEffect(() => {
+    return () => {
+      if (qrPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(qrPreviewUrl)
+    }
+  }, [qrPreviewUrl])
 
   const resetTempDialog = () => {
     setTempDialogOpen(false)
@@ -801,6 +873,160 @@ export default function TwoFactorPanel() {
     
     setTempDialogOpen(false)
     setDialogOpen(true)
+  }
+
+  const cancelQrFormRequest = () => {
+    qrFormRequestRef.current += 1
+    qrFormBusyRef.current = false
+    setQrImageBusy(false)
+    if (qrFileInputRef.current) qrFileInputRef.current.value = ''
+  }
+
+  const handleQrFile = async (file: File) => {
+    const requestId = ++qrFormRequestRef.current
+    qrFormBusyRef.current = true
+    setQrImageBusy(true)
+    setQrImageError('')
+    try {
+      const decoded = await decodeTotpQrImage(file)
+      if (qrFormRequestRef.current !== requestId) {
+        if (decoded.previewUrl.startsWith('blob:')) URL.revokeObjectURL(decoded.previewUrl)
+        return
+      }
+      setQrImage(decoded.qrImage)
+      setQrImageChanged(true)
+      setQrImageSignature(getQrParameterSignature(decoded.parsed))
+      setQrPreviewUrl(decoded.previewUrl)
+      setIssuer(decoded.parsed.issuer)
+      setLabel(decoded.parsed.label)
+      setSecret(decoded.parsed.secret)
+      setAlgorithm(decoded.parsed.algorithm)
+      setDigits(decoded.parsed.digits)
+      setPeriod(decoded.parsed.period)
+      setOtpType(decoded.parsed.otpType)
+      setCounter(decoded.parsed.counter)
+      setInputMode('qr')
+      setManualError('')
+      setUriError('')
+    } catch (error) {
+      if (qrFormRequestRef.current === requestId) {
+        const message = error instanceof Error ? error.message : String(error)
+        const keepsExistingImage = Boolean(qrImage || qrPreviewUrl || editingTarget?.has_qr_image)
+        setQrImageError(keepsExistingImage ? `更换失败，仍保留原二维码：${message}` : message)
+      }
+    } finally {
+      if (qrFormRequestRef.current === requestId) {
+        qrFormBusyRef.current = false
+        setQrImageBusy(false)
+        if (qrFileInputRef.current) qrFileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const loadStoredQrPreview = async (account: TotpAccountRow) => {
+    if (!account.has_qr_image || qrPreviewUrl) return
+    const requestId = ++qrFormRequestRef.current
+    qrFormBusyRef.current = true
+    setQrImageBusy(true)
+    setQrImageError('')
+    try {
+      const image = await getTotpQrImage(account.id)
+      if (qrFormRequestRef.current !== requestId) return
+      if (!image) throw new Error('未找到已保存的二维码图片')
+      setQrPreviewUrl(image.dataUrl)
+    } catch (error) {
+      if (qrFormRequestRef.current === requestId) {
+        setQrImageError(`读取二维码失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+    } finally {
+      if (qrFormRequestRef.current === requestId) {
+        qrFormBusyRef.current = false
+        setQrImageBusy(false)
+      }
+    }
+  }
+
+  const selectQrInputMode = () => {
+    if (qrFormBusyRef.current) return
+    setInputMode('qr')
+    if (editingTarget?.has_qr_image && !qrPreviewUrl && !qrImage) {
+      void loadStoredQrPreview(editingTarget)
+    }
+  }
+
+  const removeQrImage = () => {
+    cancelQrFormRequest()
+    setQrImage(null)
+    setQrImageChanged(true)
+    setQrImageSignature('')
+    setQrPreviewUrl('')
+    setQrImageError('')
+  }
+
+  const openQrViewer = async (account: TotpAccountRow) => {
+    const requestId = ++qrViewerRequestRef.current
+    setQrViewerAccount(account)
+    setQrViewerImage(null)
+    setQrViewerBusy(true)
+    setQrCopied(false)
+    try {
+      const image = await getTotpQrImage(account.id)
+      if (qrViewerRequestRef.current !== requestId) return
+      if (!image) throw new Error('未找到已保存的二维码图片')
+      setQrViewerImage(image)
+    } catch (error) {
+      if (qrViewerRequestRef.current === requestId) {
+        setNotice({ severity: 'error', text: `读取二维码失败：${error instanceof Error ? error.message : String(error)}` })
+        setQrViewerAccount(null)
+        setQrViewerImage(null)
+      }
+    } finally {
+      if (qrViewerRequestRef.current === requestId) setQrViewerBusy(false)
+    }
+  }
+
+  const closeQrViewer = () => {
+    if (qrActionBusy) return
+    qrViewerRequestRef.current += 1
+    setQrViewerAccount(null)
+    setQrViewerImage(null)
+    setQrViewerBusy(false)
+    setQrCopied(false)
+  }
+
+  const handleCopyQrImage = async () => {
+    if (!qrViewerAccount || qrActionBusy) return
+    const viewerRequestId = qrViewerRequestRef.current
+    setQrActionBusy('copy')
+    try {
+      const result = await copyTotpQrImage(qrViewerAccount.id)
+      if (!result.success) throw new Error('复制失败')
+      setQrCopied(true)
+      setNotice({ severity: 'success', text: '二维码图片已复制到剪贴板，请注意其中包含敏感密钥' })
+      window.setTimeout(() => {
+        if (qrViewerRequestRef.current === viewerRequestId) setQrCopied(false)
+      }, 1800)
+    } catch (error) {
+      setNotice({ severity: 'error', text: `复制二维码失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setQrActionBusy(null)
+    }
+  }
+
+  const handleSaveQrImage = async () => {
+    if (!qrViewerAccount || qrActionBusy) return
+    setQrActionBusy('save')
+    try {
+      const result = await saveTotpQrImage(qrViewerAccount.id)
+      if (!result.success && !result.canceled) throw new Error('保存失败')
+      if (result.success) {
+        setNotice({ severity: 'success', text: '二维码图片已保存，请妥善保管该敏感文件' })
+      }
+    } catch (error) {
+      setNotice({ severity: 'error', text: `下载二维码失败：${error instanceof Error ? error.message : String(error)}` })
+    } finally {
+      setQrActionBusy(null)
+    }
   }
 
   const loadPanelData = async () => {
@@ -998,6 +1224,7 @@ export default function TwoFactorPanel() {
               onIncrementCounter={handleIncrementCounter}
               counterBusy={counterBusyId !== null}
               onNavigateToAccount={navigateToAccount}
+              onViewQrImage={openQrViewer}
             />
           ))}
         </Box>
@@ -1014,7 +1241,9 @@ export default function TwoFactorPanel() {
     }
   }
 
-  const openCreateDialog = () => {
+  const openCreateDialog = (initialMode: 'manual' | 'qr' = 'manual') => {
+    cancelQrFormRequest()
+    setPageDragActive(false)
     setEditingTarget(null)
     setIssuer('')
     setLabel('')
@@ -1027,12 +1256,20 @@ export default function TwoFactorPanel() {
     setUri('')
     setUriError('')
     setManualError('')
-    setInputMode('manual')
+    setInputMode(initialMode)
     setOtpType('totp')
+    setQrImage(null)
+    setQrImageChanged(false)
+    setQrImageSignature('')
+    setQrPreviewUrl('')
+    setQrImageError('')
+    setQrImageBusy(false)
     setDialogOpen(true)
   }
 
   const openEditDialog = (account: TotpAccountRow) => {
+    cancelQrFormRequest()
+    setPageDragActive(false)
     setEditingTarget(account)
     setIssuer(account.issuer || '')
     setLabel(account.label || '')
@@ -1049,22 +1286,34 @@ export default function TwoFactorPanel() {
     setManualError('')
     setInputMode('manual')
     setOtpType(account.otp_type === 'hotp' ? 'hotp' : 'totp')
+    setQrImage(null)
+    setQrImageChanged(false)
+    setQrImageSignature('')
+    setQrPreviewUrl('')
+    setQrImageError('')
+    setQrImageBusy(false)
     setDialogOpen(true)
   }
 
-  const handleAdd = async () => {
-    if (mutationBusyRef.current) return
-
-    let nextData: {
-      issuer: string
-      label: string
-      secret: string
-      algorithm: string
-      digits: number
-      period: number
-      otpType: string
-      counter: number
+  const handlePanelDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setPageDragActive(false)
+    if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount) return
+    const file = Array.from(event.dataTransfer.files).find(candidate => (
+      candidate.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(candidate.name)
+    ))
+    if (!file) {
+      setNotice({ severity: 'error', text: '请拖入 PNG 或 JPEG 二维码图片' })
+      return
     }
+    openCreateDialog('qr')
+    void handleQrFile(file)
+  }
+
+  const handleAdd = async () => {
+    if (mutationBusyRef.current || qrFormBusyRef.current) return
+
+    let nextData: ResolvedTotpData
 
     if (inputMode === 'uri') {
       const parsed = parseOtpAuthUri(uri.trim())
@@ -1095,13 +1344,44 @@ export default function TwoFactorPanel() {
       }
     }
 
+    if (inputMode === 'qr') {
+      const hasStoredQrImage = Boolean(editingTarget?.has_qr_image && !qrImageChanged)
+      const isRemovingStoredQrImage = Boolean(editingTarget?.has_qr_image && qrImageChanged && !qrImage)
+      if (!qrImage && !hasStoredQrImage && !isRemovingStoredQrImage) {
+        setQrImageError('请先拖入或选择一张有效的二维码图片')
+        return
+      }
+    }
+
+    if (qrImageChanged && qrImage) {
+      const currentSignature = getQrParameterSignature(nextData)
+      if (qrImageSignature !== currentSignature) {
+        setInputMode('qr')
+        setQrImageError('当前验证参数与导入的二维码不一致，请重新导入图片')
+        return
+      }
+    }
+
     mutationBusyRef.current = true
     setMutationBusy(true)
     try {
       let result: { refreshFailed: boolean }
       if (editingTarget) {
-        result = await updateTotpAccount(editingTarget.id, nextData)
+        const updateData: UpdateTotpData = {}
+        const nextSecret = nextData.secret.replace(/\s/g, '').toUpperCase()
+        const currentSecret = editingTarget.secret.replace(/\s/g, '').toUpperCase()
+        if (nextData.issuer !== (editingTarget.issuer || '').trim()) updateData.issuer = nextData.issuer
+        if (nextData.label !== (editingTarget.label || '').trim()) updateData.label = nextData.label
+        if (nextSecret !== currentSecret) updateData.secret = nextSecret
+        if (nextData.algorithm.toUpperCase() !== (editingTarget.algorithm || 'SHA1').toUpperCase()) updateData.algorithm = nextData.algorithm
+        if (nextData.digits !== editingTarget.digits) updateData.digits = nextData.digits
+        if (nextData.period !== editingTarget.period) updateData.period = nextData.period
+        if (nextData.otpType !== editingTarget.otp_type) updateData.otpType = nextData.otpType
+        if (nextData.counter !== editingTarget.counter) updateData.counter = nextData.counter
+        if (qrImageChanged) updateData.qrImage = qrImage
+        result = await updateTotpAccount(editingTarget.id, updateData)
       } else {
+        if (qrImageChanged) nextData.qrImage = qrImage
         result = await createTotpAccount(nextData)
       }
       setNotice({
@@ -1124,6 +1404,8 @@ export default function TwoFactorPanel() {
   }
 
   const resetDialog = () => {
+    cancelQrFormRequest()
+    setPageDragActive(false)
     setDialogOpen(false)
     setIssuer('')
     setLabel('')
@@ -1139,6 +1421,12 @@ export default function TwoFactorPanel() {
     setInputMode('manual')
     setOtpType('totp')
     setEditingTarget(null)
+    setQrImage(null)
+    setQrImageChanged(false)
+    setQrImageSignature('')
+    setQrPreviewUrl('')
+    setQrImageError('')
+    setQrImageBusy(false)
   }
 
   const handleRequestDelete = (account: TotpAccountRow) => {
@@ -1184,7 +1472,55 @@ export default function TwoFactorPanel() {
   }
 
   return (
-    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, overflow: 'hidden', bgcolor: 'surface.sunken' }}>
+    <Box
+      onDragEnter={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return
+        event.preventDefault()
+        if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount) {
+          setPageDragActive(false)
+          return
+        }
+        setPageDragActive(true)
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+        if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount) {
+          setPageDragActive(false)
+          return
+        }
+        setPageDragActive(true)
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPageDragActive(false)
+      }}
+      onDrop={handlePanelDrop}
+      sx={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0, overflow: 'hidden', bgcolor: 'surface.sunken', position: 'relative' }}
+    >
+      {pageDragActive && (
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 12,
+            zIndex: 20,
+            pointerEvents: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 1.25,
+            borderRadius: 3,
+            border: '2px dashed',
+            borderColor: 'primary.main',
+            bgcolor: 'rgba(10, 14, 18, 0.9)',
+            color: 'primary.main',
+          }}
+        >
+          <FileUploadOutlinedIcon sx={{ fontSize: 44 }} />
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>松开以导入 2FA 二维码</Typography>
+        </Box>
+      )}
       <PageHeader
         compact
         icon={<SecurityIcon fontSize="small" />}
@@ -1245,7 +1581,7 @@ export default function TwoFactorPanel() {
               variant="contained"
               size="small"
               startIcon={<AddIcon />}
-              onClick={openCreateDialog}
+              onClick={() => openCreateDialog()}
               aria-label="添加 2FA 账户"
               sx={{ height: 32, whiteSpace: 'nowrap' }}
             >
@@ -1289,7 +1625,7 @@ export default function TwoFactorPanel() {
                   <Button variant="outlined" startIcon={<FlashOnIcon />} onClick={() => setTempDialogOpen(true)}>
                     临时验证器
                   </Button>
-                  <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateDialog}>
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={() => openCreateDialog()}>
                     添加第一个账户
                   </Button>
                 </Box>
@@ -1535,6 +1871,26 @@ export default function TwoFactorPanel() {
         PaperProps={{
           component: 'form',
           noValidate: true,
+          onDragOver: (event: React.DragEvent<HTMLFormElement>) => {
+            if (!event.dataTransfer.types.includes('Files')) return
+            event.preventDefault()
+            event.stopPropagation()
+            event.dataTransfer.dropEffect = 'copy'
+          },
+          onDrop: (event: React.DragEvent<HTMLFormElement>) => {
+            event.preventDefault()
+            event.stopPropagation()
+            setPageDragActive(false)
+            setInputMode('qr')
+            const file = Array.from(event.dataTransfer.files).find(candidate => (
+              candidate.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(candidate.name)
+            ))
+            if (!file) {
+              setQrImageError('请拖入 PNG 或 JPEG 二维码图片')
+              return
+            }
+            void handleQrFile(file)
+          },
           onSubmit: (event: React.FormEvent<HTMLFormElement>) => {
             event.preventDefault()
             if (!mutationBusy) void handleAdd()
@@ -1550,14 +1906,21 @@ export default function TwoFactorPanel() {
             <Chip
               label="手动输入"
               variant={inputMode === 'manual' ? 'filled' : 'outlined'}
-              onClick={() => setInputMode('manual')}
+              onClick={() => { cancelQrFormRequest(); setInputMode('manual') }}
               color={inputMode === 'manual' ? 'primary' : 'default'}
             />
             <Chip
               label="粘贴 URI"
               variant={inputMode === 'uri' ? 'filled' : 'outlined'}
-              onClick={() => setInputMode('uri')}
+              onClick={() => { cancelQrFormRequest(); setInputMode('uri') }}
               color={inputMode === 'uri' ? 'primary' : 'default'}
+            />
+            <Chip
+              icon={<QrCode2Icon sx={{ fontSize: '16px !important' }} />}
+              label="二维码图片"
+              variant={inputMode === 'qr' ? 'filled' : 'outlined'}
+              onClick={selectQrInputMode}
+              color={inputMode === 'qr' ? 'primary' : 'default'}
             />
           </Box>
 
@@ -1677,7 +2040,7 @@ export default function TwoFactorPanel() {
                 )}
               </Box>
             </>
-          ) : (
+          ) : inputMode === 'uri' ? (
             <TextField
               fullWidth
               required
@@ -1690,12 +2053,217 @@ export default function TwoFactorPanel() {
               error={!!uriError}
               helperText={uriError || '粘贴你的 2FA 应用提供的 otpauth:// 链接（支持 TOTP 和 HOTP）'}
             />
+          ) : (
+            <Box>
+              <input
+                ref={qrFileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void handleQrFile(file)
+                }}
+              />
+              <Box
+                role="button"
+                tabIndex={0}
+                aria-label="拖入或选择 2FA 二维码图片"
+                onClick={() => { if (!qrImageBusy) qrFileInputRef.current?.click() }}
+                onKeyDown={(event) => {
+                  if (event.target !== event.currentTarget) return
+                  if ((event.key === 'Enter' || event.key === ' ') && !qrImageBusy) {
+                    event.preventDefault()
+                    qrFileInputRef.current?.click()
+                  }
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  event.dataTransfer.dropEffect = 'copy'
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setPageDragActive(false)
+                  const file = Array.from(event.dataTransfer.files).find(candidate => (
+                    candidate.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(candidate.name)
+                  ))
+                  if (file) void handleQrFile(file)
+                }}
+                sx={{
+                  minHeight: qrPreviewUrl ? 190 : 220,
+                  p: 2,
+                  borderRadius: 2.5,
+                  border: '2px dashed',
+                  borderColor: qrImageError ? 'error.main' : qrPreviewUrl ? 'success.main' : 'border.strong',
+                  bgcolor: qrPreviewUrl ? 'rgba(52, 168, 83, 0.06)' : 'surface.sunken',
+                  cursor: qrImageBusy ? 'wait' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'border-color 0.18s, background-color 0.18s',
+                  '&:hover': { borderColor: qrImageError ? 'error.main' : 'primary.main', bgcolor: 'surface.elevated' },
+                  '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: 2 },
+                }}
+              >
+                {qrPreviewUrl ? (
+                  <Box sx={{ width: '100%', display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '150px minmax(0, 1fr)' }, gap: 2, alignItems: 'center' }}>
+                    <Box
+                      component="img"
+                      src={qrPreviewUrl}
+                      alt="已导入的 2FA 二维码"
+                      sx={{ width: 150, height: 150, objectFit: 'contain', borderRadius: 2, bgcolor: '#fff', p: 1, justifySelf: { xs: 'center', sm: 'auto' } }}
+                    />
+                    <Box sx={{ minWidth: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, color: 'success.main', mb: 0.75 }}>
+                        <CheckIcon sx={{ fontSize: 20 }} />
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>二维码已识别</Typography>
+                      </Box>
+                      <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.55, mb: 1.5 }}>
+                        已读取验证参数，保存后原图会加密存入数据库。
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        <Button
+                          type="button"
+                          size="small"
+                          variant="outlined"
+                          startIcon={<FolderOpenIcon />}
+                          onClick={(event) => { event.stopPropagation(); qrFileInputRef.current?.click() }}
+                          disabled={qrImageBusy}
+                        >
+                          更换图片
+                        </Button>
+                        <Button
+                          type="button"
+                          size="small"
+                          color="error"
+                          startIcon={<DeleteOutlineIcon />}
+                          onClick={(event) => { event.stopPropagation(); removeQrImage() }}
+                        >
+                          删除图片
+                        </Button>
+                      </Box>
+                    </Box>
+                  </Box>
+                ) : (
+                  <Box sx={{ textAlign: 'center', color: 'text.secondary' }}>
+                    <FileUploadOutlinedIcon sx={{ fontSize: 42, color: 'primary.main', mb: 1 }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.primary', mb: 0.5 }}>
+                      拖入二维码图片
+                    </Typography>
+                    <Typography variant="body2">或点击选择 PNG / JPEG 文件，最大 10 MB</Typography>
+                  </Box>
+                )}
+              </Box>
+              {qrImageBusy && <LinearProgress aria-label="正在识别二维码" sx={{ mt: 1 }} />}
+              {qrImageError && <Alert severity="error" sx={{ mt: 1.5 }}>{qrImageError}</Alert>}
+
+              {(qrPreviewUrl || qrImage || editingTarget?.has_qr_image) && (
+                <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 2 }}>
+                  <TextField
+                    label="服务商"
+                    value={issuer}
+                    onChange={(event) => setIssuer(event.target.value)}
+                  />
+                  <TextField
+                    required
+                    label="账户名称"
+                    value={label}
+                    onChange={(event) => setLabel(event.target.value)}
+                  />
+                  <Box sx={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <Chip size="small" label={otpType === 'hotp' ? 'HOTP' : 'TOTP'} />
+                    <Chip size="small" label={algorithm} />
+                    <Chip size="small" label={`${digits} 位`} />
+                    <Chip size="small" label={otpType === 'hotp' ? `计数器 ${counter}` : `${period} 秒刷新`} />
+                    <Button type="button" size="small" onClick={() => setInputMode('manual')}>编辑高级参数</Button>
+                  </Box>
+                </Box>
+              )}
+              <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mt: 2 }}>
+                二维码等同于 2FA 密钥。复制或下载后，请避免发送给他人。
+              </Alert>
+            </Box>
           )}
         </DialogContent>
         <DialogActions>
           <Button type="button" onClick={resetDialog} disabled={mutationBusy}>取消</Button>
-          <Button type="submit" variant="contained" disabled={mutationBusy}>
+          <Button type="submit" variant="contained" disabled={mutationBusy || qrImageBusy}>
             {mutationBusy ? '保存中...' : editingTarget ? '保存' : '添加'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ========== Saved QR Image Dialog ========== */}
+      <Dialog
+        open={qrViewerAccount !== null}
+        onClose={closeQrViewer}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <QrCode2Icon sx={{ color: 'success.main' }} />
+          原始 2FA 二维码
+        </DialogTitle>
+        <DialogContent>
+          {qrViewerBusy && <LinearProgress aria-label="正在读取二维码" sx={{ mb: 2 }} />}
+          {qrViewerImage && (
+            <Box>
+              <Box
+                sx={{
+                  minHeight: 320,
+                  p: 2,
+                  borderRadius: 2.5,
+                  border: '1px solid',
+                  borderColor: 'border.subtle',
+                  bgcolor: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Box
+                  component="img"
+                  src={qrViewerImage.dataUrl}
+                  alt={`${qrViewerAccount?.issuer || qrViewerAccount?.label || ''} 的原始二维码`}
+                  sx={{ display: 'block', maxWidth: '100%', maxHeight: 420, objectFit: 'contain' }}
+                />
+              </Box>
+              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 1.25, lineHeight: 1.5 }}>
+                {qrViewerImage.originalName} · {Math.max(1, Math.round(qrViewerImage.originalSize / 1024))} KB
+              </Typography>
+              <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mt: 1.5 }}>
+                此图片可以重新绑定验证器，包含与密钥等价的敏感信息。
+              </Alert>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            type="button"
+            startIcon={qrCopied ? <CheckIcon /> : <ContentCopyIcon />}
+            color={qrCopied ? 'success' : 'primary'}
+            onClick={() => { void handleCopyQrImage() }}
+            disabled={!qrViewerImage || qrActionBusy !== null}
+          >
+            {qrCopied ? '已复制' : qrActionBusy === 'copy' ? '复制中...' : '复制图片'}
+          </Button>
+          <Button
+            type="button"
+            startIcon={<DownloadOutlinedIcon />}
+            onClick={() => { void handleSaveQrImage() }}
+            disabled={!qrViewerImage || qrActionBusy !== null}
+          >
+            {qrActionBusy === 'save' ? '保存中...' : '下载图片'}
+          </Button>
+          <Button
+            type="button"
+            color="inherit"
+            onClick={closeQrViewer}
+            disabled={qrActionBusy !== null}
+          >
+            关闭
           </Button>
         </DialogActions>
       </Dialog>

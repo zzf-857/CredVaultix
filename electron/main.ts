@@ -1,9 +1,9 @@
-import { app, autoUpdater as electronAutoUpdater, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, clipboard, ipcMain, dialog, nativeImage, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import Database from 'better-sqlite3'
 import path from 'path'
 import { DATABASE_FILE_NAME, initDatabase, getDatabase } from './database'
-import { encrypt, decrypt, encryptIfNeeded } from './crypto'
+import { decrypt, decryptBuffer, encrypt, encryptBuffer, encryptIfNeeded } from './crypto'
 import {
   PROTECTED_TABLES,
   SERVICE_INFO_TABLES,
@@ -27,6 +27,7 @@ import { assertValidJsonBackup } from './backupValidation'
 import { normalizeCsvAccountRow } from './csvAccountImport'
 import {
   type AccountUpdateData,
+  type TotpWriteData,
   createTotpRecord,
   deleteTotpRecord,
   incrementHotpCounter,
@@ -39,6 +40,11 @@ import {
   updateAccountRecord,
   updateTotpRecord,
 } from './accountTotpRepository'
+import {
+  getTotpQrImage,
+  normalizeTotpQrImageInput,
+  type TotpQrImageInput,
+} from './totpQrImageRepository'
 import { addTagToAccount, deleteTag, getAccountTags, removeTagFromAccount } from './accountTagRepository'
 import { addAccountField, deleteAccountField, updateAccountField } from './accountFieldRepository'
 import { hardDeleteAccountRecord, moveAccountToTrash, restoreAccountFromTrash } from './accountLifecycleRepository'
@@ -67,6 +73,27 @@ let updaterController: UpdaterController | null = null
 let updateSnapshot: UpdateSnapshot | null = null
 let usesExplicitUserDataDirectory = false
 let hasUnsavedRendererChanges = false
+
+function prepareTotpQrImage(input: TotpQrImageInput | null | undefined) {
+  if (input === null || input === undefined) return input
+  const normalized = normalizeTotpQrImageInput(input)
+  const image = nativeImage.createFromBuffer(normalized.bytes)
+  if (image.isEmpty()) throw new Error('无法读取二维码图片')
+  const { width, height } = image.getSize()
+  if (width < 32 || height < 32 || width > 8192 || height > 8192 || width * height > 40_000_000) {
+    throw new Error('二维码图片尺寸无效或过大')
+  }
+  return {
+    bytes: new Uint8Array(normalized.bytes),
+    mimeType: normalized.mimeType,
+    originalName: normalized.originalName,
+  }
+}
+
+function prepareTotpWriteData<T extends TotpWriteData>(data: T): T {
+  if (!Object.prototype.hasOwnProperty.call(data, 'qrImage')) return data
+  return { ...data, qrImage: prepareTotpQrImage(data.qrImage) } as T
+}
 
 app.setName(APP_NAME)
 
@@ -496,13 +523,20 @@ function registerIpcHandlers() {
 
   const getLinkedTotpAccounts = (accountId: string) => {
     return (db.prepare(`
-      SELECT *
-      FROM totp_accounts
-      WHERE linked_account_id = ?
-      ORDER BY created_at ASC, id ASC
+      SELECT
+        t.*,
+        EXISTS (
+          SELECT 1
+          FROM totp_qr_images qi
+          WHERE qi.totp_account_id = t.id
+        ) AS has_qr_image
+      FROM totp_accounts t
+      WHERE t.linked_account_id = ?
+      ORDER BY t.created_at ASC, t.id ASC
     `).all(accountId) as any[]).map((totpAccount) => ({
       ...totpAccount,
       secret: decrypt(totpAccount.secret),
+      has_qr_image: Boolean(totpAccount.has_qr_image),
     }))
   }
 
@@ -603,7 +637,7 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('accounts:update', (_event, id: string, data: AccountUpdateData) => {
-    return updateAccountRecord(db, id, data, { encrypt })
+    return updateAccountRecord(db, id, data, { encrypt, decrypt })
   })
 
   ipcMain.handle('accounts:delete', (_event, id: string) => {
@@ -725,7 +759,17 @@ function registerIpcHandlers() {
 
   // ============ TOTP 2FA ============
   ipcMain.handle('totp:getAll', () => {
-    return (db.prepare('SELECT * FROM totp_accounts ORDER BY sort_order ASC, label ASC').all() as any[])
+    return (db.prepare(`
+      SELECT
+        t.*,
+        EXISTS (
+          SELECT 1
+          FROM totp_qr_images qi
+          WHERE qi.totp_account_id = t.id
+        ) AS has_qr_image
+      FROM totp_accounts t
+      ORDER BY t.sort_order ASC, t.label ASC
+    `).all() as any[])
       .map((account) => {
         let linkedAccountState: 'active' | 'trashed' | 'missing' | 'unlinked' = 'unlinked'
         if (account.linked_account_id) {
@@ -739,16 +783,21 @@ function registerIpcHandlers() {
               : 'missing'
           }
         }
-        return { ...account, secret: decrypt(account.secret), linked_account_state: linkedAccountState }
+        return {
+          ...account,
+          secret: decrypt(account.secret),
+          linked_account_state: linkedAccountState,
+          has_qr_image: Boolean(account.has_qr_image),
+        }
       })
   })
 
-  ipcMain.handle('totp:create', (_event, data: { id: string; issuer: string; label: string; secret: string; algorithm?: string; digits?: number; period?: number; otpType?: string; counter?: number; linkedAccountId?: string }) => {
-    return createTotpRecord(db, data, { encrypt })
+  ipcMain.handle('totp:create', (_event, data: TotpWriteData & { id: string }) => {
+    return createTotpRecord(db, prepareTotpWriteData(data), { encrypt, decrypt, encryptBuffer })
   })
 
-  ipcMain.handle('totp:update', (_event, id: string, data: { issuer?: string; label?: string; secret?: string; algorithm?: string; digits?: number; period?: number; otpType?: string; counter?: number }) => {
-    return updateTotpRecord(db, id, data, { encrypt })
+  ipcMain.handle('totp:update', (_event, id: string, data: TotpWriteData) => {
+    return updateTotpRecord(db, id, prepareTotpWriteData(data), { encrypt, decrypt, encryptBuffer })
   })
 
   ipcMain.handle('totp:delete', (_event, id: string) => {
@@ -757,6 +806,49 @@ function registerIpcHandlers() {
 
   ipcMain.handle('totp:incrementCounter', (_event, id: string) => {
     return incrementHotpCounter(db, id)
+  })
+
+  ipcMain.handle('totp:getQrImage', (_event, id: string) => {
+    const record = getTotpQrImage(db, id, { decryptBuffer })
+    if (!record) return null
+    return {
+      dataUrl: `data:${record.mimeType};base64,${record.bytes.toString('base64')}`,
+      mimeType: record.mimeType,
+      originalName: record.originalName,
+      originalSize: record.originalSize,
+    }
+  })
+
+  ipcMain.handle('totp:copyQrImage', (_event, id: string) => {
+    const record = getTotpQrImage(db, id, { decryptBuffer })
+    if (!record) return { success: false }
+    const image = nativeImage.createFromBuffer(record.bytes)
+    if (image.isEmpty()) throw new Error('无法读取已保存的二维码图片')
+    clipboard.writeImage(image)
+    return { success: true }
+  })
+
+  ipcMain.handle('totp:saveQrImage', async (_event, id: string) => {
+    const record = getTotpQrImage(db, id, { decryptBuffer })
+    if (!record) return { success: false }
+
+    const extension = record.mimeType === 'image/jpeg' ? '.jpg' : '.png'
+    const originalPath = path.parse(record.originalName)
+    const defaultName = `${originalPath.name || '2fa-qrcode'}${extension}`
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: '保存 2FA 二维码',
+      defaultPath: defaultName,
+      filters: [{
+        name: record.mimeType === 'image/jpeg' ? 'JPEG 图片' : 'PNG 图片',
+        extensions: record.mimeType === 'image/jpeg' ? ['jpg', 'jpeg'] : ['png'],
+      }],
+    })
+    if (result.canceled || !result.filePath) {
+      return { success: false, canceled: true }
+    }
+
+    fs.writeFileSync(result.filePath, record.bytes)
+    return { success: true, filePath: result.filePath }
   })
 
   // ============ Database Export/Import ============
@@ -780,6 +872,28 @@ function registerIpcHandlers() {
         exportedAt: new Date().toISOString(),
         tags: db.prepare('SELECT * FROM tags').all(),
         totpAccounts: db.prepare('SELECT * FROM totp_accounts').all(),
+        totpQrImages: (db.prepare(`
+          SELECT
+            totp_account_id,
+            encrypted_data,
+            mime_type,
+            original_name,
+            original_size,
+            created_at,
+            updated_at
+          FROM totp_qr_images
+        `).all() as Array<{
+          totp_account_id: string
+          encrypted_data: Buffer
+          mime_type: string
+          original_name: string
+          original_size: number
+          created_at: string
+          updated_at: string
+        }>).map(({ encrypted_data, ...row }) => ({
+          ...row,
+          encrypted_data_base64: Buffer.from(encrypted_data).toString('base64'),
+        })),
         accounts: db.prepare('SELECT * FROM accounts').all(),
         accountCustomFields: db.prepare('SELECT * FROM account_custom_fields').all(),
         accountTags: db.prepare('SELECT * FROM account_tags').all(),
@@ -852,6 +966,7 @@ function registerIpcHandlers() {
         const legacyServiceAccountLinks = captureLegacyServiceAccountLinks(db, data)
 
         db.prepare('DELETE FROM tags').run()
+        db.prepare('DELETE FROM totp_qr_images').run()
         db.prepare('DELETE FROM totp_accounts').run()
         db.prepare('DELETE FROM account_custom_fields').run()
         db.prepare('DELETE FROM account_tags').run()
@@ -878,6 +993,36 @@ function registerIpcHandlers() {
             a.linked_account_id || null,
             a.sort_order || 0,
             a.created_at
+          )
+        }
+
+        const insertTotpQrImage = db.prepare(`
+          INSERT INTO totp_qr_images (
+            totp_account_id,
+            encrypted_data,
+            mime_type,
+            original_name,
+            original_size,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const image of data.totpQrImages || []) {
+          const plaintext = decryptBuffer(Buffer.from(image.encrypted_data_base64, 'base64'))
+          const normalized = prepareTotpQrImage({
+            bytes: new Uint8Array(plaintext),
+            mimeType: image.mime_type,
+            originalName: image.original_name,
+          })!
+          const timestamp = new Date().toISOString()
+          insertTotpQrImage.run(
+            image.totp_account_id,
+            encryptBuffer(normalized.bytes),
+            normalized.mimeType,
+            normalized.originalName,
+            normalized.bytes.byteLength,
+            typeof image.created_at === 'string' ? image.created_at : timestamp,
+            typeof image.updated_at === 'string' ? image.updated_at : timestamp
           )
         }
 

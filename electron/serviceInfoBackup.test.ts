@@ -30,7 +30,7 @@ class FakeDatabase {
 
 describe('serviceInfoBackup', () => {
   it('uses the backup version that includes service information tables', () => {
-    expect(SERVICE_INFO_BACKUP_VERSION).toBe(5)
+    expect(SERVICE_INFO_BACKUP_VERSION).toBe(6)
   })
 
   it('reads all service information tables into the JSON payload', () => {

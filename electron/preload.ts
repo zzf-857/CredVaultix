@@ -14,6 +14,9 @@ const electronAPI = {
   updateTotpAccount: (id: string, data: any) => ipcRenderer.invoke('totp:update', id, data),
   deleteTotpAccount: (id: string) => ipcRenderer.invoke('totp:delete', id),
   incrementTotpCounter: (id: string) => ipcRenderer.invoke('totp:incrementCounter', id),
+  getTotpQrImage: (id: string) => ipcRenderer.invoke('totp:getQrImage', id),
+  copyTotpQrImage: (id: string) => ipcRenderer.invoke('totp:copyQrImage', id),
+  saveTotpQrImage: (id: string) => ipcRenderer.invoke('totp:saveQrImage', id),
 
   // Accounts
   getAccounts: (filters?: any) => ipcRenderer.invoke('accounts:getAll', filters),

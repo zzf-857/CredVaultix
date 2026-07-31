@@ -8,6 +8,7 @@ import {
   getExistingTableCounts,
   hasPlaintextTotpSecrets,
   hasServiceInfoSchema,
+  hasTotpQrImageSchema,
 } from './databaseSafety'
 import { encryptIfNeeded } from './crypto'
 
@@ -19,18 +20,20 @@ export function initDatabase() {
   const dbPath = path.join(userDataPath, DATABASE_FILE_NAME)
   let needsServiceInfoMigration = false
   let needsTotpEncryptionMigration = false
+  let needsTotpQrImageMigration = false
 
   if (fs.existsSync(dbPath)) {
     const schemaCheckDb = new Database(dbPath, { readonly: true, fileMustExist: true })
     try {
       needsServiceInfoMigration = !hasServiceInfoSchema(schemaCheckDb)
       needsTotpEncryptionMigration = hasPlaintextTotpSecrets(schemaCheckDb)
+      needsTotpQrImageMigration = !hasTotpQrImageSchema(schemaCheckDb)
     } finally {
       schemaCheckDb.close()
     }
   }
 
-  if (needsServiceInfoMigration || needsTotpEncryptionMigration) {
+  if (needsServiceInfoMigration || needsTotpEncryptionMigration || needsTotpQrImageMigration) {
     const checkpointDb = new Database(dbPath, { fileMustExist: true })
     try {
       checkpointDb.pragma('wal_checkpoint(FULL)')
@@ -69,6 +72,16 @@ export function initDatabase() {
       linked_account_id TEXT DEFAULT NULL,
       sort_order INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS totp_qr_images (
+      totp_account_id TEXT PRIMARY KEY REFERENCES totp_accounts(id) ON DELETE CASCADE,
+      encrypted_data BLOB NOT NULL,
+      mime_type TEXT NOT NULL DEFAULT 'image/png',
+      original_name TEXT NOT NULL DEFAULT '',
+      original_size INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS accounts (

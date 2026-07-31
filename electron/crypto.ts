@@ -10,6 +10,7 @@ export { isEncryptedValue } from './encryptionFormat'
 const ALGORITHM = 'aes-256-gcm'
 const IV_LENGTH = 16
 const TAG_LENGTH = 16
+const BINARY_MAGIC = Buffer.from('CVQB1', 'ascii')
 const CURRENT_KEY_PREFIX = 'CredVaultix'
 const LEGACY_KEY_PREFIX = 'SecureVault'
 const LEGACY_USER_DATA_NAMES = ['account-manager', 'AccountManager', 'prompt-manager']
@@ -84,4 +85,46 @@ export function decrypt(ciphertext: string): string {
   }
 
   return ciphertext // Return as-is if decryption fails
+}
+
+export function encryptBuffer(plaintext: Uint8Array): Buffer {
+  const source = Buffer.from(plaintext)
+  const key = getCurrentKey()
+  const iv = crypto.randomBytes(IV_LENGTH)
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv)
+  const encrypted = Buffer.concat([cipher.update(source), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return Buffer.concat([BINARY_MAGIC, iv, tag, encrypted])
+}
+
+export function isEncryptedBuffer(value: Uint8Array) {
+  const source = Buffer.from(value)
+  return source.length >= BINARY_MAGIC.length + IV_LENGTH + TAG_LENGTH
+    && source.subarray(0, BINARY_MAGIC.length).equals(BINARY_MAGIC)
+}
+
+export function decryptBuffer(ciphertext: Uint8Array): Buffer {
+  const source = Buffer.from(ciphertext)
+  if (!isEncryptedBuffer(source)) {
+    throw new Error('二维码图片不是有效的加密数据')
+  }
+
+  const ivStart = BINARY_MAGIC.length
+  const tagStart = ivStart + IV_LENGTH
+  const payloadStart = tagStart + TAG_LENGTH
+  const iv = source.subarray(ivStart, tagStart)
+  const tag = source.subarray(tagStart, payloadStart)
+  const encrypted = source.subarray(payloadStart)
+
+  for (const key of getCandidateKeys()) {
+    try {
+      const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
+      decipher.setAuthTag(tag)
+      return Buffer.concat([decipher.update(encrypted), decipher.final()])
+    } catch {
+      // Try the next legacy key candidate.
+    }
+  }
+
+  throw new Error('二维码图片解密失败')
 }

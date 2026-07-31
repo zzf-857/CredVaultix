@@ -26,6 +26,9 @@ export interface ElectronAPI {
   updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<{ success: boolean }>
   deleteTotpAccount: (id: string) => Promise<{ success: boolean }>
   incrementTotpCounter: (id: string) => Promise<{ success: boolean; counter: number }>
+  getTotpQrImage: (id: string) => Promise<TotpQrImagePayload | null>
+  copyTotpQrImage: (id: string) => Promise<{ success: boolean }>
+  saveTotpQrImage: (id: string) => Promise<{ success: boolean; canceled?: boolean; filePath?: string }>
 
   getAccounts: (filters?: AccountFilters) => Promise<AccountRow[]>
   getAccountById: (id: string) => Promise<AccountRow | null>
@@ -105,6 +108,20 @@ export interface TotpAccountRow {
   sort_order: number
   created_at: string
   linked_account_state?: 'active' | 'trashed' | 'missing' | 'unlinked'
+  has_qr_image?: boolean
+}
+
+export interface TotpQrImageInput {
+  bytes: Uint8Array
+  mimeType: 'image/png' | 'image/jpeg'
+  originalName: string
+}
+
+export interface TotpQrImagePayload {
+  dataUrl: string
+  mimeType: 'image/png' | 'image/jpeg'
+  originalName: string
+  originalSize: number
 }
 
 export interface CustomFieldRow {
@@ -302,6 +319,7 @@ export interface CreateTotpData {
   otpType?: string
   counter?: number
   linkedAccountId?: string
+  qrImage?: TotpQrImageInput | null
 }
 
 export interface CsvImportResult {
@@ -320,6 +338,7 @@ export interface UpdateTotpData {
   period?: number
   otpType?: string
   counter?: number
+  qrImage?: TotpQrImageInput | null
 }
 
 declare global {

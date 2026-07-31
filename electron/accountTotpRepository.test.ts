@@ -10,7 +10,11 @@ import { TestSqliteDatabase } from './testSqlite'
 
 const OLD_SECRET = 'JBSWY3DPEHPK3PXP'
 const NEW_SECRET = 'KRUGS4ZANFZSAYJA'
-const deps = { encrypt: (value: string) => value ? `enc:${value}` : '', now: () => '2026-07-22T08:00:00.000Z' }
+const deps = {
+  encrypt: (value: string) => value ? `enc:${value}` : '',
+  decrypt: (value: string) => value.startsWith('enc:') ? value.slice(4) : value,
+  now: () => '2026-07-22T08:00:00.000Z',
+}
 
 function createSchema(db: TestSqliteDatabase) {
   db.exec(`
@@ -41,6 +45,15 @@ function createSchema(db: TestSqliteDatabase) {
       linked_account_id TEXT DEFAULT NULL,
       sort_order INTEGER DEFAULT 0,
       created_at TEXT DEFAULT ''
+    );
+    CREATE TABLE totp_qr_images (
+      totp_account_id TEXT PRIMARY KEY REFERENCES totp_accounts(id) ON DELETE CASCADE,
+      encrypted_data BLOB NOT NULL,
+      mime_type TEXT NOT NULL DEFAULT 'image/png',
+      original_name TEXT NOT NULL DEFAULT '',
+      original_size INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT '',
+      updated_at TEXT DEFAULT ''
     );
   `)
 }

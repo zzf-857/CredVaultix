@@ -91,8 +91,8 @@ describe('account interaction safeguards', () => {
   })
 
   it('keeps linked account synchronization inside main-process transactions', () => {
-    expect(mainSource).toContain('updateAccountRecord(db, id, data, { encrypt })')
-    expect(mainSource).toContain('createTotpRecord(db, data, { encrypt })')
+    expect(mainSource).toContain('updateAccountRecord(db, id, data, { encrypt, decrypt })')
+    expect(mainSource).toContain('createTotpRecord(db, prepareTotpWriteData(data), { encrypt, decrypt, encryptBuffer })')
     expect(mainSource).toContain('deleteTotpRecord(db, id, { encrypt })')
     expect(twoFactorSource).not.toContain('window.electronAPI.updateAccount(editingTarget.linked_account_id')
   })

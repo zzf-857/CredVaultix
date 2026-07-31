@@ -1,5 +1,10 @@
 import type Database from 'better-sqlite3'
 import { normalizeOtpInput } from '../shared/otpAuth'
+import {
+  deleteTotpQrImage,
+  setTotpQrImage,
+  type TotpQrImageInput,
+} from './totpQrImageRepository'
 
 export interface AccountUpdateData {
   name?: string
@@ -34,16 +39,26 @@ export interface TotpWriteData {
   otpType?: string
   counter?: number
   linkedAccountId?: string
+  qrImage?: TotpQrImageInput | null
 }
 
 interface RepositoryDependencies {
   encrypt: (value: string) => string
+  decrypt?: (value: string) => string
+  encryptBuffer?: (value: Uint8Array) => Buffer
   now?: () => string
 }
 
 interface LinkedTotpRow {
   id: string
+  issuer: string
+  label: string
   secret: string
+  algorithm: string
+  digits: number
+  period: number
+  otp_type: string
+  counter: number
   linked_account_id: string | null
 }
 
@@ -79,10 +94,67 @@ function now(dependencies: RepositoryDependencies) {
   return dependencies.now?.() ?? new Date().toISOString()
 }
 
+function applyQrImageMutation(
+  db: Database.Database,
+  totpAccountId: string,
+  data: TotpWriteData,
+  dependencies: RepositoryDependencies,
+  clearWhenUnspecified = false
+) {
+  if (Object.prototype.hasOwnProperty.call(data, 'qrImage')) {
+    if (data.qrImage === null) {
+      deleteTotpQrImage(db, totpAccountId)
+    } else if (data.qrImage) {
+      if (!dependencies.encryptBuffer) throw new Error('二维码图片加密服务不可用')
+      setTotpQrImage(db, totpAccountId, data.qrImage, {
+        encryptBuffer: dependencies.encryptBuffer,
+        now: dependencies.now,
+      })
+    } else if (clearWhenUnspecified) {
+      deleteTotpQrImage(db, totpAccountId)
+    }
+  } else if (clearWhenUnspecified) {
+    deleteTotpQrImage(db, totpAccountId)
+  }
+}
+
 function getLinkedTotpRows(db: Database.Database, accountId: string) {
   return db
-    .prepare('SELECT id, secret, linked_account_id FROM totp_accounts WHERE linked_account_id = ? ORDER BY created_at ASC, id ASC')
+    .prepare(`
+      SELECT id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id
+      FROM totp_accounts
+      WHERE linked_account_id = ?
+      ORDER BY created_at ASC, id ASC
+    `)
     .all(accountId) as LinkedTotpRow[]
+}
+
+function storedSecretMatches(
+  encryptedSecret: string,
+  plaintextSecret: string,
+  dependencies: RepositoryDependencies
+) {
+  if (!dependencies.decrypt) return false
+  return dependencies.decrypt(encryptedSecret).replace(/\s/g, '').toUpperCase()
+    === plaintextSecret.replace(/\s/g, '').toUpperCase()
+}
+
+function changesQrEncodedParameters(
+  current: LinkedTotpRow,
+  next: {
+    secret: string
+    algorithm: string
+    digits: number
+    period: number
+    otpType: string
+  },
+  dependencies: RepositoryDependencies
+) {
+  return !storedSecretMatches(current.secret, next.secret, dependencies)
+    || normalizeOtpAlgorithm(current.algorithm) !== normalizeOtpAlgorithm(next.algorithm)
+    || normalizeOtpDigits(current.digits) !== normalizeOtpDigits(next.digits)
+    || normalizeOtpPeriod(current.period) !== normalizeOtpPeriod(next.period)
+    || normalizeOtpType(current.otp_type) !== normalizeOtpType(next.otpType)
 }
 
 function assertValidTotpInput(value: string) {
@@ -164,9 +236,17 @@ export function updateAccountRecord(
         // Clearing an account mirror must not destroy the only copy of a 2FA secret.
         db.prepare('UPDATE totp_accounts SET linked_account_id = NULL WHERE linked_account_id = ?').run(id)
       } else if (linkedTotpRows.length === 1) {
+        const linkedTotp = linkedTotpRows[0]
         const parsed = normalizedTotp.parsedUri
         const totpUpdates = ['secret = ?']
         const totpParams: unknown[] = [dependencies.encrypt(normalizedTotp.secret)]
+        let nextQrParameters = {
+          secret: normalizedTotp.secret,
+          algorithm: linkedTotp.algorithm,
+          digits: linkedTotp.digits,
+          period: linkedTotp.period,
+          otpType: linkedTotp.otp_type,
+        }
         if (requestedLinkedTotp) {
           totpUpdates.push('issuer = ?', 'label = ?', 'algorithm = ?', 'digits = ?', 'period = ?', 'otp_type = ?', 'counter = ?')
           totpParams.push(
@@ -178,20 +258,32 @@ export function updateAccountRecord(
             requestedLinkedTotp.otpType,
             requestedLinkedTotp.counter
           )
+          nextQrParameters = requestedLinkedTotp
         } else if (parsed) {
+          const parsedValues = {
+            secret: normalizedTotp.secret,
+            algorithm: normalizeOtpAlgorithm(parsed.algorithm),
+            digits: normalizeOtpDigits(parsed.digits),
+            period: normalizeOtpPeriod(parsed.period),
+            otpType: normalizeOtpType(parsed.otpType),
+          }
           totpUpdates.push('issuer = ?', 'label = ?', 'algorithm = ?', 'digits = ?', 'period = ?', 'otp_type = ?', 'counter = ?')
           totpParams.push(
             parsed.issuer,
             parsed.label,
-            normalizeOtpAlgorithm(parsed.algorithm),
-            normalizeOtpDigits(parsed.digits),
-            normalizeOtpPeriod(parsed.period),
-            normalizeOtpType(parsed.otpType),
+            parsedValues.algorithm,
+            parsedValues.digits,
+            parsedValues.period,
+            parsedValues.otpType,
             normalizeOtpCounter(parsed.counter)
           )
+          nextQrParameters = parsedValues
         }
         db.prepare(`UPDATE totp_accounts SET ${totpUpdates.join(', ')} WHERE id = ?`)
-          .run(...totpParams, linkedTotpRows[0].id)
+          .run(...totpParams, linkedTotp.id)
+        if (changesQrEncodedParameters(linkedTotp, nextQrParameters, dependencies)) {
+          deleteTotpQrImage(db, linkedTotp.id)
+        }
       } else if (requestedLinkedTotp && data.createLinkedTotp) {
         const row = db.prepare('SELECT MAX(sort_order) as maxOrder FROM totp_accounts').get() as { maxOrder?: number | null }
         const nextOrder = (row?.maxOrder || 0) + 1
@@ -288,6 +380,11 @@ export function createTotpRecord(
         .run(dependencies.encrypt(values.secret), timestamp, linkedAccountId)
     }
 
+    const shouldClearExistingQrImage = existing
+      ? changesQrEncodedParameters(existing, values, dependencies)
+      : false
+    applyQrImageMutation(db, recordId, data, dependencies, shouldClearExistingQrImage)
+
     return { id: recordId, created: !existing }
   })()
 }
@@ -298,10 +395,15 @@ export function updateTotpRecord(
   data: TotpWriteData,
   dependencies: RepositoryDependencies
 ) {
-  const current = db.prepare('SELECT id, linked_account_id FROM totp_accounts WHERE id = ?').get(id) as LinkedTotpRow | undefined
+  const current = db.prepare(`
+    SELECT id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id
+    FROM totp_accounts
+    WHERE id = ?
+  `).get(id) as LinkedTotpRow | undefined
   if (!current) throw new Error('2FA 记录不存在或已被删除')
 
   const hasSecretChange = Object.prototype.hasOwnProperty.call(data, 'secret')
+  const hasQrImageMutation = Object.prototype.hasOwnProperty.call(data, 'qrImage')
   const normalized = hasSecretChange ? assertValidTotpInput(data.secret || '') : null
   if (normalized && !normalized.secret) throw new Error('2FA 密钥不能为空')
 
@@ -327,14 +429,32 @@ export function updateTotpRecord(
   if (data.period !== undefined || parsed) { updates.push('period = ?'); params.push(normalizeOtpPeriod(parsed?.period ?? data.period)) }
   if (data.otpType !== undefined || parsed) { updates.push('otp_type = ?'); params.push(normalizeOtpType(parsed?.otpType ?? data.otpType)) }
   if (data.counter !== undefined || parsed) { updates.push('counter = ?'); params.push(normalizeOtpCounter(parsed?.counter ?? data.counter)) }
-  if (updates.length === 0) return { success: true }
+  if (updates.length === 0 && !hasQrImageMutation) return { success: true }
 
   return db.transaction(() => {
-    db.prepare(`UPDATE totp_accounts SET ${updates.join(', ')} WHERE id = ?`).run(...params, id)
+    if (updates.length > 0) {
+      db.prepare(`UPDATE totp_accounts SET ${updates.join(', ')} WHERE id = ?`).run(...params, id)
+    }
     if (normalized && current.linked_account_id && !current.linked_account_id.startsWith('!deleted-')) {
       db.prepare('UPDATE accounts SET totp_secret = ?, updated_at = ? WHERE id = ?')
         .run(dependencies.encrypt(normalized.secret), now(dependencies), current.linked_account_id)
     }
+    const shouldClearQrImage = (
+      (normalized ? !storedSecretMatches(current.secret, normalized.secret, dependencies) : false)
+      || (data.algorithm !== undefined || parsed
+        ? normalizeOtpAlgorithm(current.algorithm) !== normalizeOtpAlgorithm(parsed?.algorithm ?? data.algorithm)
+        : false)
+      || (data.digits !== undefined || parsed
+        ? normalizeOtpDigits(current.digits) !== normalizeOtpDigits(parsed?.digits ?? data.digits)
+        : false)
+      || (data.period !== undefined || parsed
+        ? normalizeOtpPeriod(current.period) !== normalizeOtpPeriod(parsed?.period ?? data.period)
+        : false)
+      || (data.otpType !== undefined || parsed
+        ? normalizeOtpType(current.otp_type) !== normalizeOtpType(parsed?.otpType ?? data.otpType)
+        : false)
+    )
+    applyQrImageMutation(db, id, data, dependencies, shouldClearQrImage)
     return { success: true }
   })()
 }
@@ -344,7 +464,11 @@ export function deleteTotpRecord(
   id: string,
   dependencies: RepositoryDependencies
 ) {
-  const current = db.prepare('SELECT id, secret, linked_account_id FROM totp_accounts WHERE id = ?').get(id) as LinkedTotpRow | undefined
+  const current = db.prepare(`
+    SELECT id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id
+    FROM totp_accounts
+    WHERE id = ?
+  `).get(id) as LinkedTotpRow | undefined
   if (!current) return { success: false }
 
   return db.transaction(() => {
