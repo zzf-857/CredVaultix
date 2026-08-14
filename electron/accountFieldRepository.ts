@@ -34,9 +34,9 @@ export function addAccountField(
 
     const value = data.isSecret ? dependencies.encrypt(data.fieldValue) : data.fieldValue
     db.prepare(`
-      INSERT INTO account_custom_fields (id, account_id, field_name, field_value, is_secret)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(data.id, data.accountId, fieldName, value, data.isSecret ? 1 : 0)
+      INSERT INTO account_custom_fields (id, account_id, field_name, field_value, is_secret, sort_order)
+      VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM account_custom_fields WHERE account_id = ?))
+    `).run(data.id, data.accountId, fieldName, value, data.isSecret ? 1 : 0, data.accountId)
     db.prepare('UPDATE accounts SET updated_at = ? WHERE id = ?')
       .run(timestamp(dependencies), data.accountId)
     return { id: data.id }

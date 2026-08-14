@@ -24,7 +24,8 @@ describe('account custom field repository', () => {
         account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
         field_name TEXT NOT NULL,
         field_value TEXT DEFAULT '',
-        is_secret INTEGER DEFAULT 0
+        is_secret INTEGER DEFAULT 0,
+        sort_order INTEGER DEFAULT 0
       );
       INSERT INTO accounts (id) VALUES ('account-1');
     `)
@@ -55,6 +56,20 @@ describe('account custom field repository', () => {
     expect(deleteAccountField(db as any, 'field-1', dependencies.now)).toEqual({ success: true })
     expect(db.prepare("SELECT updated_at AS value FROM accounts WHERE id = 'account-1'").get()?.value)
       .toBe('2026-07-22T09:00:00.000Z')
+  })
+
+  it('assigns per-account incremental sort order to newly added fields', () => {
+    db.exec("INSERT INTO accounts (id) VALUES ('account-2')")
+
+    addAccountField(db as any, { id: 'field-1', accountId: 'account-1', fieldName: 'First', fieldValue: 'v1', isSecret: false }, dependencies)
+    addAccountField(db as any, { id: 'field-2', accountId: 'account-1', fieldName: 'Second', fieldValue: 'v2', isSecret: false }, dependencies)
+    addAccountField(db as any, { id: 'field-3', accountId: 'account-2', fieldName: 'Other', fieldValue: 'v3', isSecret: false }, dependencies)
+
+    expect(db.prepare('SELECT id, sort_order FROM account_custom_fields ORDER BY id').all()).toEqual([
+      { id: 'field-1', sort_order: 1 },
+      { id: 'field-2', sort_order: 2 },
+      { id: 'field-3', sort_order: 1 },
+    ])
   })
 
   it('returns false for stale update and delete requests', () => {

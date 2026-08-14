@@ -36,10 +36,19 @@ describe('normalizeCsvAccountRow', () => {
   it('normalizes raw secrets, rejects invalid OTP URIs, and skips unrelated rows', () => {
     expect(normalizeCsvAccountRow({ name: 'Raw', totp: 'jbsw y3dp ehpk3pxp' })?.totpSecret)
       .toBe('JBSWY3DPEHPK3PXP')
+    expect(normalizeCsvAccountRow({ name: 'BadSecret', totp: 'not-base32!!' })).toMatchObject({
+      totpSecret: '',
+      invalidTotpUri: true,
+    })
     expect(normalizeCsvAccountRow({ name: 'Broken', totp: 'otpauth://totp/user' })).toMatchObject({
       totpSecret: '',
       invalidTotpUri: true,
     })
     expect(normalizeCsvAccountRow({ unknown: 'ignored' })).toBeNull()
+  })
+
+  it('trims and lowercases platform values', () => {
+    expect(normalizeCsvAccountRow({ name: 'Mail', platform: 'Google' })?.platform).toBe('google')
+    expect(normalizeCsvAccountRow({ name: 'Work', platform: ' MICROSOFT ' })?.platform).toBe('microsoft')
   })
 })

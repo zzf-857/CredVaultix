@@ -3,6 +3,28 @@ import path from 'path'
 
 export type AppPreferences = Record<string, unknown>
 
+export const KNOWN_PREFERENCE_KEYS = [
+  'sidebarWidth',
+  'sidebarCollapsed',
+  'accountsListWidth',
+  'twoFactorAlignment',
+  'themeMode',
+  'accountsPinnedIds',
+  'accountsCustomOrder',
+  'serviceSortMode',
+  'clipboardAutoClear',
+  'twoFactorGroupOrder',
+  'twoFactorCollapsedGroups',
+] as const
+
+function pickKnownPreferences(patch: AppPreferences): AppPreferences {
+  const filtered: AppPreferences = {}
+  for (const key of KNOWN_PREFERENCE_KEYS) {
+    if (key in patch) filtered[key] = patch[key]
+  }
+  return filtered
+}
+
 export function getPreferencesPath(userDataPath: string) {
   return path.join(userDataPath, 'preferences.json')
 }
@@ -33,7 +55,14 @@ function writePreferences(userDataPath: string, preferences: AppPreferences) {
 }
 
 export function updatePreferences(userDataPath: string, patch: AppPreferences) {
-  const next = { ...readPreferences(userDataPath), ...patch }
+  const next = { ...readPreferences(userDataPath), ...pickKnownPreferences(patch) }
+  writePreferences(userDataPath, next)
+  return next
+}
+
+/** Full replace of known preference keys only. Unknown keys are stripped; leftover file keys are not merged. */
+export function replacePreferences(userDataPath: string, preferences: AppPreferences) {
+  const next = pickKnownPreferences(preferences)
   writePreferences(userDataPath, next)
   return next
 }

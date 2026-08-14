@@ -10,6 +10,11 @@ describe('assertValidJsonBackup', () => {
       secretGroups: [],
       secretServices: [],
     })).not.toThrow()
+    expect(() => assertValidJsonBackup({
+      accounts: [],
+      totpAccounts: [],
+      preferences: { themeMode: 'light', sidebarCollapsed: true },
+    })).not.toThrow()
   })
 
   it('rejects unrelated JSON and malformed arrays before destructive import', () => {

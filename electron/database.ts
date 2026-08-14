@@ -71,6 +71,7 @@ export function initDatabase() {
       counter INTEGER DEFAULT 0,
       linked_account_id TEXT DEFAULT NULL,
       sort_order INTEGER DEFAULT 0,
+      source TEXT NOT NULL DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -194,6 +195,14 @@ export function initDatabase() {
   } catch (e: any) {
     if (!e.message.includes('duplicate column name')) {
       console.error('Migration error for linked_account_id:', e)
+    }
+  }
+
+  try {
+    db.prepare("ALTER TABLE totp_accounts ADD COLUMN source TEXT NOT NULL DEFAULT ''").run()
+  } catch (e: any) {
+    if (!e.message.includes('duplicate column name')) {
+      console.error('Migration error for totp_accounts.source:', e)
     }
   }
 

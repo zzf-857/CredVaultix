@@ -78,6 +78,18 @@ export function createCopyFeedbackManager({
   }
 }
 
+// Clipboard writes go through the main process so it can auto-clear sensitive
+// values later; fall back to the browser clipboard outside Electron.
+async function writeClipboardText(value: string) {
+  const electronAPI = typeof window !== 'undefined' ? window.electronAPI : undefined
+  if (electronAPI?.copyText) {
+    const result = await electronAPI.copyText(value)
+    if (!result?.success) throw new Error('剪贴板不可用')
+    return
+  }
+  await navigator.clipboard.writeText(value)
+}
+
 export default function useCopyFeedback(durationMs = 1500) {
   const [copiedKey, setCopiedKey] = useState<FeedbackKey>(null)
   const managerRef = useRef<CopyFeedbackManager | null>(null)
@@ -85,7 +97,7 @@ export default function useCopyFeedback(durationMs = 1500) {
   if (!managerRef.current) {
     managerRef.current = createCopyFeedbackManager({
       durationMs,
-      writeText: (value) => navigator.clipboard.writeText(value),
+      writeText: writeClipboardText,
       onFeedbackChange: setCopiedKey,
     })
   }

@@ -36,6 +36,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import { v4 as uuidv4 } from 'uuid'
 import { useStore } from '../../stores/useStore'
 import type { SecretFieldGroupRow, SecretFieldRow } from '../../types'
+import { fieldsHaveUndecryptableValues, UNDECRYPTABLE_VALUES_HINT } from '../../utils/decryptionHealth'
 import { getGroupedItems, moveIdsBefore, sortServiceInfoItems } from '../../utils/serviceInfoGrouping'
 import EmptyState from '../common/EmptyState'
 import SectionLabel from '../common/SectionLabel'
@@ -739,6 +740,11 @@ export default function ServiceDetail() {
       />
 
       <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'surface.sunken' }}>
+        {fieldsHaveUndecryptableValues(fields) && (
+          <Alert severity="warning" sx={{ mb: 1.5 }}>
+            {UNDECRYPTABLE_VALUES_HINT}
+          </Alert>
+        )}
         <ServiceFieldGroup
           title="未分组"
           fields={groupedFields.ungrouped}

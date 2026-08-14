@@ -40,6 +40,7 @@ describe('account store loading', () => {
     const { useStore } = await import('./useStore')
     useStore.setState({ accountSearchQuery: 'other account', accountPlatformFilter: 'microsoft' })
 
+    const focusNonce = useStore.getState().accountFocusNonce
     useStore.getState().navigateToAccount('target-account')
 
     expect(useStore.getState()).toMatchObject({
@@ -47,6 +48,7 @@ describe('account store loading', () => {
       selectedAccountId: 'target-account',
       accountSearchQuery: '',
       accountPlatformFilter: 'all',
+      accountFocusNonce: focusNonce + 1,
     })
   })
 
@@ -91,6 +93,75 @@ describe('account store loading', () => {
     expect(result.id).toBeTruthy()
     expect(result.refreshFailed).toBe(true)
     expect(createTotpAccount).toHaveBeenCalledTimes(1)
+  })
+
+  it('prunes pinned and custom-order preferences when an account is hard deleted', async () => {
+    const updateAppPreferences = vi.fn().mockResolvedValue({})
+    vi.stubGlobal('window', {
+      electronAPI: {
+        hardDeleteAccount: vi.fn().mockResolvedValue({ success: true }),
+        getAccounts: vi.fn().mockResolvedValue([]),
+        getTotpAccounts: vi.fn().mockResolvedValue([]),
+        updateAppPreferences,
+      },
+    })
+    const { useStore } = await import('./useStore')
+    useStore.setState({
+      accountsPinnedIds: ['account-1', 'account-2'],
+      accountsCustomOrder: ['account-2', 'account-1'],
+    })
+
+    await useStore.getState().hardDeleteAccount('account-1')
+
+    expect(useStore.getState().accountsPinnedIds).toEqual(['account-2'])
+    expect(useStore.getState().accountsCustomOrder).toEqual(['account-2'])
+    expect(updateAppPreferences).toHaveBeenCalledWith({
+      accountsPinnedIds: ['account-2'],
+      accountsCustomOrder: ['account-2'],
+    })
+  })
+
+  it('leaves preferences untouched when the hard-deleted account was never pinned or ordered', async () => {
+    const updateAppPreferences = vi.fn().mockResolvedValue({})
+    vi.stubGlobal('window', {
+      electronAPI: {
+        hardDeleteAccount: vi.fn().mockResolvedValue({ success: true }),
+        getAccounts: vi.fn().mockResolvedValue([]),
+        getTotpAccounts: vi.fn().mockResolvedValue([]),
+        updateAppPreferences,
+      },
+    })
+    const { useStore } = await import('./useStore')
+    useStore.setState({
+      accountsPinnedIds: ['account-2'],
+      accountsCustomOrder: ['account-2'],
+    })
+
+    await useStore.getState().hardDeleteAccount('account-1')
+
+    expect(updateAppPreferences).not.toHaveBeenCalled()
+  })
+
+  it('reloads app preferences after a successful database import', async () => {
+    const getAppPreferences = vi.fn().mockResolvedValue({ themeMode: 'light' })
+    vi.stubGlobal('window', {
+      electronAPI: {
+        importDatabase: vi.fn().mockResolvedValue({ success: true }),
+        getAppPreferences,
+        getTotpAccounts: vi.fn().mockResolvedValue([]),
+        getAccounts: vi.fn().mockResolvedValue([]),
+        getDeletedSecretServices: vi.fn().mockResolvedValue([]),
+        getServiceInfo: vi.fn().mockResolvedValue({ groups: [], services: [] }),
+        updateAppPreferences: vi.fn().mockResolvedValue({}),
+      },
+    })
+    const { useStore } = await import('./useStore')
+
+    const result = await useStore.getState().importDatabase()
+
+    expect(result.success).toBe(true)
+    expect(getAppPreferences).toHaveBeenCalled()
+    expect(useStore.getState().themeMode).toBe('light')
   })
 
   it('keeps the current account selected when a stale delete does not commit', async () => {

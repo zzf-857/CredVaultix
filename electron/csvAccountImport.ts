@@ -1,4 +1,4 @@
-import { parseOtpAuthUri, type ParsedOtpAuthUri } from '../shared/otpAuth'
+import { normalizeOtpInput, type ParsedOtpAuthUri } from '../shared/otpAuth'
 
 export interface NormalizedCsvAccount {
   name: string
@@ -28,20 +28,18 @@ export function normalizeCsvAccountRow(row: Record<string, unknown>): Normalized
   const name = text(row.name || row.url || row.title || '未命名账号').trim()
   const username = text(row.username || row.login || row.email).trim()
   const totpValue = text(row.totp || row.authenticator).trim()
-  const isOtpUri = totpValue.toLowerCase().startsWith('otpauth://')
-  const otp = isOtpUri ? parseOtpAuthUri(totpValue) : null
-  const invalidTotpUri = Boolean(isOtpUri && !otp)
+  const normalizedOtp = normalizeOtpInput(totpValue)
 
   return {
     name,
-    platform: text(row.platform || row.type),
+    platform: text(row.platform || row.type).trim().toLowerCase(),
     username,
     password: text(row.password),
     phone: text(row.phone).trim(),
     backupEmail: text(row.backup_email || row.recovery_email).trim(),
     notes: text(row.note || row.notes),
-    totpSecret: invalidTotpUri ? '' : otp?.secret || totpValue.replace(/\s/g, '').toUpperCase(),
-    otp,
-    invalidTotpUri,
+    totpSecret: normalizedOtp ? normalizedOtp.secret : '',
+    otp: normalizedOtp ? normalizedOtp.parsedUri : null,
+    invalidTotpUri: !normalizedOtp,
   }
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addTagToAccount, deleteTag, getAccountTags, MAX_ACCOUNT_TAG_LENGTH, removeTagFromAccount } from './accountTagRepository'
+import { addTagToAccount, deleteTag, getAccountTags, MAX_ACCOUNT_TAG_LENGTH, removeTagFromAccount, updateTags } from './accountTagRepository'
 import { TestSqliteDatabase } from './testSqlite'
 
 const dependencies = {
@@ -118,6 +118,40 @@ describe('account tag repository', () => {
     })
     expect(db.prepare('SELECT COUNT(*) AS value FROM accounts').get()?.value).toBe(2)
     expect(db.prepare('SELECT COUNT(*) AS value FROM tags').get()?.value).toBe(0)
+  })
+
+  it('renames and recolors tags in one transaction', () => {
+    addTagToAccount(db as any, { accountId: 'account-1', tagName: 'GitHub' }, dependencies)
+    addTagToAccount(db as any, { accountId: 'account-2', tagName: 'github' }, dependencies)
+
+    expect(updateTags(db as any, [
+      { id: 'tag-1', name: 'GitHub Work', color: '#81c995' },
+    ], dependencies.now)).toEqual({
+      success: true,
+      changedCount: 1,
+      affectedAccounts: 2,
+    })
+    expect(db.prepare("SELECT name, color FROM tags WHERE id = 'tag-1'").get()).toEqual({
+      name: 'GitHub Work',
+      color: '#81c995',
+    })
+    expect(db.prepare('SELECT COUNT(*) AS value FROM accounts WHERE updated_at = ?').get(dependencies.now())?.value).toBe(2)
+  })
+
+  it('rejects duplicate names and invalid colors before writing', () => {
+    addTagToAccount(db as any, { accountId: 'account-1', tagName: 'GitHub' }, dependencies)
+    db.prepare("INSERT INTO tags (id, name, color) VALUES ('tag-2', 'Discord', '#f2b8b5')").run()
+
+    expect(() => updateTags(db as any, [
+      { id: 'tag-1', name: 'Discord', color: '#a8c7fa' },
+    ])).toThrow(/同名/)
+    expect(() => updateTags(db as any, [
+      { id: 'tag-1', name: 'GitHub', color: 'blue' },
+    ])).toThrow(/颜色/)
+    expect(db.prepare("SELECT name, color FROM tags WHERE id = 'tag-1'").get()).toEqual({
+      name: 'GitHub',
+      color: '#a8c7fa',
+    })
   })
 
   it('returns a no-op result for an unknown tag id', () => {

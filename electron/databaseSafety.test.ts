@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_BACKUPS_PER_REASON,
   assertCountsNotReduced,
   assertFullWalCheckpoint,
   backupDatabaseIfExists,
@@ -168,6 +169,75 @@ describe('TOTP encryption migration detection', () => {
       expect(second.filePath?.endsWith('-2.db')).toBe(true)
       expect(readFileSync(first.filePath!, 'utf-8')).toBe('first')
       expect(readFileSync(second.filePath!, 'utf-8')).toBe('second')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('backup retention', () => {
+  it('keeps only the newest backups of the same reason and never touches other files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'credvaultix-backup-retention-'))
+    try {
+      const dbPath = join(dir, 'credvaultix.db')
+      writeFileSync(dbPath, 'current-data')
+      for (const fileName of [
+        'credvaultix-before-migration-2026-07-01-100000.db',
+        'credvaultix-before-migration-2026-07-01-100001.db',
+        'credvaultix-before-migration-2026-07-01-100002.db',
+        'credvaultix-before-migration-2026-07-01-100003.db',
+        'credvaultix-before-migration-2026-07-01-100004.db',
+        'credvaultix-before-migration-2026-07-01-100005.db',
+        'credvaultix-before-import-2026-07-01-100000.db',
+        'credvaultix-before-import-2026-07-01-100001.db',
+        'notes.txt',
+      ]) {
+        writeFileSync(join(dir, fileName), 'old-data')
+      }
+
+      const result = backupDatabaseIfExists(dbPath, dir, new Date('2026-07-01T10:11:12.000Z'))
+
+      expect(result.created).toBe(true)
+      expect(MAX_BACKUPS_PER_REASON).toBe(5)
+      expect(readdirSync(dir).sort()).toEqual([
+        'credvaultix-before-import-2026-07-01-100000.db',
+        'credvaultix-before-import-2026-07-01-100001.db',
+        'credvaultix-before-migration-2026-07-01-100002.db',
+        'credvaultix-before-migration-2026-07-01-100003.db',
+        'credvaultix-before-migration-2026-07-01-100004.db',
+        'credvaultix-before-migration-2026-07-01-100005.db',
+        'credvaultix-before-migration-2026-07-01-101112.db',
+        'credvaultix.db',
+        'notes.txt',
+      ].sort())
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('prunes the suffix-free backup before its same-second -2 sibling', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'credvaultix-backup-suffix-'))
+    try {
+      const dbPath = join(dir, 'credvaultix.db')
+      writeFileSync(dbPath, 'current-data')
+      for (const fileName of [
+        'credvaultix-before-migration-2026-07-01-101112.db',
+        'credvaultix-before-migration-2026-07-01-101112-2.db',
+        'credvaultix-before-migration-2026-07-01-101113.db',
+        'credvaultix-before-migration-2026-07-01-101114.db',
+        'credvaultix-before-migration-2026-07-01-101115.db',
+      ]) {
+        writeFileSync(join(dir, fileName), 'old-data')
+      }
+
+      backupDatabaseIfExists(dbPath, dir, new Date('2026-07-01T10:11:16.000Z'))
+
+      const remaining = readdirSync(dir)
+      expect(remaining).not.toContain('credvaultix-before-migration-2026-07-01-101112.db')
+      expect(remaining).toContain('credvaultix-before-migration-2026-07-01-101112-2.db')
+      expect(remaining).toContain('credvaultix-before-migration-2026-07-01-101116.db')
+      expect(remaining.filter((name) => name.startsWith('credvaultix-before-migration-')))
+        .toHaveLength(MAX_BACKUPS_PER_REASON)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

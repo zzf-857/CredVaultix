@@ -64,6 +64,7 @@ interface AppState {
   themeMode: 'dark' | 'light'
   navigationBlockReason: string | null
   dataRevision: number
+  accountFocusNonce: number
 
   accountsPinnedIds: string[]
   accountsCustomOrder: string[]
@@ -113,6 +114,7 @@ interface AppState {
   addAccountTag: (accountId: string, tagName: string) => Promise<{ tagId: string; linked?: boolean } & MutationRefreshResult>
   removeAccountTag: (accountId: string, tagId: string) => Promise<{ success: boolean; removed?: boolean; deletedUnusedTag?: boolean } & MutationRefreshResult>
   deleteTag: (tagId: string) => Promise<{ success: boolean; tagName: string; affectedAccounts: number; removedLinks: number } & MutationRefreshResult>
+  updateTags: (patches: Array<{ id: string; name: string; color: string }>) => Promise<{ success: boolean; changedCount: number; affectedAccounts: number } & MutationRefreshResult>
   navigateToAccount: (accountId: string) => void
 
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
@@ -142,6 +144,7 @@ export const useStore = create<AppState>((set, get) => ({
   themeMode: 'dark',
   navigationBlockReason: null,
   dataRevision: 0,
+  accountFocusNonce: 0,
 
   accountsPinnedIds: [],
   accountsCustomOrder: [],
@@ -294,13 +297,22 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadAccounts: async () => {
     const state = get()
+    const requestedSearch = state.accountSearchQuery
+    const requestedPlatform = state.accountPlatformFilter
     const accounts = await window.electronAPI.getAccounts({
-      search: state.accountSearchQuery || undefined,
-      platform: state.accountPlatformFilter,
+      search: requestedSearch || undefined,
+      platform: requestedPlatform,
       isDeleted: false,
     })
 
     const latestState = get()
+    if (
+      latestState.accountSearchQuery !== requestedSearch
+      || latestState.accountPlatformFilter !== requestedPlatform
+    ) {
+      return
+    }
+
     const selectedAccountId = latestState.selectedAccountId
     const preserveSelectedDraft = Boolean(latestState.navigationBlockReason)
     set({
@@ -414,6 +426,19 @@ export const useStore = create<AppState>((set, get) => ({
     const result = await window.electronAPI.hardDeleteAccount(id)
     if (!result.success) throw new Error('账号不存在或不在回收站中')
     set((state) => ({ trashAccounts: state.trashAccounts.filter((account) => account.id !== id) }))
+
+    // Pinned/custom-order preferences would otherwise keep the deleted id forever.
+    const state = get()
+    const accountsPinnedIds = state.accountsPinnedIds.filter((pinnedId) => pinnedId !== id)
+    const accountsCustomOrder = state.accountsCustomOrder.filter((orderedId) => orderedId !== id)
+    if (
+      accountsPinnedIds.length !== state.accountsPinnedIds.length
+      || accountsCustomOrder.length !== state.accountsCustomOrder.length
+    ) {
+      set({ accountsPinnedIds, accountsCustomOrder })
+      void window.electronAPI.updateAppPreferences({ accountsPinnedIds, accountsCustomOrder })
+    }
+
     const refreshFailed = await settleRefreshes('account hard delete', [get().loadTrashAccounts(), get().loadAllAccounts(), get().loadTotpAccounts()])
     return { refreshFailed }
   },
@@ -454,13 +479,22 @@ export const useStore = create<AppState>((set, get) => ({
     return { ...result, refreshFailed }
   },
 
+  updateTags: async (patches) => {
+    const result = await window.electronAPI.updateTags(patches)
+    const refreshFailed = result.success
+      ? await settleRefreshes('account tag update', [get().loadAccounts(), get().loadAllAccounts()])
+      : false
+    return { ...result, refreshFailed }
+  },
+
   navigateToAccount: (accountId) => {
-    set({
+    set((state) => ({
       activeView: 'accounts',
       selectedAccountId: accountId,
       accountSearchQuery: '',
       accountPlatformFilter: 'all',
-    })
+      accountFocusNonce: state.accountFocusNonce + 1,
+    }))
   },
 
   exportDatabase: async () => {
@@ -478,6 +512,7 @@ export const useStore = create<AppState>((set, get) => ({
         get().loadTrashAccounts(),
         get().loadServiceInfo(),
         get().loadTrashServices(),
+        get().loadAppPreferences(),
       ])
       set((state) => ({ dataRevision: state.dataRevision + 1 }))
     }

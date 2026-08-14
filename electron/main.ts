@@ -1,4 +1,4 @@
-import { app, autoUpdater as electronAutoUpdater, BrowserWindow, clipboard, ipcMain, dialog, nativeImage, shell } from 'electron'
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, clipboard, ipcMain, dialog, nativeImage, session, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import Database from 'better-sqlite3'
 import path from 'path'
@@ -20,7 +20,7 @@ import {
   readServiceInfoBackupData,
   restoreLegacyServiceAccountLinks,
 } from './serviceInfoBackup'
-import { readPreferences, resetPreferences, updatePreferences } from './preferencesStore'
+import { readPreferences, replacePreferences, resetPreferences, updatePreferences } from './preferencesStore'
 import { registerServiceInfoIpc } from './serviceInfoRepository'
 import { accountMatchesSearch } from './accountSearch'
 import { assertValidJsonBackup } from './backupValidation'
@@ -45,7 +45,11 @@ import {
   normalizeTotpQrImageInput,
   type TotpQrImageInput,
 } from './totpQrImageRepository'
-import { addTagToAccount, deleteTag, getAccountTags, removeTagFromAccount } from './accountTagRepository'
+import { getLinkedTotpByAccountIds, getTagsByAccountIds } from './accountHydration'
+import { pickTagColor } from '../shared/tagColors'
+import { normalizeTotpSource } from '../shared/totpSource'
+import { createClipboardGuard } from './clipboardGuard'
+import { addTagToAccount, deleteTag, getAccountTags, removeTagFromAccount, updateTags } from './accountTagRepository'
 import { addAccountField, deleteAccountField, updateAccountField } from './accountFieldRepository'
 import { hardDeleteAccountRecord, moveAccountToTrash, restoreAccountFromTrash } from './accountLifecycleRepository'
 import { UpdaterController } from './updaterController'
@@ -67,7 +71,7 @@ const APP_NAME = 'CredVaultix'
 const RELEASE_URL = 'https://github.com/zzf-857/CredVaultix/releases/latest'
 const LEGACY_DATABASE_FILE_NAME = 'account-manager.db'
 const DATA_TABLES = [...PROTECTED_TABLES, ...SERVICE_INFO_TABLES]
-const TAG_COLOR_PALETTE = ['#a8c7fa', '#81c995', '#f2b8b5', '#fdd663', '#d7aefb', '#78d9ec', '#fcb68e']
+const CLIPBOARD_AUTO_CLEAR_MS = 30_000
 let isQuittingForUpdate = false
 let updaterController: UpdaterController | null = null
 let updateSnapshot: UpdateSnapshot | null = null
@@ -135,11 +139,6 @@ function getAppIconPath() {
 
 function isSqliteDatabasePath(filePath: string) {
   return path.extname(filePath).toLowerCase() === '.db'
-}
-
-function pickTagColor(name: string) {
-  const seed = Array.from(name).reduce((total, char) => total + char.charCodeAt(0), 0)
-  return TAG_COLOR_PALETTE[seed % TAG_COLOR_PALETTE.length]
 }
 
 function backupCurrentDatabaseBeforeImport(currentDb: Database.Database) {
@@ -488,6 +487,11 @@ if (hasSingleInstanceLock) {
       migrateLegacyUserDataToCredVaultix()
     }
 
+    // The renderer never needs runtime permissions beyond sanitized clipboard writes.
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      callback(permission === 'clipboard-sanitized-write')
+    })
+
     initDatabase()
     registerIpcHandlers()
     createWindow()
@@ -511,52 +515,31 @@ function registerIpcHandlers() {
   )
   ipcMain.handle('preferences:reset', () => resetPreferences(app.getPath('userData')))
 
-  const getTagsForAccount = (accountId: string) => {
-    return db.prepare(`
-      SELECT t.*
-      FROM tags t
-      INNER JOIN account_tags at ON at.tag_id = t.id
-      WHERE at.account_id = ?
-      ORDER BY t.name ASC
-    `).all(accountId)
-  }
+  // Tags and linked 2FA rows are fetched in batches to avoid per-account queries
+  // when hydrating full account lists (search re-runs this on every reload).
+  const hydrateAccountRows = (rows: any[]) => {
+    const accountIds = rows.map((row) => row.id)
+    const tagsByAccount = getTagsByAccountIds(db, accountIds)
+    const linkedTotpByAccount = getLinkedTotpByAccountIds(db, accountIds, { decrypt })
 
-  const getLinkedTotpAccounts = (accountId: string) => {
-    return (db.prepare(`
-      SELECT
-        t.*,
-        EXISTS (
-          SELECT 1
-          FROM totp_qr_images qi
-          WHERE qi.totp_account_id = t.id
-        ) AS has_qr_image
-      FROM totp_accounts t
-      WHERE t.linked_account_id = ?
-      ORDER BY t.created_at ASC, t.id ASC
-    `).all(accountId) as any[]).map((totpAccount) => ({
-      ...totpAccount,
-      secret: decrypt(totpAccount.secret),
-      has_qr_image: Boolean(totpAccount.has_qr_image),
-    }))
-  }
-
-  const hydrateAccountRow = (row: any) => {
-    const linkedTotpAccounts = getLinkedTotpAccounts(row.id)
-    return {
-      ...row,
-      platform: normalizeAccountPlatform(row.platform),
-      username: decrypt(row.username),
-      password: decrypt(row.password),
-      phone: decrypt(row.phone),
-      backup_email: decrypt(row.backup_email),
-      // A single linked 2FA record is authoritative; duplicate legacy rows are surfaced instead of auto-resolved.
-      totp_secret: linkedTotpAccounts.length === 1
-        ? linkedTotpAccounts[0].secret
-        : decrypt(row.totp_secret),
-      linked_totp_accounts: linkedTotpAccounts,
-      linked_totp_count: linkedTotpAccounts.length,
-      tags: getTagsForAccount(row.id),
-    }
+    return rows.map((row) => {
+      const linkedTotpAccounts = linkedTotpByAccount.get(row.id) || []
+      return {
+        ...row,
+        platform: normalizeAccountPlatform(row.platform),
+        username: decrypt(row.username),
+        password: decrypt(row.password),
+        phone: decrypt(row.phone),
+        backup_email: decrypt(row.backup_email),
+        // A single linked 2FA record is authoritative; duplicate legacy rows are surfaced instead of auto-resolved.
+        totp_secret: linkedTotpAccounts.length === 1
+          ? linkedTotpAccounts[0].secret
+          : decrypt(row.totp_secret),
+        linked_totp_accounts: linkedTotpAccounts,
+        linked_totp_count: linkedTotpAccounts.length,
+        tags: tagsByAccount.get(row.id) || [],
+      }
+    })
   }
 
   // Window controls
@@ -573,6 +556,16 @@ function registerIpcHandlers() {
     hasUnsavedRendererChanges = Boolean(hasUnsavedChanges)
   })
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized())
+
+  // ============ Clipboard ============
+  const clipboardGuard = createClipboardGuard(clipboard)
+  ipcMain.handle('clipboard:copyText', (_event, value: unknown) => {
+    const text = typeof value === 'string' ? value : String(value ?? '')
+    const preferences = readPreferences(app.getPath('userData')) as { clipboardAutoClear?: unknown }
+    const autoClearMs = preferences.clipboardAutoClear !== false ? CLIPBOARD_AUTO_CLEAR_MS : null
+    clipboardGuard.copyText(text, autoClearMs)
+    return { success: true, autoClearMs }
+  })
 
   // ============ Accounts ============
   ipcMain.handle('accounts:getAll', (_event, filters?: { search?: string; favoritesOnly?: boolean; isDeleted?: boolean; platform?: string }) => {
@@ -599,7 +592,7 @@ function registerIpcHandlers() {
     query += ' ORDER BY updated_at DESC'
 
     const rows = db.prepare(query).all(...params) as any[]
-    const hydratedRows = rows.map(hydrateAccountRow)
+    const hydratedRows = hydrateAccountRows(rows)
     return filters?.search
       ? hydratedRows.filter((account) => accountMatchesSearch(account, filters.search || ''))
       : hydratedRows
@@ -608,7 +601,7 @@ function registerIpcHandlers() {
   ipcMain.handle('accounts:getById', (_event, id: string) => {
     const row = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as any
     if (!row) return null
-    const hydrated = hydrateAccountRow(row)
+    const hydrated = hydrateAccountRows([row])[0]
 
     // Get custom fields
     const fields = db.prepare('SELECT * FROM account_custom_fields WHERE account_id = ? ORDER BY sort_order ASC').all(id) as any[]
@@ -683,8 +676,8 @@ function registerIpcHandlers() {
     const insertTotp = db.prepare(`
       INSERT INTO totp_accounts (
         id, issuer, label, secret, algorithm, digits, period, otp_type,
-        counter, linked_account_id, sort_order, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        counter, linked_account_id, sort_order, created_at, source
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     const maxTotpOrder = db.prepare('SELECT MAX(sort_order) as maxOrder FROM totp_accounts').get() as { maxOrder?: number | null } | undefined
     let nextTotpOrder = (maxTotpOrder?.maxOrder || 0) + 1
@@ -721,7 +714,8 @@ function registerIpcHandlers() {
             normalized.otp?.counter || 0,
             id,
             nextTotpOrder,
-            now
+            now,
+            ''
           )
           nextTotpOrder += 1
         }
@@ -743,6 +737,9 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('accounts:deleteTag', (_event, tagId: string) => deleteTag(db, tagId))
+  ipcMain.handle('accounts:updateTags', (_event, patches: Array<{ id: string; name: string; color: string }>) => (
+    updateTags(db, patches)
+  ))
 
   // ============ Custom Fields ============
   ipcMain.handle('accounts:addField', (_event, data: { id: string; accountId: string; fieldName: string; fieldValue: string; isSecret: boolean }) => {
@@ -898,6 +895,7 @@ function registerIpcHandlers() {
         accountCustomFields: db.prepare('SELECT * FROM account_custom_fields').all(),
         accountTags: db.prepare('SELECT * FROM account_tags').all(),
         ...readServiceInfoBackupData(db),
+        preferences: readPreferences(app.getPath('userData')),
       }
       fs.writeFileSync(result.filePath, JSON.stringify(data, null, 2), 'utf-8')
     }
@@ -974,11 +972,11 @@ function registerIpcHandlers() {
 
         const insertTag = db.prepare('INSERT INTO tags (id, name, color) VALUES (?, ?, ?)')
         for (const t of data.tags || []) {
-          insertTag.run(t.id, t.name, t.color)
+          insertTag.run(t.id, t.name, t.color || pickTagColor(String(t.name || '')))
         }
 
         // Import TOTP accounts
-        const insertTotp = db.prepare('INSERT INTO totp_accounts (id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        const insertTotp = db.prepare('INSERT INTO totp_accounts (id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id, sort_order, created_at, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         for (const a of data.totpAccounts || []) {
           insertTotp.run(
             a.id,
@@ -992,7 +990,8 @@ function registerIpcHandlers() {
             normalizeOtpCounter(a.counter),
             a.linked_account_id || null,
             a.sort_order || 0,
-            a.created_at
+            a.created_at,
+            normalizeTotpSource(a.source)
           )
         }
 
@@ -1071,6 +1070,11 @@ function registerIpcHandlers() {
       })
 
       importTransaction()
+
+      const importedPreferences = data.preferences
+      if (importedPreferences && typeof importedPreferences === 'object' && !Array.isArray(importedPreferences)) {
+        replacePreferences(app.getPath('userData'), importedPreferences as Record<string, unknown>)
+      }
     }
 
     return { success: true }

@@ -12,6 +12,9 @@ export interface AppPreferences {
   accountsPinnedIds?: string[]
   accountsCustomOrder?: string[]
   serviceSortMode?: ServiceInfoSortMode
+  clipboardAutoClear?: boolean
+  twoFactorGroupOrder?: string[]
+  twoFactorCollapsedGroups?: string[]
 }
 
 export interface ElectronAPI {
@@ -20,6 +23,7 @@ export interface ElectronAPI {
   close: () => void
   isMaximized: () => Promise<boolean>
   setUnsavedChanges: (hasUnsavedChanges: boolean) => void
+  copyText: (text: string) => Promise<{ success: boolean; autoClearMs: number | null }>
 
   getTotpAccounts: () => Promise<TotpAccountRow[]>
   createTotpAccount: (data: CreateTotpData) => Promise<{ id: string; created?: boolean }>
@@ -42,6 +46,7 @@ export interface ElectronAPI {
   getAccountTags: () => Promise<AccountTagUsageRow[]>
   removeAccountTag: (data: { accountId: string; tagId: string }) => Promise<{ success: boolean; removed?: boolean; deletedUnusedTag?: boolean }>
   deleteTag: (tagId: string) => Promise<{ success: boolean; tagName: string; affectedAccounts: number; removedLinks: number }>
+  updateTags: (patches: Array<{ id: string; name: string; color: string }>) => Promise<{ success: boolean; changedCount: number; affectedAccounts: number }>
 
   addAccountField: (data: { id: string; accountId: string; fieldName: string; fieldValue: string; isSecret: boolean }) => Promise<{ id: string }>
   updateAccountField: (id: string, data: { fieldName?: string; fieldValue?: string; isSecret?: boolean }) => Promise<{ success: boolean }>
@@ -109,6 +114,7 @@ export interface TotpAccountRow {
   created_at: string
   linked_account_state?: 'active' | 'trashed' | 'missing' | 'unlinked'
   has_qr_image?: boolean
+  source?: string
 }
 
 export interface TotpQrImageInput {
@@ -319,6 +325,7 @@ export interface CreateTotpData {
   otpType?: string
   counter?: number
   linkedAccountId?: string
+  source?: string
   qrImage?: TotpQrImageInput | null
 }
 
@@ -338,6 +345,7 @@ export interface UpdateTotpData {
   period?: number
   otpType?: string
   counter?: number
+  source?: string
   qrImage?: TotpQrImageInput | null
 }
 

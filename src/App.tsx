@@ -14,6 +14,7 @@ const TrashManager = lazy(() => import('./components/TrashManager'))
 export default function App() {
   const themeMode = useStore((s) => s.themeMode)
   const activeView = useStore((s) => s.activeView)
+  const dataRevision = useStore((s) => s.dataRevision)
   const loadAppPreferences = useStore((s) => s.loadAppPreferences)
 
   const [sidebarWidth, setSidebarWidth] = useState(240)
@@ -40,7 +41,7 @@ export default function App() {
     return () => {
       mounted = false
     }
-  }, [loadAppPreferences])
+  }, [dataRevision, loadAppPreferences])
 
   const persistSidebarWidth = (width: number) => {
     setSidebarWidth(width)

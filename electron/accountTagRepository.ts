@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { isTagColor } from '../shared/tagColors'
 
 export const MAX_ACCOUNT_TAG_LENGTH = 64
 
@@ -72,6 +73,64 @@ export function removeTagFromAccount(
       }
     }
     return { success: result.changes > 0, removed: result.changes > 0, deletedUnusedTag }
+  })()
+}
+
+export function updateTags(
+  db: Database.Database,
+  patches: Array<{ id: string; name: string; color: string }>,
+  now = () => new Date().toISOString()
+) {
+  if (!Array.isArray(patches)) throw new Error('标签更新列表无效')
+
+  return db.transaction(() => {
+    const seenNames = new Map<string, string>()
+    const normalized = patches.map((patch) => {
+      const id = String(patch?.id || '').trim()
+      if (!id) throw new Error('标签 ID 不能为空')
+      const name = normalizeTagName(patch.name)
+      const color = String(patch.color || '').trim()
+      if (!isTagColor(color)) throw new Error('标签颜色格式无效')
+      const nameKey = name.toLocaleLowerCase()
+      const existingId = seenNames.get(nameKey)
+      if (existingId && existingId !== id) {
+        throw new Error(`存在重复的标签名称“${name}”`)
+      }
+      seenNames.set(nameKey, id)
+      return { id, name, color }
+    })
+
+    let changedCount = 0
+    const affectedAccountIds = new Set<string>()
+
+    for (const patch of normalized) {
+      const tag = db.prepare('SELECT id, name, color FROM tags WHERE id = ?').get(patch.id) as
+        | { id: string; name: string; color: string }
+        | undefined
+      if (!tag) throw new Error('标签不存在或已经删除')
+
+      const conflict = db.prepare('SELECT id FROM tags WHERE lower(name) = lower(?) AND id != ?')
+        .get(patch.name, patch.id) as { id: string } | undefined
+      if (conflict) throw new Error(`已存在同名标签“${patch.name}”`)
+
+      if (tag.name === patch.name && tag.color === patch.color) continue
+
+      db.prepare('UPDATE tags SET name = ?, color = ? WHERE id = ?').run(patch.name, patch.color, patch.id)
+      changedCount += 1
+      const linked = db.prepare('SELECT account_id AS id FROM account_tags WHERE tag_id = ?').all(patch.id) as Array<{ id: string }>
+      for (const row of linked) affectedAccountIds.add(row.id)
+    }
+
+    const timestamp = now()
+    for (const accountId of affectedAccountIds) {
+      db.prepare('UPDATE accounts SET updated_at = ? WHERE id = ?').run(timestamp, accountId)
+    }
+
+    return {
+      success: true,
+      changedCount,
+      affectedAccounts: affectedAccountIds.size,
+    }
   })()
 }
 

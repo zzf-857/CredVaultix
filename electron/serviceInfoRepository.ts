@@ -178,18 +178,35 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
   })
 
   ipcMain.handle('serviceInfo:updateService', (_event, id: string, data: any) => {
-    const updates: string[] = ['updated_at = ?']
-    const params: any[] = [nowIso()]
-    if (data.groupId !== undefined) { updates.push('group_id = ?'); params.push(normalizeNullableId(data.groupId)) }
-    if (data.linkedAccountId !== undefined) { updates.push('linked_account_id = ?'); params.push(normalizeLinkedAccountId(db, data.linkedAccountId)) }
-    if (data.name !== undefined) { updates.push('name = ?'); params.push(requireName(data.name, 'Service name')) }
-    if (data.description !== undefined) { updates.push('description = ?'); params.push(data.description) }
-    if (data.url !== undefined) { updates.push('url = ?'); params.push(data.url) }
-    if (data.notes !== undefined) { updates.push('notes = ?'); params.push(data.notes) }
-    if (data.isFavorite !== undefined) { updates.push('is_favorite = ?'); params.push(data.isFavorite ? 1 : 0) }
-    params.push(id)
-    const result = db.prepare(`UPDATE secret_services SET ${updates.join(', ')} WHERE id = ? AND is_deleted = 0`).run(...params)
-    return { success: result.changes === 1 }
+    return db.transaction(() => {
+      const current = db
+        .prepare('SELECT group_id FROM secret_services WHERE id = ? AND is_deleted = 0')
+        .get(id) as { group_id: string | null } | undefined
+      if (!current) return { success: false }
+
+      const updates: string[] = ['updated_at = ?']
+      const params: any[] = [nowIso()]
+      if (data.groupId !== undefined) {
+        const nextGroupId = normalizeNullableId(data.groupId)
+        updates.push('group_id = ?')
+        params.push(nextGroupId)
+        // The edit dialog always sends the current groupId back; only append to the
+        // target group's order when the group actually changes.
+        if (nextGroupId !== (current.group_id ?? null)) {
+          updates.push('sort_order = ?')
+          params.push(nextServiceSortOrder(db, nextGroupId))
+        }
+      }
+      if (data.linkedAccountId !== undefined) { updates.push('linked_account_id = ?'); params.push(normalizeLinkedAccountId(db, data.linkedAccountId)) }
+      if (data.name !== undefined) { updates.push('name = ?'); params.push(requireName(data.name, 'Service name')) }
+      if (data.description !== undefined) { updates.push('description = ?'); params.push(data.description) }
+      if (data.url !== undefined) { updates.push('url = ?'); params.push(data.url) }
+      if (data.notes !== undefined) { updates.push('notes = ?'); params.push(data.notes) }
+      if (data.isFavorite !== undefined) { updates.push('is_favorite = ?'); params.push(data.isFavorite ? 1 : 0) }
+      params.push(id)
+      const result = db.prepare(`UPDATE secret_services SET ${updates.join(', ')} WHERE id = ? AND is_deleted = 0`).run(...params)
+      return { success: result.changes === 1 }
+    })()
   })
 
   ipcMain.handle('serviceInfo:deleteService', (_event, id: string) => {

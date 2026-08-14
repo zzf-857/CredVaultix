@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Box, Typography, IconButton, Button, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions,
@@ -27,6 +27,8 @@ import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter'
 import GoogleIcon from '@mui/icons-material/Google'
 import MicrosoftIcon from '@mui/icons-material/Microsoft'
 import AppsIcon from '@mui/icons-material/Apps'
+import SearchIcon from '@mui/icons-material/Search'
+import ClearIcon from '@mui/icons-material/Clear'
 import QrCode2Icon from '@mui/icons-material/QrCode2'
 import FileUploadOutlinedIcon from '@mui/icons-material/FileUploadOutlined'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
@@ -34,9 +36,26 @@ import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined'
 import * as OTPAuth from 'otpauth'
 import { useStore } from '../stores/useStore'
 import type { TotpAccountRow, TotpQrImageInput, TotpQrImagePayload, UpdateTotpData } from '../types'
-import { parseOtpAuthUri } from '../utils/otpAuth'
+import { parseOtpAuthUri, type ParsedOtpAuthUri } from '../utils/otpAuth'
+import { isOtpAuthMigrationUri, parseOtpAuthMigrationUri } from '../utils/otpAuthMigration'
 import { decodeTotpQrImage } from '../utils/qrImage'
+import {
+  applyTotpGroupOrder,
+  groupTotpAccountsBySource,
+  moveTotpGroupId,
+  normalizeTotpSource,
+  rememberTotpGroupAtEnd,
+  sanitizeTotpGroupIdList,
+  suggestGoogleMigrationSourceName,
+  suggestSingleImportSourceName,
+  toggleTotpGroupCollapsed,
+  totpSourceGroupId,
+} from '../utils/totpSource'
+
+const TOTP_GROUP_DRAG_TYPE = 'application/x-credvaultix-totp-group'
+import { isUndecryptedValue } from '../utils/decryptionHealth'
 import useCopyFeedback from '../hooks/useCopyFeedback'
+import { getTotpRemainingSeconds, getTotpWindow, useSharedNow } from '../hooks/useSharedNow'
 import EmptyState from './common/EmptyState'
 import PageHeader from './common/PageHeader'
 import SectionLabel from './common/SectionLabel'
@@ -75,7 +94,7 @@ function getQrParameterSignature(data: {
   ].join('|')
 }
 
-function generateOtpCode(account: TotpAccountRow): OtpCode {
+function generateOtpCode(account: TotpAccountRow, timestampMs = Date.now()): OtpCode {
   try {
     const secretObj = OTPAuth.Secret.fromBase32(account.secret.replace(/\s/g, '').toUpperCase())
 
@@ -99,10 +118,12 @@ function generateOtpCode(account: TotpAccountRow): OtpCode {
         period: account.period,
         secret: secretObj,
       })
-      const code = totp.generate()
-      const now = Math.floor(Date.now() / 1000)
-      const remaining = account.period - (now % account.period)
-      return { code, remaining, period: account.period }
+      const code = totp.generate({ timestamp: timestampMs })
+      return {
+        code,
+        remaining: getTotpRemainingSeconds(timestampMs, account.period),
+        period: account.period,
+      }
     }
   } catch {
     return { code: '------', remaining: 0, period: 30 }
@@ -156,34 +177,32 @@ function TotpCard({
   onViewQrImage: (account: TotpAccountRow) => void
 }) {
   const [otpCode, setOtpCode] = useState<OtpCode>(() => generateOtpCode(account))
+  const nowMs = useSharedNow()
   const { copiedKey, copy } = useCopyFeedback()
   const copyKey = `card-code:${otpCode.code}`
   const copied = copiedKey === copyKey
   const [showSecret, setShowSecret] = useState(false)
 
   const isHotp = account.otp_type === 'hotp'
+  const totpWindow = isHotp ? account.counter : getTotpWindow(nowMs, account.period)
+  const remaining = isHotp ? -1 : getTotpRemainingSeconds(nowMs, account.period)
+  const secretUndecryptable = isUndecryptedValue(account.secret)
   const linkedAccountState = account.linked_account_state
     || (account.linked_account_id?.startsWith('!deleted-') ? 'missing' : account.linked_account_id ? 'active' : 'unlinked')
   const isOrphaned = linkedAccountState === 'missing'
   const isLinkedAccountTrashed = linkedAccountState === 'trashed'
 
   useEffect(() => {
-    setOtpCode(generateOtpCode(account))
-    if (isHotp) {
-      return
-    }
-    const timer = setInterval(() => {
-      setOtpCode(generateOtpCode(account))
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [account, isHotp])
+    const timestampMs = isHotp ? Date.now() : totpWindow * Math.max(account.period, 1) * 1000
+    setOtpCode(generateOtpCode(account, timestampMs))
+  }, [account, isHotp, totpWindow])
 
   const handleCopy = async () => {
     return copy(otpCode.code, copyKey)
   }
 
-  const progress = !isHotp ? (otpCode.remaining / otpCode.period) * 100 : 100
-  const isUrgent = !isHotp && otpCode.remaining <= 5
+  const progress = !isHotp ? (remaining / account.period) * 100 : 100
+  const isUrgent = !isHotp && remaining <= 5
 
   const formattedCode = otpCode.code.length === 6
     ? `${otpCode.code.slice(0, 3)} ${otpCode.code.slice(3)}`
@@ -233,6 +252,19 @@ function TotpCard({
               {account.issuer || account.label}
             </Typography>
             <OtpTypeBadge type={account.otp_type} />
+            {secretUndecryptable && (
+              <Tooltip title="该记录可能来自其他电脑或其他 Windows 用户的备份，当前环境无法还原密钥" arrow TransitionComponent={Fade}>
+                <Chip
+                  icon={<WarningAmberIcon sx={{ fontSize: '14px !important' }} />}
+                  label="密钥无法解密"
+                  size="small"
+                  sx={{
+                    height: 24, fontSize: '0.68rem', fontWeight: 600, lineHeight: 1.35,
+                    bgcolor: 'surface.sunken', color: 'error.main', border: '1px solid', borderColor: 'error.main',
+                  }}
+                />
+              </Tooltip>
+            )}
             {isOrphaned || isLinkedAccountTrashed ? (
               <Chip
                 icon={<WarningAmberIcon sx={{ fontSize: '14px !important' }} />}
@@ -387,7 +419,7 @@ function TotpCard({
                 textAlign: 'right',
               }}
             >
-              {otpCode.remaining}s
+              {remaining}s
             </Typography>
           )}
 
@@ -461,12 +493,14 @@ function TempTotpDisplay({
   onIncrementCounter: () => void
 }) {
   const [code, setCode] = useState('------')
-  const [remaining, setRemaining] = useState(30)
+  const nowMs = useSharedNow()
   const { copiedKey, copy } = useCopyFeedback()
   const copyKey = `temporary-code:${code}`
   const copied = copiedKey === copyKey
 
   const isHotp = otpType === 'hotp'
+  const totpWindow = isHotp ? counter : getTotpWindow(nowMs, period)
+  const remaining = isHotp ? -1 : getTotpRemainingSeconds(nowMs, period)
 
   useEffect(() => {
     if (!secret || !secret.trim()) {
@@ -474,42 +508,32 @@ function TempTotpDisplay({
       return
     }
 
-    const generate = () => {
-      try {
-        const cleanSecret = secret.replace(/\s/g, '').toUpperCase()
-        const secretObj = OTPAuth.Secret.fromBase32(cleanSecret)
-        
-        if (isHotp) {
-          const hotp = new OTPAuth.HOTP({
-            algorithm: algorithm as any,
-            digits,
-            counter: counter,
-            secret: secretObj,
-          })
-          setCode(hotp.generate({ counter }))
-          setRemaining(-1)
-        } else {
-          const totp = new OTPAuth.TOTP({
-            algorithm: algorithm as any,
-            digits,
-            period,
-            secret: secretObj,
-          })
-          setCode(totp.generate())
-          const now = Math.floor(Date.now() / 1000)
-          setRemaining(period - (now % period))
-        }
-      } catch {
-        setCode('------')
+    try {
+      const cleanSecret = secret.replace(/\s/g, '').toUpperCase()
+      const secretObj = OTPAuth.Secret.fromBase32(cleanSecret)
+
+      if (isHotp) {
+        const hotp = new OTPAuth.HOTP({
+          algorithm: algorithm as any,
+          digits,
+          counter,
+          secret: secretObj,
+        })
+        setCode(hotp.generate({ counter }))
+        return
       }
+
+      const totp = new OTPAuth.TOTP({
+        algorithm: algorithm as any,
+        digits,
+        period,
+        secret: secretObj,
+      })
+      setCode(totp.generate({ timestamp: totpWindow * Math.max(period, 1) * 1000 }))
+    } catch {
+      setCode('------')
     }
-
-    generate()
-    if (isHotp) return
-
-    const timer = setInterval(generate, 1000)
-    return () => clearInterval(timer)
-  }, [secret, otpType, algorithm, digits, period, counter])
+  }, [algorithm, counter, digits, isHotp, period, secret, totpWindow])
 
   const handleCopy = async () => {
     if (code === '------') return false
@@ -676,11 +700,13 @@ export default function TwoFactorPanel() {
     navigateToAccount,
     accountsPinnedIds,
     accountsCustomOrder,
+    dataRevision,
   } = useStore()
 
   // Alignment state with localStorage persistence and safety check
   const [alignment, setAlignment] = useState<'left' | 'center'>('left')
   const [activeGroup, setActiveGroup] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const listContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -699,9 +725,11 @@ export default function TwoFactorPanel() {
       if (savedAlignment === 'left' || savedAlignment === 'center') {
         setAlignment(savedAlignment)
       }
+      setGroupOrder(sanitizeTotpGroupIdList(preferences.twoFactorGroupOrder))
+      setCollapsedGroupIds(sanitizeTotpGroupIdList(preferences.twoFactorCollapsedGroups))
     }).catch(() => undefined)
     return () => { mounted = false }
-  }, [])
+  }, [dataRevision])
 
   const handleAlignmentChange = (newAlignment: 'left' | 'center') => {
     setAlignment(newAlignment)
@@ -794,6 +822,20 @@ export default function TwoFactorPanel() {
   const [deleteTarget, setDeleteTarget] = useState<TotpAccountRow | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
+  // Google Authenticator migration import
+  const [migrationDialogOpen, setMigrationDialogOpen] = useState(false)
+  const [migrationEntries, setMigrationEntries] = useState<ParsedOtpAuthUri[]>([])
+  const [migrationSkippedCount, setMigrationSkippedCount] = useState(0)
+  const [migrationSource, setMigrationSource] = useState('')
+  const [pendingSourceScroll, setPendingSourceScroll] = useState('')
+  const [importGroupMode, setImportGroupMode] = useState<'new' | 'existing'>('new')
+  const [importGroupName, setImportGroupName] = useState('')
+  const [importExistingSource, setImportExistingSource] = useState('')
+  const [groupOrder, setGroupOrder] = useState<string[]>([])
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<string[]>([])
+  const [draggingGroupId, setDraggingGroupId] = useState<string | null>(null)
+  const [dropTargetGroupId, setDropTargetGroupId] = useState<string | null>(null)
+
   // Temporary generator states
   const [tempDialogOpen, setTempDialogOpen] = useState(false)
   const [tempInputMode, setTempInputMode] = useState<'manual' | 'uri'>('manual')
@@ -882,6 +924,46 @@ export default function TwoFactorPanel() {
     if (qrFileInputRef.current) qrFileInputRef.current.value = ''
   }
 
+  const existingSources = useMemo(() => {
+    const names = new Set<string>()
+    for (const account of Array.isArray(totpAccounts) ? totpAccounts : []) {
+      const source = normalizeTotpSource(account.source)
+      if (source) names.add(source)
+    }
+    return Array.from(names).sort((left, right) => left.localeCompare(right, 'zh-CN'))
+  }, [totpAccounts])
+
+  const openMigrationPreview = (entries: ParsedOtpAuthUri[], skippedCount: number) => {
+    setMigrationEntries(entries)
+    setMigrationSkippedCount(skippedCount)
+    setMigrationSource(suggestGoogleMigrationSourceName(existingSources))
+    setMigrationDialogOpen(true)
+  }
+
+  const persistGroupOrder = (nextOrder: string[]) => {
+    setGroupOrder(nextOrder)
+    void window.electronAPI.updateAppPreferences({ twoFactorGroupOrder: nextOrder })
+  }
+
+  const persistCollapsedGroups = (nextCollapsed: string[]) => {
+    setCollapsedGroupIds(nextCollapsed)
+    void window.electronAPI.updateAppPreferences({ twoFactorCollapsedGroups: nextCollapsed })
+  }
+
+  const rememberImportedGroup = (source: string, currentVisibleIds: string[]) => {
+    const groupId = totpSourceGroupId(source)
+    persistGroupOrder(rememberTotpGroupAtEnd(currentVisibleIds, groupOrder, groupId))
+    return groupId
+  }
+
+  const resolveSingleImportSource = (issuerValue: string, labelValue: string) => {
+    if (importGroupMode === 'existing') {
+      const existing = normalizeTotpSource(importExistingSource)
+      if (existing) return existing
+    }
+    return normalizeTotpSource(importGroupName) || suggestSingleImportSourceName(issuerValue, labelValue, existingSources)
+  }
+
   const handleQrFile = async (file: File) => {
     const requestId = ++qrFormRequestRef.current
     qrFormBusyRef.current = true
@@ -891,6 +973,22 @@ export default function TwoFactorPanel() {
       const decoded = await decodeTotpQrImage(file)
       if (qrFormRequestRef.current !== requestId) {
         if (decoded.previewUrl.startsWith('blob:')) URL.revokeObjectURL(decoded.previewUrl)
+        return
+      }
+      if (decoded.kind === 'migration') {
+        if (decoded.previewUrl.startsWith('blob:')) URL.revokeObjectURL(decoded.previewUrl)
+        if (editingTarget) {
+          const message = '编辑现有账户时不能导入 Google Authenticator 批量迁移二维码'
+          const keepsExistingImage = Boolean(qrImage || qrPreviewUrl || editingTarget.has_qr_image)
+          setQrImageError(keepsExistingImage ? `更换失败，仍保留原二维码：${message}` : message)
+          return
+        }
+        if (decoded.entries.length === 0) {
+          setNotice({ severity: 'error', text: '迁移二维码中没有可导入的验证器账户' })
+          return
+        }
+        if (dialogOpen) resetDialog()
+        openMigrationPreview(decoded.entries, decoded.skippedCount)
         return
       }
       setQrImage(decoded.qrImage)
@@ -1091,24 +1189,66 @@ export default function TwoFactorPanel() {
   }
 
   const safeTotpAccounts = Array.isArray(totpAccounts) ? totpAccounts : []
-  const googleAccounts = safeTotpAccounts.filter(acc => getAccountPlatform(acc) === 'google')
-  const outlookAccounts = safeTotpAccounts.filter(acc => getAccountPlatform(acc) === 'microsoft')
-  const otherAccounts = safeTotpAccounts.filter(acc => getAccountPlatform(acc) === 'other')
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase()
+  const filteredTotpAccounts = normalizedSearchQuery
+    ? safeTotpAccounts.filter(acc => (
+      (acc.issuer || '').toLowerCase().includes(normalizedSearchQuery)
+      || (acc.label || '').toLowerCase().includes(normalizedSearchQuery)
+      || (acc.source || '').toLowerCase().includes(normalizedSearchQuery)
+    ))
+    : safeTotpAccounts
+  const { sourceGroups, unsourced } = useMemo(
+    () => groupTotpAccountsBySource(filteredTotpAccounts),
+    [filteredTotpAccounts]
+  )
+  const googleAccounts = unsourced.filter(acc => getAccountPlatform(acc) === 'google')
+  const outlookAccounts = unsourced.filter(acc => getAccountPlatform(acc) === 'microsoft')
+  const otherAccounts = unsourced.filter(acc => getAccountPlatform(acc) === 'other')
+  const visibleGroups = [
+    ...sourceGroups.map((group) => ({
+      id: group.groupId,
+      title: group.source,
+      accounts: group.accounts,
+      icon: <QrCode2Icon sx={{ fontSize: 16, color: 'primary.main' }} />,
+      jumpIcon: <QrCode2Icon sx={{ fontSize: 22 }} />,
+      color: 'primary.main',
+    })),
+    ...(googleAccounts.length > 0 ? [{
+      id: 'group-google',
+      title: 'Google / Gmail 账户',
+      accounts: googleAccounts,
+      icon: <GoogleIcon sx={{ fontSize: 16, color: 'success.main' }} />,
+      jumpIcon: <GoogleIcon sx={{ fontSize: 22 }} />,
+      color: 'success.main',
+    }] : []),
+    ...(outlookAccounts.length > 0 ? [{
+      id: 'group-microsoft',
+      title: 'Microsoft / Outlook 账户',
+      accounts: outlookAccounts,
+      icon: <MicrosoftIcon sx={{ fontSize: 16, color: 'info.main' }} />,
+      jumpIcon: <MicrosoftIcon sx={{ fontSize: 22 }} />,
+      color: 'info.main',
+    }] : []),
+    ...(otherAccounts.length > 0 ? [{
+      id: 'group-other',
+      title: '其他应用账户',
+      accounts: otherAccounts,
+      icon: <AppsIcon sx={{ fontSize: 16, color: 'text.secondary' }} />,
+      jumpIcon: <AppsIcon sx={{ fontSize: 22 }} />,
+      color: 'text.primary',
+    }] : []),
+  ]
+  const visibleGroupIds = applyTotpGroupOrder(visibleGroups.map((group) => group.id), groupOrder)
+  const orderedGroups = visibleGroupIds
+    .map((id) => visibleGroups.find((group) => group.id === id))
+    .filter((group): group is typeof visibleGroups[number] => Boolean(group))
 
   useEffect(() => {
     setActiveGroup((currentGroup) => {
-      const currentGroupStillExists =
-        (currentGroup === 'group-google' && googleAccounts.length > 0) ||
-        (currentGroup === 'group-microsoft' && outlookAccounts.length > 0) ||
-        (currentGroup === 'group-other' && otherAccounts.length > 0)
-
-      if (currentGroupStillExists) return currentGroup
-      if (googleAccounts.length > 0) return 'group-google'
-      if (outlookAccounts.length > 0) return 'group-microsoft'
-      if (otherAccounts.length > 0) return 'group-other'
-      return ''
+      if (currentGroup && visibleGroupIds.includes(currentGroup)) return currentGroup
+      return visibleGroupIds[0] || ''
     })
-  }, [googleAccounts.length, outlookAccounts.length, otherAccounts.length])
+  }, [visibleGroupIds.join('|')])
 
   const scrollToGroup = (groupId: string) => {
     const container = listContainerRef.current
@@ -1124,10 +1264,18 @@ export default function TwoFactorPanel() {
     setActiveGroup(groupId)
   }
 
+  useEffect(() => {
+    if (!pendingSourceScroll) return
+    const groupId = totpSourceGroupId(pendingSourceScroll)
+    if (!visibleGroupIds.includes(groupId)) return
+    scrollToGroup(groupId)
+    setPendingSourceScroll('')
+  }, [pendingSourceScroll, visibleGroupIds.join('|')])
+
   const handleGroupScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const container = event.currentTarget
     const containerTop = container.getBoundingClientRect().top
-    const groupIds = ['group-google', 'group-microsoft', 'group-other']
+    const groupIds = visibleGroupIds
     const groups = groupIds
       .map(id => ({ id, element: container.querySelector<HTMLElement>(`#${id}`) }))
       .filter((group): group is { id: string; element: HTMLElement } => group.element !== null)
@@ -1154,31 +1302,69 @@ export default function TwoFactorPanel() {
     activeColor: string
   ) => {
     const isActive = activeGroup === groupId
+    const isDropTarget = dropTargetGroupId === groupId
+    const isDragging = draggingGroupId === groupId
+    const collapsed = collapsedGroupIds.includes(groupId)
 
     return (
-      <Tooltip key={groupId} title={label} placement="left" arrow>
-        <IconButton
-          size="small"
-          aria-label={label}
-          aria-current={isActive ? 'location' : undefined}
-          onClick={() => scrollToGroup(groupId)}
+      <Tooltip key={groupId} title={`${label}${collapsed ? '（已折叠）' : ''} · 拖动可调整顺序`} placement="left" arrow>
+        <Box
+          draggable
+          onDragStart={(event) => {
+            event.dataTransfer.setData(TOTP_GROUP_DRAG_TYPE, groupId)
+            event.dataTransfer.effectAllowed = 'move'
+            setDraggingGroupId(groupId)
+          }}
+          onDragOver={(event) => {
+            if (![...event.dataTransfer.types].includes(TOTP_GROUP_DRAG_TYPE)) return
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'move'
+            setDropTargetGroupId(groupId)
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            const fromId = event.dataTransfer.getData(TOTP_GROUP_DRAG_TYPE)
+            if (fromId) persistGroupOrder(moveTotpGroupId(visibleGroupIds, fromId, groupId))
+            setDraggingGroupId(null)
+            setDropTargetGroupId(null)
+          }}
+          onDragEnd={() => {
+            setDraggingGroupId(null)
+            setDropTargetGroupId(null)
+          }}
           sx={{
-            width: 44,
-            height: 44,
             borderRadius: 2.75,
-            border: '1px solid',
-            borderColor: isActive ? activeColor : 'transparent',
-            color: isActive ? activeColor : 'text.secondary',
-            bgcolor: isActive ? 'action.selected' : 'transparent',
-            transition: 'background-color 0.18s, border-color 0.18s, color 0.18s',
-            '&:hover': {
-              color: activeColor,
-              bgcolor: 'action.hover',
-            },
+            outline: isDropTarget ? '2px solid' : 'none',
+            outlineColor: 'primary.main',
+            opacity: isDragging ? 0.45 : 1,
           }}
         >
-          {icon}
-        </IconButton>
+          <IconButton
+            size="small"
+            aria-label={label}
+            aria-current={isActive ? 'location' : undefined}
+            onClick={() => {
+              if (collapsed) persistCollapsedGroups(toggleTotpGroupCollapsed(collapsedGroupIds, groupId))
+              scrollToGroup(groupId)
+            }}
+            sx={{
+              width: 44,
+              height: 44,
+              borderRadius: 2.75,
+              border: '1px solid',
+              borderColor: isActive ? activeColor : 'transparent',
+              color: isActive ? activeColor : 'text.secondary',
+              bgcolor: isActive ? 'action.selected' : 'transparent',
+              transition: 'background-color 0.18s, border-color 0.18s, color 0.18s',
+              '&:hover': {
+                color: activeColor,
+                bgcolor: 'action.hover',
+              },
+            }}
+          >
+            {icon}
+          </IconButton>
+        </Box>
       </Tooltip>
     )
   }
@@ -1194,40 +1380,46 @@ export default function TwoFactorPanel() {
     // Sort accounts dynamically via the composite sorting engine (pinned first, then customOrder)
     const sortedAccounts = sortAccounts(groupAccounts)
 
+    const collapsed = Boolean(groupId && collapsedGroupIds.includes(groupId))
+
     return (
       <Box id={groupId} sx={{ minWidth: 0, scrollMarginTop: 16 }}>
-        {/* Section Header */}
-        <SectionLabel meta={`${groupAccounts.length} 个账户`}>
+        <SectionLabel
+          meta={`${groupAccounts.length} 个账户`}
+          collapsed={collapsed}
+          onToggle={groupId ? () => persistCollapsedGroups(toggleTotpGroupCollapsed(collapsedGroupIds, groupId)) : undefined}
+        >
           <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
             {icon}
             {title}
           </Box>
         </SectionLabel>
 
-        {/* Cards Grid */}
-        <Box
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 420px))',
-            gap: 1.5,
-            width: '100%',
-            justifyContent: alignment === 'center' ? 'center' : 'flex-start',
-          }}
-        >
-          {sortedAccounts.map(account => (
-            <TotpCard
-              key={account.id}
-              account={account}
-              isPinned={account.linked_account_id ? accountsPinnedIds.includes(account.linked_account_id) : false}
-              onRequestDelete={handleRequestDelete}
-              onRequestEdit={openEditDialog}
-              onIncrementCounter={handleIncrementCounter}
-              counterBusy={counterBusyId !== null}
-              onNavigateToAccount={navigateToAccount}
-              onViewQrImage={openQrViewer}
-            />
-          ))}
-        </Box>
+        {!collapsed && (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 420px))',
+              gap: 1.5,
+              width: '100%',
+              justifyContent: alignment === 'center' ? 'center' : 'flex-start',
+            }}
+          >
+            {sortedAccounts.map(account => (
+              <TotpCard
+                key={account.id}
+                account={account}
+                isPinned={account.linked_account_id ? accountsPinnedIds.includes(account.linked_account_id) : false}
+                onRequestDelete={handleRequestDelete}
+                onRequestEdit={openEditDialog}
+                onIncrementCounter={handleIncrementCounter}
+                counterBusy={counterBusyId !== null}
+                onNavigateToAccount={navigateToAccount}
+                onViewQrImage={openQrViewer}
+              />
+            ))}
+          </Box>
+        )}
       </Box>
     )
   }
@@ -1264,6 +1456,9 @@ export default function TwoFactorPanel() {
     setQrPreviewUrl('')
     setQrImageError('')
     setQrImageBusy(false)
+    setImportGroupMode('new')
+    setImportGroupName('')
+    setImportExistingSource('')
     setDialogOpen(true)
   }
 
@@ -1298,7 +1493,7 @@ export default function TwoFactorPanel() {
   const handlePanelDrop = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     setPageDragActive(false)
-    if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount) return
+    if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount || migrationDialogOpen) return
     const file = Array.from(event.dataTransfer.files).find(candidate => (
       candidate.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(candidate.name)
     ))
@@ -1316,7 +1511,18 @@ export default function TwoFactorPanel() {
     let nextData: ResolvedTotpData
 
     if (inputMode === 'uri') {
-      const parsed = parseOtpAuthUri(uri.trim())
+      const trimmedUri = uri.trim()
+      if (isOtpAuthMigrationUri(trimmedUri)) {
+        const migration = parseOtpAuthMigrationUri(trimmedUri)
+        if (!migration || migration.entries.length === 0) {
+          setUriError('无法解析 Google Authenticator 迁移数据')
+          return
+        }
+        resetDialog()
+        openMigrationPreview(migration.entries, migration.skippedCount)
+        return
+      }
+      const parsed = parseOtpAuthUri(trimmedUri)
       if (!parsed) {
         setUriError('无效的 otpauth URI')
         return
@@ -1382,7 +1588,10 @@ export default function TwoFactorPanel() {
         result = await updateTotpAccount(editingTarget.id, updateData)
       } else {
         if (qrImageChanged) nextData.qrImage = qrImage
-        result = await createTotpAccount(nextData)
+        const source = resolveSingleImportSource(nextData.issuer, nextData.label)
+        result = await createTotpAccount({ ...nextData, source })
+        rememberImportedGroup(source, visibleGroupIds)
+        setPendingSourceScroll(source)
       }
       setNotice({
         severity: result.refreshFailed ? 'info' : 'success',
@@ -1427,6 +1636,73 @@ export default function TwoFactorPanel() {
     setQrPreviewUrl('')
     setQrImageError('')
     setQrImageBusy(false)
+    setImportGroupMode('new')
+    setImportGroupName('')
+    setImportExistingSource('')
+  }
+
+  const closeMigrationDialog = () => {
+    if (mutationBusyRef.current) return
+    setMigrationDialogOpen(false)
+    setMigrationEntries([])
+    setMigrationSkippedCount(0)
+    setMigrationSource('')
+  }
+
+  const handleMigrationImport = async () => {
+    if (mutationBusyRef.current) return
+    const source = normalizeTotpSource(migrationSource) || suggestGoogleMigrationSourceName(existingSources)
+    mutationBusyRef.current = true
+    setMutationBusy(true)
+    try {
+      let imported = 0
+      let skipped = migrationSkippedCount
+      let refreshFailed = false
+      for (const entry of migrationEntries) {
+        try {
+          const result = await createTotpAccount({
+            issuer: entry.issuer,
+            label: entry.label,
+            secret: entry.secret,
+            algorithm: entry.algorithm,
+            digits: entry.digits,
+            period: entry.period,
+            otpType: entry.otpType,
+            counter: entry.counter,
+            source,
+          })
+          imported += 1
+          if (result.refreshFailed) refreshFailed = true
+        } catch {
+          skipped += 1
+        }
+      }
+
+      if (imported === 0) {
+        setNotice({ severity: 'error', text: '没有导入任何 2FA 账户' })
+      } else {
+        let text = `已导入 ${imported} 个 2FA 账户到「${source}」`
+        if (skipped > 0) text += `；${skipped} 个已跳过`
+        if (refreshFailed) text += '；界面刷新失败'
+        setNotice({
+          severity: skipped > 0 || refreshFailed ? 'info' : 'success',
+          text,
+        })
+        rememberImportedGroup(source, visibleGroupIds)
+        setPendingSourceScroll(source)
+      }
+      if (imported > 0 && !refreshFailed) {
+        setLoadState('ready')
+        setLoadError('')
+      }
+      setMigrationDialogOpen(false)
+      setMigrationEntries([])
+      setMigrationSkippedCount(0)
+      setMigrationSource('')
+    } finally {
+      mutationBusyRef.current = false
+      setMutationBusy(false)
+    }
   }
 
   const handleRequestDelete = (account: TotpAccountRow) => {
@@ -1476,7 +1752,7 @@ export default function TwoFactorPanel() {
       onDragEnter={(event) => {
         if (!event.dataTransfer.types.includes('Files')) return
         event.preventDefault()
-        if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount) {
+        if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount || migrationDialogOpen) {
           setPageDragActive(false)
           return
         }
@@ -1486,7 +1762,7 @@ export default function TwoFactorPanel() {
         if (!event.dataTransfer.types.includes('Files')) return
         event.preventDefault()
         event.dataTransfer.dropEffect = 'copy'
-        if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount) {
+        if (dialogOpen || tempDialogOpen || deleteConfirmOpen || qrViewerAccount || migrationDialogOpen) {
           setPageDragActive(false)
           return
         }
@@ -1525,9 +1801,39 @@ export default function TwoFactorPanel() {
         compact
         icon={<SecurityIcon fontSize="small" />}
         title="2FA 验证器"
-        description={`${totpAccounts.length} 个验证账户`}
+        description={
+          normalizedSearchQuery
+            ? `${filteredTotpAccounts.length}/${totpAccounts.length} 个验证账户`
+            : `${totpAccounts.length} 个验证账户`
+        }
         actions={
           <>
+            <TextField
+              size="small"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="搜索 2FA 账户"
+              inputProps={{ 'aria-label': '搜索 2FA 账户' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchQuery ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="清空 2FA 搜索"
+                    >
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              }}
+              sx={{ width: 200, '& .MuiOutlinedInput-root': { height: 32 } }}
+            />
             <ToggleButtonGroup
               value={alignment}
               exclusive
@@ -1603,7 +1909,7 @@ export default function TwoFactorPanel() {
             minHeight: 0,
             overflowY: 'auto',
             p: 2,
-            pr: loadState === 'ready' && totpAccounts.length > 0 ? 14 : 2,
+            pr: loadState === 'ready' && filteredTotpAccounts.length > 0 ? 14 : 2,
           }}
         >
           {loadState === 'loading' && <LinearProgress aria-label="正在读取 2FA 数据" sx={{ mb: 2 }} />}
@@ -1631,6 +1937,13 @@ export default function TwoFactorPanel() {
                 </Box>
               }
             />
+          ) : filteredTotpAccounts.length === 0 ? (
+            <EmptyState
+              compact
+              icon={<SearchIcon fontSize="small" />}
+              title="没有匹配的 2FA 账户"
+              description="试试调整搜索关键词，或清空搜索查看全部账户"
+            />
           ) : (
             <Box
               sx={{
@@ -1640,29 +1953,17 @@ export default function TwoFactorPanel() {
                 pb: 1,
               }}
             >
-              {renderAccountGroup(
-                'Google / Gmail 账户',
-                <GoogleIcon sx={{ fontSize: 16, color: 'success.main' }} />,
-                googleAccounts,
-                'group-google'
-              )}
-              {renderAccountGroup(
-                'Microsoft / Outlook 账户',
-                <MicrosoftIcon sx={{ fontSize: 16, color: 'info.main' }} />,
-                outlookAccounts,
-                'group-microsoft'
-              )}
-              {renderAccountGroup(
-                '其他应用账户',
-                <AppsIcon sx={{ fontSize: 16, color: 'text.secondary' }} />,
-                otherAccounts,
-                'group-other'
-              )}
+              {orderedGroups.map((group) => renderAccountGroup(
+                group.title,
+                group.icon,
+                group.accounts,
+                group.id
+              ))}
             </Box>
           ))}
         </Box>
 
-        {loadState === 'ready' && totpAccounts.length > 0 && (
+        {loadState === 'ready' && filteredTotpAccounts.length > 0 && (
           <Box
             sx={{
               position: 'absolute',
@@ -1690,24 +1991,12 @@ export default function TwoFactorPanel() {
                 bgcolor: 'background.paper',
               }}
             >
-              {googleAccounts.length > 0 && renderQuickJumpButton(
-                'group-google',
-                '跳转到 Google / Gmail 账户',
-                <GoogleIcon sx={{ fontSize: 22 }} />,
-                'success.main'
-              )}
-              {outlookAccounts.length > 0 && renderQuickJumpButton(
-                'group-microsoft',
-                '跳转到 Microsoft / Outlook 账户',
-                <MicrosoftIcon sx={{ fontSize: 22 }} />,
-                'info.main'
-              )}
-              {otherAccounts.length > 0 && renderQuickJumpButton(
-                'group-other',
-                '跳转到其他应用账户',
-                <AppsIcon sx={{ fontSize: 22 }} />,
-                'text.primary'
-              )}
+              {orderedGroups.map((group) => renderQuickJumpButton(
+                group.id,
+                `跳转到 ${group.title}`,
+                group.jumpIcon,
+                group.color
+              ))}
             </Paper>
           </Box>
         )}
@@ -2016,8 +2305,9 @@ export default function TwoFactorPanel() {
                   value={digits}
                   onChange={(event) => setDigits(Number(event.target.value))}
                 >
-                  <MenuItem value={6}>6 位</MenuItem>
-                  <MenuItem value={8}>8 位</MenuItem>
+                  {Array.from(new Set([6, 8, digits])).sort((a, b) => a - b).map((d) => (
+                    <MenuItem key={d} value={d}>{`${d} 位`}</MenuItem>
+                  ))}
                 </TextField>
                 {otpType === 'totp' ? (
                   <TextField
@@ -2153,6 +2443,9 @@ export default function TwoFactorPanel() {
                       拖入二维码图片
                     </Typography>
                     <Typography variant="body2">或点击选择 PNG / JPEG 文件，最大 10 MB</Typography>
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.75, lineHeight: 1.45 }}>
+                      Google 迁移码请尽量只截取一张二维码，不要带上整屏界面
+                    </Typography>
                   </Box>
                 )}
               </Box>
@@ -2184,6 +2477,52 @@ export default function TwoFactorPanel() {
               <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mt: 2 }}>
                 二维码等同于 2FA 密钥。复制或下载后，请避免发送给他人。
               </Alert>
+            </Box>
+          )}
+          {!editingTarget && (
+            <Box sx={{ mt: 2.5 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>分组</Typography>
+              <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+                <Chip
+                  label="新建分组"
+                  variant={importGroupMode === 'new' ? 'filled' : 'outlined'}
+                  color={importGroupMode === 'new' ? 'primary' : 'default'}
+                  onClick={() => setImportGroupMode('new')}
+                />
+                <Chip
+                  label="加入现有分组"
+                  variant={importGroupMode === 'existing' ? 'filled' : 'outlined'}
+                  color={importGroupMode === 'existing' ? 'primary' : 'default'}
+                  disabled={existingSources.length === 0}
+                  onClick={() => {
+                    setImportGroupMode('existing')
+                    if (!importExistingSource && existingSources[0]) setImportExistingSource(existingSources[0])
+                  }}
+                />
+              </Box>
+              {importGroupMode === 'new' ? (
+                <TextField
+                  fullWidth
+                  label="新分组名称"
+                  value={importGroupName}
+                  onChange={(event) => setImportGroupName(event.target.value)}
+                  placeholder="例如：工作、旧手机"
+                  helperText="不填则按服务商自动命名。新分组会排在最后，可在右侧边栏拖动调整。"
+                  inputProps={{ maxLength: 80, 'aria-label': '新分组名称' }}
+                />
+              ) : (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+                  {existingSources.map((source) => (
+                    <Chip
+                      key={source}
+                      size="small"
+                      label={source}
+                      variant={normalizeTotpSource(importExistingSource) === source ? 'filled' : 'outlined'}
+                      onClick={() => setImportExistingSource(source)}
+                    />
+                  ))}
+                </Box>
+              )}
             </Box>
           )}
         </DialogContent>
@@ -2298,6 +2637,87 @@ export default function TwoFactorPanel() {
           <Button onClick={() => setDeleteConfirmOpen(false)} disabled={mutationBusy}>取消</Button>
           <Button variant="contained" color="error" onClick={handleConfirmDelete} disabled={mutationBusy}>
             {mutationBusy ? '删除中...' : '确认删除'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ========== Migration Import Dialog ========== */}
+      <Dialog
+        open={migrationDialogOpen}
+        onClose={() => { if (!mutationBusy) closeMigrationDialog() }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <GoogleIcon sx={{ color: 'primary.main' }} />
+          导入 Google Authenticator
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1.5, lineHeight: 1.55 }}>
+            将导入以下 {migrationEntries.length} 个验证器账户。二维码本身不含设备名，请为这批账户命名来源；导入后会单独成组，不会和现有账户混在一起。
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            label="来源名称"
+            value={migrationSource}
+            onChange={(event) => setMigrationSource(event.target.value)}
+            placeholder="例如：旧手机、公司 Authenticator"
+            helperText="同名来源会并入同一组；改名即可单独成组。"
+            inputProps={{ maxLength: 80, 'aria-label': '来源名称' }}
+            sx={{ mb: existingSources.length > 0 ? 1 : 2 }}
+          />
+          {existingSources.length > 0 && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 2 }}>
+              {existingSources.map((source) => (
+                <Chip
+                  key={source}
+                  size="small"
+                  label={source}
+                  variant={normalizeTotpSource(migrationSource) === source ? 'filled' : 'outlined'}
+                  onClick={() => setMigrationSource(source)}
+                />
+              ))}
+            </Box>
+          )}
+          <Box sx={{ maxHeight: 320, overflow: 'auto', pr: 0.5 }}>
+            {migrationEntries.map((entry, index) => (
+              <Paper
+                key={`${entry.issuer}-${entry.label}-${index}`}
+                variant="outlined"
+                sx={{ p: 1.5, mb: 1, borderRadius: 1, bgcolor: 'surface.raised', borderColor: 'border.subtle' }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.35 }}>
+                      {entry.issuer || entry.label}
+                    </Typography>
+                    {entry.issuer ? (
+                      <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.25, lineHeight: 1.35 }}>
+                        {entry.label}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                  <OtpTypeBadge type={entry.otpType} />
+                </Box>
+              </Paper>
+            ))}
+          </Box>
+          {migrationSkippedCount > 0 && (
+            <Alert severity="warning" sx={{ mt: 1.5 }}>
+              {migrationSkippedCount} 个条目缺少有效密钥，已忽略
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button type="button" onClick={closeMigrationDialog} disabled={mutationBusy}>取消</Button>
+          <Button
+            type="button"
+            variant="contained"
+            onClick={() => { void handleMigrationImport() }}
+            disabled={mutationBusy || migrationEntries.length === 0}
+          >
+            {mutationBusy ? '导入中...' : '导入全部'}
           </Button>
         </DialogActions>
       </Dialog>

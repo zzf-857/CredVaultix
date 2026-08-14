@@ -7,8 +7,10 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   LinearProgress,
   Snackbar,
+  Switch,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
@@ -23,6 +25,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import SearchIcon from '@mui/icons-material/Search'
 import SettingsIcon from '@mui/icons-material/Settings'
+import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined'
 import StorageOutlinedIcon from '@mui/icons-material/StorageOutlined'
 import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined'
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt'
@@ -73,12 +76,29 @@ function getUpdateStatusText(update: UpdateSnapshot | null) {
 }
 
 export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
-  const { themeMode, toggleTheme, exportDatabase, importDatabase, navigationBlockReason } = useStore()
+  const { themeMode, toggleTheme, exportDatabase, importDatabase, navigationBlockReason, dataRevision } = useStore()
   const [updateState, setUpdateState] = useState<UpdateSnapshot | null>(null)
   const [updateRequestError, setUpdateRequestError] = useState<string | null>(null)
   const latestUpdateRevision = useRef(-1)
   const [importConfirmOpen, setImportConfirmOpen] = useState(false)
+  const [clipboardAutoClear, setClipboardAutoClear] = useState(true)
   const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    window.electronAPI.getAppPreferences().then((preferences) => {
+      if (active) setClipboardAutoClear(preferences.clipboardAutoClear !== false)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [open, dataRevision])
+
+  const handleClipboardAutoClearChange = (enabled: boolean) => {
+    setClipboardAutoClear(enabled)
+    void window.electronAPI.updateAppPreferences({ clipboardAutoClear: enabled }).catch((error) => {
+      setNotice({ severity: 'error', text: `保存剪贴板设置失败：${error instanceof Error ? error.message : String(error)}` })
+    })
+  }
 
   const applyUpdateSnapshot = useCallback((snapshot: UpdateSnapshot) => {
     if (snapshot.revision < latestUpdateRevision.current) return false
@@ -211,7 +231,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             sx={{
               px: 2.5,
               py: 2.25,
-              gridRow: { sm: '1 / span 2' },
+              gridRow: { sm: '1 / span 3' },
               borderRight: { sm: '1px solid' },
               borderBottom: { xs: '1px solid', sm: 0 },
               borderColor: 'divider',
@@ -309,6 +329,30 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 请先保存或取消账号编辑，再恢复备份或重启安装更新。
               </Typography>
             )}
+          </Box>
+
+          <Box sx={{ px: 2.5, py: 2.25, borderBottom: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.5 }}>
+              <Box sx={{ width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: 1, bgcolor: 'surface.raised', color: 'success.main', border: '1px solid', borderColor: 'divider' }}>
+                <ShieldOutlinedIcon sx={{ fontSize: 19 }} />
+              </Box>
+              <Typography variant="subtitle2">安全</Typography>
+            </Box>
+            <FormControlLabel
+              control={(
+                <Switch
+                  size="small"
+                  checked={clipboardAutoClear}
+                  onChange={(event) => handleClipboardAutoClearChange(event.target.checked)}
+                  inputProps={{ 'aria-label': '复制内容 30 秒后自动清空剪贴板' }}
+                />
+              )}
+              label={<Typography variant="body2">复制内容 30 秒后自动清空剪贴板</Typography>}
+              sx={{ ml: 0 }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, lineHeight: 1.5 }}>
+              仅当剪贴板内容仍是刚复制的值时才会清空,不会影响之后复制的其他内容。
+            </Typography>
           </Box>
 
           <Box sx={{ px: 2.5, py: 2.25 }}>

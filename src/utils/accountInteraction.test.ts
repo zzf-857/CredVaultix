@@ -21,6 +21,9 @@ describe('account interaction safeguards', () => {
     expect(accountsViewSource).toContain('onKeyDown={handleCustomFieldQuickSubmit}')
     expect(accountsViewSource).toContain('从当前账号移除标签')
     expect(accountsViewSource).toContain('handleConfirmDeleteTag')
+    expect(accountsViewSource).toContain('scrollIntoView({ block: \'center\'')
+    expect(accountsViewSource).toContain('data-account-id={account.id}')
+    expect(accountsViewSource).toContain('<TagManagerDialog')
   })
 
   it('scopes account Enter shortcuts to their own non-busy mutation', () => {
@@ -103,5 +106,15 @@ describe('account interaction safeguards', () => {
     expect(storeSource).toContain('Promise.allSettled(refreshes)')
     expect(twoFactorSource).toContain("setLoadState('error')")
     expect(twoFactorSource).toContain('counterBusyRef.current')
+  })
+
+  it('keeps Google Authenticator imports in a named source group', () => {
+    expect(twoFactorSource).toContain('groupTotpAccountsBySource')
+    expect(twoFactorSource).toContain('来源名称')
+    expect(twoFactorSource).toContain('source,')
+    expect(twoFactorSource).toContain('加入现有分组')
+    expect(twoFactorSource).toContain('rememberTotpGroupAtEnd')
+    expect(twoFactorSource).toContain('draggable')
+    expect(twoFactorSource).toContain('onToggle={groupId ? () => persistCollapsedGroups')
   })
 })

@@ -46,11 +46,13 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 import ShieldIcon from '@mui/icons-material/Shield'
 import LabelOutlinedIcon from '@mui/icons-material/LabelOutlined'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import { v4 as uuidv4 } from 'uuid'
 import AccountPlatformDialog from './AccountPlatformDialog'
+import TagManagerDialog from './TagManagerDialog'
 import TotpCodeDisplay from './TotpCodeDisplay'
 import EmptyState from './common/EmptyState'
 import PageHeader from './common/PageHeader'
@@ -69,6 +71,7 @@ import {
 } from '../utils/accountManagerLayout'
 import { generateSecurePassword } from '../utils/securePassword'
 import { normalizeOtpInput } from '../utils/otpAuth'
+import { accountHasUndecryptableValues, UNDECRYPTABLE_VALUES_HINT } from '../utils/decryptionHealth'
 import { buildAccountUpdatePatch } from '../utils/accountEdit'
 import { shouldSubmitOnEnter } from '../utils/quickSubmit'
 import useCopyFeedback from '../hooks/useCopyFeedback'
@@ -352,6 +355,8 @@ function AccountDetail({
   isPinned,
   onTogglePin,
   onNotice,
+  onManageTags,
+  tagCatalogRevision = 0,
 }: {
   accountId: string
   onClose: () => void
@@ -359,6 +364,8 @@ function AccountDetail({
   isPinned: boolean
   onTogglePin: (e: React.MouseEvent) => void
   onNotice: (notice: AccountNotice) => void
+  onManageTags: (tagId?: string) => void
+  tagCatalogRevision?: number
 }) {
   const {
     addAccountTag,
@@ -496,6 +503,11 @@ function AccountDetail({
   useEffect(() => {
     void loadAccount().catch(() => undefined)
   }, [accountId, dataRevision])
+
+  useEffect(() => {
+    if (tagCatalogRevision === 0) return
+    void loadAccount({ preserveDraft: editing }).catch(() => undefined)
+  }, [tagCatalogRevision])
 
   useEffect(() => {
     if (editSignal && editSignal > 0) {
@@ -1065,7 +1077,22 @@ function AccountDetail({
 
   const renderTagsSection = () => (
     <React.Fragment key="registered-platform-tags">
-      <SectionLabel>注册平台标签</SectionLabel>
+      <SectionLabel
+        action={(
+          <Tooltip title="批量管理标签">
+            <IconButton
+              size="small"
+              aria-label="管理标签"
+              onClick={() => onManageTags()}
+              sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+            >
+              <EditOutlinedIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        )}
+      >
+        注册平台标签
+      </SectionLabel>
       <Paper variant="outlined" sx={panelSx}>
         {(account.tags || []).length > 0 ? (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.85, mb: 1.65 }}>
@@ -1572,6 +1599,11 @@ function AccountDetail({
             检测到 {linkedTotpCount} 条关联 2FA。为避免覆盖密钥，修改 2FA 前请先到 2FA 面板确认要保留的记录；系统不会自动删除。
           </Alert>
         )}
+        {accountHasUndecryptableValues(account) && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {UNDECRYPTABLE_VALUES_HINT}
+          </Alert>
+        )}
         {sectionOrder.map((section) => {
           switch (section) {
             case 'realtime-code':
@@ -1598,6 +1630,16 @@ function AccountDetail({
           ? { top: tagContextMenu.mouseY, left: tagContextMenu.mouseX }
           : undefined}
       >
+        <MenuItem
+          disabled={Boolean(tagBusy)}
+          onClick={() => {
+            if (tagContextMenu) onManageTags(tagContextMenu.tag.id)
+            setTagContextMenu(null)
+          }}
+        >
+          <ListItemIcon><EditOutlinedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>编辑标签</ListItemText>
+        </MenuItem>
         <MenuItem
           disabled={Boolean(tagBusy)}
           onClick={() => {
@@ -1785,6 +1827,8 @@ export default function AccountsView() {
     setSelectedAccount,
     accountsPinnedIds,
     accountsCustomOrder,
+    dataRevision,
+    accountFocusNonce,
     togglePinAccount,
     updateAccountsCustomOrder,
   } = useStore()
@@ -1799,6 +1843,11 @@ export default function AccountsView() {
   const [listDeleteBusy, setListDeleteBusy] = useState(false)
   const [listLoadState, setListLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [listLoadError, setListLoadError] = useState('')
+  const [tagManagerOpen, setTagManagerOpen] = useState(false)
+  const [tagManagerFocusId, setTagManagerFocusId] = useState<string | null>(null)
+  const [tagCatalogRevision, setTagCatalogRevision] = useState(0)
+  const [focusedAccountId, setFocusedAccountId] = useState<string | null>(null)
+  const accountListRef = useRef<HTMLDivElement>(null)
   const { copiedKey: copiedField, copy } = useCopyFeedback()
 
   // Drag and drop states for custom account ordering
@@ -1832,7 +1881,7 @@ export default function AccountsView() {
       }
     }).catch(() => undefined)
     return () => { mounted = false }
-  }, [])
+  }, [dataRevision])
 
   const handleListResizeStart = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -1927,7 +1976,44 @@ export default function AccountsView() {
 
   useEffect(() => {
     void loadAccountLists()
-  }, [accountPlatformFilter, accountSearchQuery])
+  }, [accountPlatformFilter])
+
+  // Search keystrokes are debounced and only refresh the visible accounts list;
+  // allAccounts and 2FA data do not depend on the search query.
+  const skipInitialSearchReload = useRef(true)
+  useEffect(() => {
+    if (skipInitialSearchReload.current) {
+      skipInitialSearchReload.current = false
+      return
+    }
+    const timer = window.setTimeout(() => {
+      loadAccounts().then(() => {
+        setListLoadState('ready')
+        setListLoadError('')
+      }).catch((error) => {
+        setListLoadError(`读取账号列表失败：${error instanceof Error ? error.message : String(error)}`)
+        setListLoadState('error')
+      })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [accountSearchQuery, loadAccounts])
+
+  const openTagManager = (tagId?: string) => {
+    setTagManagerFocusId(tagId || null)
+    setTagManagerOpen(true)
+  }
+
+  useEffect(() => {
+    if (!selectedAccountId || listLoadState !== 'ready') return
+    const row = accountListRef.current?.querySelector<HTMLElement>(`[data-account-id="${selectedAccountId}"]`)
+    if (!row) return
+    row.scrollIntoView({ block: 'center', inline: 'nearest', behavior: accountFocusNonce > 0 ? 'smooth' : 'auto' })
+    setFocusedAccountId(selectedAccountId)
+    const timer = window.setTimeout(() => {
+      setFocusedAccountId((current) => (current === selectedAccountId ? null : current))
+    }, 1600)
+    return () => window.clearTimeout(timer)
+  }, [accountFocusNonce, listLoadState, selectedAccountId, sortedAccounts.length])
 
   const selectAccount = (accountId: string | null, edit = false) => {
     setSelectedAccount(accountId)
@@ -2010,7 +2096,7 @@ export default function AccountsView() {
         setListLoadError('')
       }
       const warnings = [
-        result.invalidTotpCount > 0 ? `${result.invalidTotpCount} 个无效 OTP URI 已跳过` : '',
+        result.invalidTotpCount > 0 ? `${result.invalidTotpCount} 个无效 2FA 密钥或 URI 已跳过` : '',
         result.skippedRowCount > 0 ? `${result.skippedRowCount} 行没有可识别字段` : '',
         result.refreshFailed ? '数据已导入，但部分列表刷新失败' : '',
       ].filter(Boolean)
@@ -2092,6 +2178,11 @@ export default function AccountsView() {
           description={`${accounts.length} 个账号`}
           actions={(
             <>
+              <Tooltip title="管理标签" arrow>
+                <IconButton size="small" aria-label="管理标签" onClick={() => openTagManager()}>
+                  <LabelOutlinedIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="导入 CSV" arrow>
                 <IconButton size="small" aria-label="导入账号 CSV" onClick={handleImportCsv}>
                   <FileUploadOutlinedIcon sx={{ fontSize: 18 }} />
@@ -2145,7 +2236,7 @@ export default function AccountsView() {
           </Box>
         </Box>
 
-        <Box sx={{ flex: 1, overflowY: 'auto', p: 0.75 }}>
+        <Box ref={accountListRef} sx={{ flex: 1, overflowY: 'auto', p: 0.75 }}>
           {listLoadState === 'loading' ? (
             <LinearProgress aria-label="正在读取账号列表" />
           ) : listLoadState === 'error' ? (
@@ -2171,6 +2262,7 @@ export default function AccountsView() {
             sortedAccounts.map((account) => (
               <Box
                 key={account.id}
+                data-account-id={account.id}
                 draggable
                 onDragStart={(e) => handleDragStart(e, account.id)}
                 onDragOver={(e) => handleDragOver(e, account.id)}
@@ -2185,7 +2277,9 @@ export default function AccountsView() {
                   mb: 0.5,
                   cursor: 'grab',
                   border: '1px solid',
-                  borderColor: selectedAccountId === account.id ? 'border.strong' : 'transparent',
+                  borderColor: selectedAccountId === account.id
+                    ? (focusedAccountId === account.id ? 'primary.main' : 'border.strong')
+                    : 'transparent',
                   borderLeft: '2px solid',
                   borderLeftColor: selectedAccountId === account.id
                     ? 'primary.main'
@@ -2193,6 +2287,9 @@ export default function AccountsView() {
                       ? 'secondary.main'
                       : 'transparent',
                   borderRadius: 1,
+                  boxShadow: focusedAccountId === account.id
+                    ? 'inset 0 0 0 1px rgba(168, 199, 250, 0.55)'
+                    : 'none',
                   bgcolor: selectedAccountId === account.id
                     ? 'action.selected'
                     : 'transparent',
@@ -2364,6 +2461,8 @@ export default function AccountsView() {
           isPinned={accountsPinnedIds.includes(selectedAccountId)}
           onTogglePin={(e) => { e.stopPropagation(); togglePinAccount(selectedAccountId) }}
           onNotice={setNotice}
+          onManageTags={openTagManager}
+          tagCatalogRevision={tagCatalogRevision}
         />
       ) : (
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
@@ -2437,6 +2536,14 @@ export default function AccountsView() {
         </DialogActions>
       </Dialog>
 
+      <TagManagerDialog
+        open={tagManagerOpen}
+        focusTagId={tagManagerFocusId}
+        onClose={() => setTagManagerOpen(false)}
+        onChanged={async () => {
+          setTagCatalogRevision((current) => current + 1)
+        }}
+      />
       <AccountPlatformDialog
         open={platformDialogOpen}
         onClose={() => setPlatformDialogOpen(false)}

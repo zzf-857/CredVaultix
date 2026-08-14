@@ -5,6 +5,7 @@ import CheckIcon from '@mui/icons-material/Check'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import * as OTPAuth from 'otpauth'
 import useCopyFeedback from '../hooks/useCopyFeedback'
+import { getTotpRemainingSeconds, getTotpWindow, useSharedNow } from '../hooks/useSharedNow'
 
 /**
  * Shared inline TOTP code display component.
@@ -32,42 +33,38 @@ export default function TotpCodeDisplay({
   incrementBusy?: boolean
 }) {
   const [code, setCode] = useState('-'.repeat(digits))
-  const [remaining, setRemaining] = useState(period)
+  const [codeFailed, setCodeFailed] = useState(false)
+  const nowMs = useSharedNow()
+  const isHotp = otpType === 'hotp'
+  const totpWindow = isHotp ? counter : getTotpWindow(nowMs, period)
+  const remaining = isHotp || codeFailed ? (isHotp ? -1 : 0) : getTotpRemainingSeconds(nowMs, period)
   const { copiedKey, copy } = useCopyFeedback()
   const copyKey = `totp-code:${code}`
   const copied = copiedKey === copyKey
-  const isHotp = otpType === 'hotp'
 
   useEffect(() => {
     if (!secret || !secret.trim()) {
       setCode('-'.repeat(digits))
+      setCodeFailed(false)
       return
     }
 
-    const generate = () => {
-      try {
-        const secretValue = OTPAuth.Secret.fromBase32(secret.replace(/\s/g, '').toUpperCase())
-        if (isHotp) {
-          const hotp = new OTPAuth.HOTP({ algorithm, digits, counter, secret: secretValue })
-          setCode(hotp.generate({ counter }))
-          setRemaining(-1)
-        } else {
-          const totp = new OTPAuth.TOTP({ algorithm, digits, period, secret: secretValue })
-          setCode(totp.generate())
-          const now = Math.floor(Date.now() / 1000)
-          setRemaining(period - (now % period))
-        }
-      } catch {
-        setCode('-'.repeat(digits))
-        setRemaining(0)
+    try {
+      const secretValue = OTPAuth.Secret.fromBase32(secret.replace(/\s/g, '').toUpperCase())
+      if (isHotp) {
+        const hotp = new OTPAuth.HOTP({ algorithm, digits, counter, secret: secretValue })
+        setCode(hotp.generate({ counter }))
+        setCodeFailed(false)
+        return
       }
+      const totp = new OTPAuth.TOTP({ algorithm, digits, period, secret: secretValue })
+      setCode(totp.generate({ timestamp: totpWindow * Math.max(period, 1) * 1000 }))
+      setCodeFailed(false)
+    } catch {
+      setCode('-'.repeat(digits))
+      setCodeFailed(true)
     }
-
-    generate()
-    if (isHotp) return
-    const timer = setInterval(generate, 1000)
-    return () => clearInterval(timer)
-  }, [algorithm, counter, digits, isHotp, period, secret])
+  }, [algorithm, counter, digits, isHotp, period, secret, totpWindow])
 
   const handleCopy = async () => {
     if (/^-+$/.test(code)) return false

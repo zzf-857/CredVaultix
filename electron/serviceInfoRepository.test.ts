@@ -234,6 +234,27 @@ describe('service information IPC lifecycle', () => {
     }
   })
 
+  it('appends a service to the end of its new group but keeps sort order when the group is unchanged', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+
+    try {
+      db.exec("INSERT INTO secret_services (id, group_id, name, sort_order) VALUES ('service-3', 'group-2', 'Service 3', 5)")
+      registerServiceInfoIpc(db as any)
+      const updateService = ipcHandlers.get('serviceInfo:updateService')!
+
+      expect(updateService(undefined, 'service-1', { groupId: 'group-2' })).toEqual({ success: true })
+      expect(db.prepare("SELECT group_id, sort_order FROM secret_services WHERE id = 'service-1'").get())
+        .toEqual({ group_id: 'group-2', sort_order: 6 })
+
+      expect(updateService(undefined, 'service-2', { name: '新名字', groupId: 'group-1' })).toEqual({ success: true })
+      expect(db.prepare("SELECT group_id, name, sort_order FROM secret_services WHERE id = 'service-2'").get())
+        .toEqual({ group_id: 'group-1', name: '新名字', sort_order: 2 })
+    } finally {
+      db.close()
+    }
+  })
+
   it('rejects stale batch ids, mixed field owners, and a field group from another service without partial writes', async () => {
     const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
     const db = createServiceInfoDatabase()

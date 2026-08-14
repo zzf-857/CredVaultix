@@ -8,6 +8,9 @@ const electronAPI = {
   isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
   setUnsavedChanges: (hasUnsavedChanges: boolean) => ipcRenderer.send('app:setUnsavedChanges', hasUnsavedChanges),
 
+  // Clipboard (writes go through the main process so it can auto-clear later)
+  copyText: (text: string) => ipcRenderer.invoke('clipboard:copyText', text),
+
   // TOTP 2FA
   getTotpAccounts: () => ipcRenderer.invoke('totp:getAll'),
   createTotpAccount: (data: any) => ipcRenderer.invoke('totp:create', data),
@@ -31,6 +34,7 @@ const electronAPI = {
   getAccountTags: () => ipcRenderer.invoke('accounts:getTags'),
   removeAccountTag: (data: any) => ipcRenderer.invoke('accounts:removeTag', data),
   deleteTag: (tagId: string) => ipcRenderer.invoke('accounts:deleteTag', tagId),
+  updateTags: (patches: Array<{ id: string; name: string; color: string }>) => ipcRenderer.invoke('accounts:updateTags', patches),
 
   // Custom Fields
   addAccountField: (data: any) => ipcRenderer.invoke('accounts:addField', data),

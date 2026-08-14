@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3'
 import { normalizeOtpInput } from '../shared/otpAuth'
+import { normalizeTotpSource } from '../shared/totpSource'
 import {
   deleteTotpQrImage,
   setTotpQrImage,
@@ -39,6 +40,7 @@ export interface TotpWriteData {
   otpType?: string
   counter?: number
   linkedAccountId?: string
+  source?: string
   qrImage?: TotpQrImageInput | null
 }
 
@@ -182,6 +184,7 @@ function getTotpValues(data: TotpWriteData) {
     period: normalizeOtpPeriod(parsed?.period ?? data.period),
     otpType: normalizeOtpType(parsed?.otpType ?? data.otpType),
     counter: normalizeOtpCounter(parsed?.counter ?? data.counter),
+    source: normalizeTotpSource(data.source),
   }
 }
 
@@ -191,8 +194,17 @@ export function updateAccountRecord(
   data: AccountUpdateData,
   dependencies: RepositoryDependencies
 ) {
-  const account = db.prepare('SELECT id, name FROM accounts WHERE id = ?').get(id) as { id: string; name: string } | undefined
+  const account = db.prepare('SELECT id, name, username FROM accounts WHERE id = ?').get(id) as {
+    id: string
+    name: string
+    username: string
+  } | undefined
   if (!account) throw new Error('账号不存在或已被删除')
+
+  // Capture pre-update mirrors so we only sync TOTP fields the user has not customized.
+  const oldIssuerMirror = account.name.trim()
+  const decryptedUsername = (dependencies.decrypt ? dependencies.decrypt(account.username || '') : (account.username || '')).trim()
+  const oldLabelMirror = decryptedUsername || oldIssuerMirror
 
   const hasTotpChange = Object.prototype.hasOwnProperty.call(data, 'totpSecret')
   const normalizedTotp = hasTotpChange ? assertValidTotpInput(data.totpSecret || '') : null
@@ -290,8 +302,8 @@ export function updateAccountRecord(
         db.prepare(`
           INSERT INTO totp_accounts (
             id, issuer, label, secret, algorithm, digits, period, otp_type,
-            counter, linked_account_id, sort_order, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            counter, linked_account_id, sort_order, created_at, source
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           data.createLinkedTotp.id,
           requestedLinkedTotp.issuer,
@@ -304,19 +316,23 @@ export function updateAccountRecord(
           requestedLinkedTotp.counter,
           id,
           nextOrder,
-          timestamp
+          timestamp,
+          requestedLinkedTotp.source
         )
       }
     }
 
     const hasExplicitTotpMetadata = Boolean(normalizedTotp?.parsedUri || requestedLinkedTotp)
     if (data.name !== undefined && !hasExplicitTotpMetadata) {
-      db.prepare('UPDATE totp_accounts SET issuer = ? WHERE linked_account_id = ?').run(data.name.trim(), id)
+      // Only overwrite issuer when it still matches the old account-name mirror.
+      db.prepare('UPDATE totp_accounts SET issuer = ? WHERE linked_account_id = ? AND issuer = ?')
+        .run(data.name.trim(), id, oldIssuerMirror)
     }
     if (data.username !== undefined && !hasExplicitTotpMetadata) {
       const fallbackLabel = data.name?.trim() || account.name
-      db.prepare('UPDATE totp_accounts SET label = ? WHERE linked_account_id = ?')
-        .run(data.username.trim() || fallbackLabel, id)
+      // Only overwrite label when it still matches the old username (or name) mirror.
+      db.prepare('UPDATE totp_accounts SET label = ? WHERE linked_account_id = ? AND label = ?')
+        .run(data.username.trim() || fallbackLabel, id, oldLabelMirror)
     }
 
     return {
@@ -367,11 +383,11 @@ export function createTotpRecord(
       const row = db.prepare('SELECT MAX(sort_order) as maxOrder FROM totp_accounts').get() as { maxOrder?: number | null }
       const nextOrder = (row?.maxOrder || 0) + 1
       db.prepare(`
-        INSERT INTO totp_accounts (id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id, sort_order, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO totp_accounts (id, issuer, label, secret, algorithm, digits, period, otp_type, counter, linked_account_id, sort_order, created_at, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         recordId, values.issuer, values.label, dependencies.encrypt(values.secret), values.algorithm,
-        values.digits, values.period, values.otpType, values.counter, linkedAccountId, nextOrder, timestamp
+        values.digits, values.period, values.otpType, values.counter, linkedAccountId, nextOrder, timestamp, values.source
       )
     }
 
@@ -429,6 +445,7 @@ export function updateTotpRecord(
   if (data.period !== undefined || parsed) { updates.push('period = ?'); params.push(normalizeOtpPeriod(parsed?.period ?? data.period)) }
   if (data.otpType !== undefined || parsed) { updates.push('otp_type = ?'); params.push(normalizeOtpType(parsed?.otpType ?? data.otpType)) }
   if (data.counter !== undefined || parsed) { updates.push('counter = ?'); params.push(normalizeOtpCounter(parsed?.counter ?? data.counter)) }
+  if (data.source !== undefined) { updates.push('source = ?'); params.push(normalizeTotpSource(data.source)) }
   if (updates.length === 0 && !hasQrImageMutation) return { success: true }
 
   return db.transaction(() => {

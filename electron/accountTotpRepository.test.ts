@@ -44,6 +44,7 @@ function createSchema(db: TestSqliteDatabase) {
       counter INTEGER DEFAULT 0,
       linked_account_id TEXT DEFAULT NULL,
       sort_order INTEGER DEFAULT 0,
+      source TEXT NOT NULL DEFAULT '',
       created_at TEXT DEFAULT ''
     );
     CREATE TABLE totp_qr_images (
@@ -180,6 +181,72 @@ describe('account and linked 2FA repository', () => {
     })
   })
 
+  it('keeps a customized issuer when the account is renamed', () => {
+    insertAccount(db)
+    insertTotp(db)
+    db.prepare("UPDATE totp_accounts SET issuer = 'My Card' WHERE id = 'totp-1'").run()
+
+    updateAccountRecord(db as any, 'account-1', { name: 'Gmail' }, deps)
+
+    expect(db.prepare("SELECT issuer, label FROM totp_accounts WHERE id = 'totp-1'").get()).toEqual({
+      issuer: 'My Card',
+      label: 'user@example.com',
+    })
+  })
+
+  it('syncs a mirrored issuer when the account is renamed', () => {
+    insertAccount(db)
+    insertTotp(db)
+
+    updateAccountRecord(db as any, 'account-1', { name: 'Gmail' }, deps)
+
+    expect(db.prepare("SELECT issuer, label FROM totp_accounts WHERE id = 'totp-1'").get()).toEqual({
+      issuer: 'Gmail',
+      label: 'user@example.com',
+    })
+  })
+
+  it('keeps a customized label when the account username changes', () => {
+    insertAccount(db)
+    insertTotp(db)
+    db.prepare("UPDATE totp_accounts SET label = 'Personal' WHERE id = 'totp-1'").run()
+
+    updateAccountRecord(db as any, 'account-1', { username: 'new@example.com' }, deps)
+
+    expect(db.prepare("SELECT issuer, label FROM totp_accounts WHERE id = 'totp-1'").get()).toEqual({
+      issuer: 'Google',
+      label: 'Personal',
+    })
+  })
+
+  it('syncs a mirrored label when the account username changes', () => {
+    insertAccount(db)
+    insertTotp(db)
+
+    updateAccountRecord(db as any, 'account-1', { username: 'new@example.com' }, deps)
+
+    expect(db.prepare("SELECT issuer, label FROM totp_accounts WHERE id = 'totp-1'").get()).toEqual({
+      issuer: 'Google',
+      label: 'new@example.com',
+    })
+  })
+
+  it('syncs only still-mirrored fields when name and username change together', () => {
+    insertAccount(db)
+    insertTotp(db)
+    db.prepare("UPDATE totp_accounts SET issuer = 'My Card' WHERE id = 'totp-1'").run()
+
+    updateAccountRecord(db as any, 'account-1', {
+      name: 'Gmail',
+      username: 'new@example.com',
+    }, deps)
+
+    expect(db.prepare("SELECT issuer, label FROM totp_accounts WHERE id = 'totp-1'").get()).toEqual({
+      issuer: 'My Card',
+      label: 'new@example.com',
+    })
+  })
+
   it('rejects invalid input before writing either table', () => {
     insertAccount(db)
     insertTotp(db)
@@ -267,6 +334,19 @@ describe('account and linked 2FA repository', () => {
 
     expect(db.prepare("SELECT totp_secret AS value FROM accounts WHERE id = 'account-1'").get()?.value).toBe(`enc:${NEW_SECRET}`)
     expect(db.prepare("SELECT secret AS value FROM totp_accounts WHERE id = 'totp-1'").get()?.value).toBe(`enc:${NEW_SECRET}`)
+  })
+
+  it('stores a normalized import source on a new 2FA record', () => {
+    const result = createTotpRecord(db as any, {
+      id: 'totp-source',
+      issuer: 'GitHub',
+      label: 'octocat',
+      secret: NEW_SECRET,
+      source: '  旧手机  导出  ',
+    }, deps)
+
+    expect(result).toEqual({ id: 'totp-source', created: true })
+    expect(db.prepare("SELECT source AS value FROM totp_accounts WHERE id = 'totp-source'").get()?.value).toBe('旧手机 导出')
   })
 
   it('increments only an existing HOTP record and reports stale targets', () => {

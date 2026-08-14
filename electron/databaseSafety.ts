@@ -59,6 +59,36 @@ export function buildDatabaseBackupPath(
   )
 }
 
+export const MAX_BACKUPS_PER_REASON = 5
+
+const BACKUP_FILE_PATTERN = /^credvaultix-before-(migration|import|update)-(\d{4}-\d{2}-\d{2}-\d{6})(?:-(\d+))?\.db$/
+
+function pruneBackupsForReason(userDataPath: string, reason: 'migration' | 'import' | 'update') {
+  try {
+    const backups: Array<{ fileName: string; timestamp: string; suffix: number }> = []
+    for (const fileName of fs.readdirSync(userDataPath)) {
+      const match = BACKUP_FILE_PATTERN.exec(fileName)
+      if (match && match[1] === reason) {
+        backups.push({ fileName, timestamp: match[2], suffix: match[3] ? Number(match[3]) : 1 })
+      }
+    }
+
+    // Same-second collisions get a -2/-3 suffix, and '-' sorts before '.' in file
+    // names, so plain lexicographic order would misplace them. Sort by
+    // [timestamp, suffix] instead, treating the suffix-less file as suffix 1.
+    backups.sort((a, b) => (
+      a.timestamp === b.timestamp ? a.suffix - b.suffix : a.timestamp < b.timestamp ? -1 : 1
+    ))
+
+    const staleCount = Math.max(0, backups.length - MAX_BACKUPS_PER_REASON)
+    for (const backup of backups.slice(0, staleCount)) {
+      fs.rmSync(path.join(userDataPath, backup.fileName), { force: true })
+    }
+  } catch {
+    // Pruning is best-effort: a cleanup failure must never fail the backup itself.
+  }
+}
+
 export function backupDatabaseIfExists(
   dbPath: string,
   userDataPath: string,
@@ -90,6 +120,8 @@ export function backupDatabaseIfExists(
   if (sourceSize !== backupSize) {
     throw new Error(`Database backup size mismatch: ${sourceSize} !== ${backupSize}`)
   }
+
+  pruneBackupsForReason(userDataPath, reason)
 
   return { created: true, filePath: backupPath }
 }
