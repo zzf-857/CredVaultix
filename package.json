@@ -1,6 +1,6 @@
 {
   "name": "credvaultix",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "A sleek Windows desktop CredVaultix account, 2FA, and service information vault with Material Design 3",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -55,9 +55,15 @@
     "vitest": "^4.1.10"
   },
   "overrides": {
-    "brace-expansion": "5.0.8",
-    "js-yaml": "4.3.0",
+    "brace-expansion": "5.0.9",
+    "js-yaml": "4.3.1",
     "tar": "7.5.22",
+    "fast-uri": "3.1.5",
+    "nanoid": "3.3.18",
+    "undici": "7.29.0",
+    "node-gyp": {
+      "undici": "6.28.0"
+    },
     "cosmiconfig": {
       "yaml": "1.10.3"
     }

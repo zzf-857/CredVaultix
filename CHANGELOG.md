@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-08-14
+
+### 安全
+
+- 将构建链中的 `brace-expansion`、`js-yaml`、`fast-uri`、`nanoid` 与 `undici` 锁定到已修复版本，恢复 GitHub Actions 的高危依赖审计。
+
 ## [1.4.0] - 2026-08-14
 
 ### 新增
