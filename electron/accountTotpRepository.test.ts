@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   createTotpRecord,
+  createTotpRecords,
   deleteTotpRecord,
   incrementHotpCounter,
   updateAccountRecord,
@@ -347,6 +348,63 @@ describe('account and linked 2FA repository', () => {
 
     expect(result).toEqual({ id: 'totp-source', created: true })
     expect(db.prepare("SELECT source AS value FROM totp_accounts WHERE id = 'totp-source'").get()?.value).toBe('旧手机 导出')
+  })
+
+  it('imports multiple 2FA records in one batch while reporting invalid rows', () => {
+    const result = createTotpRecords(db as any, [
+      {
+        id: 'totp-batch-1',
+        issuer: 'GitHub',
+        label: 'first',
+        secret: OLD_SECRET,
+        source: 'Phone import',
+      },
+      {
+        id: 'totp-batch-invalid',
+        issuer: 'Broken',
+        label: 'invalid',
+        secret: 'not-base32-1',
+        source: 'Phone import',
+      },
+      {
+        id: 'totp-batch-2',
+        issuer: 'GitLab',
+        label: 'second',
+        secret: NEW_SECRET,
+        source: 'Phone import',
+      },
+    ], deps)
+
+    expect(result).toEqual({ createdCount: 2, skippedCount: 1 })
+    expect(db.prepare('SELECT id FROM totp_accounts ORDER BY sort_order').all()).toEqual([
+      { id: 'totp-batch-1' },
+      { id: 'totp-batch-2' },
+    ])
+  })
+
+  it('rolls back the whole batch instead of swallowing a database write failure', () => {
+    db.exec(`
+      CREATE TRIGGER reject_second_batch_insert BEFORE INSERT ON totp_accounts
+      WHEN NEW.id = 'totp-batch-2'
+      BEGIN SELECT RAISE(ABORT, 'simulated batch write failure'); END;
+    `)
+
+    expect(() => createTotpRecords(db as any, [
+      {
+        id: 'totp-batch-1',
+        issuer: 'GitHub',
+        label: 'first',
+        secret: OLD_SECRET,
+      },
+      {
+        id: 'totp-batch-2',
+        issuer: 'GitLab',
+        label: 'second',
+        secret: NEW_SECRET,
+      },
+    ], deps)).toThrow(/simulated batch write failure/)
+
+    expect(db.prepare('SELECT COUNT(*) AS value FROM totp_accounts').get()?.value).toBe(0)
   })
 
   it('increments only an existing HOTP record and reports stale targets', () => {

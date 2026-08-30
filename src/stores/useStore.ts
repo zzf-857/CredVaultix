@@ -90,6 +90,10 @@ interface AppState {
   loadTrashServices: () => Promise<void>
 
   createTotpAccount: (data: Omit<CreateTotpData, 'id'>) => Promise<{ id: string } & MutationRefreshResult>
+  createTotpAccounts: (data: Array<Omit<CreateTotpData, 'id'>>) => Promise<{
+    createdCount: number
+    skippedCount: number
+  } & MutationRefreshResult>
   updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<MutationRefreshResult>
   deleteTotpAccount: (id: string) => Promise<MutationRefreshResult>
   incrementTotpCounter: (id: string) => Promise<{ counter: number } & MutationRefreshResult>
@@ -353,6 +357,20 @@ export const useStore = create<AppState>((set, get) => ({
     })
     const refreshFailed = await settleRefreshes('2FA create', [get().loadTotpAccounts(), get().loadAccounts(), get().loadAllAccounts()])
     return { id: result.id, refreshFailed }
+  },
+
+  createTotpAccounts: async (data) => {
+    const result = await window.electronAPI.createTotpAccounts(data.map((record) => ({
+      id: uuidv4(),
+      ...record,
+      otpType: record.otpType || 'totp',
+    })))
+    const refreshFailed = await settleRefreshes('2FA batch create', [
+      get().loadTotpAccounts(),
+      get().loadAccounts(),
+      get().loadAllAccounts(),
+    ])
+    return { ...result, refreshFailed }
   },
 
   updateTotpAccount: async (id, data) => {

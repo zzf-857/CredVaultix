@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 import mainSource from '../../electron/main.ts?raw'
 import cryptoSource from '../../electron/crypto.ts?raw'
 import databaseSource from '../../electron/database.ts?raw'
+import databaseSchemaSource from '../../electron/databaseSchema.ts?raw'
+import accountsIpcSource from '../../electron/ipc/accountsIpc.ts?raw'
 import preloadSource from '../../electron/preload.ts?raw'
 import indexHtmlSource from '../../index.html?raw'
 import packageSource from '../../package.json?raw'
 import appSource from '../App.tsx?raw'
 import accountsViewSource from '../components/AccountsView.tsx?raw'
+import accountFieldsSource from '../components/accounts/AccountFields.tsx?raw'
 import settingsPanelSource from '../components/SettingsPanel.tsx?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
 import titleBarSource from '../components/TitleBar.tsx?raw'
@@ -18,8 +21,8 @@ describe('CredVaultix update flow wiring', () => {
     expect(appSource).toContain("lazy(() => import('./components/service-info/ServiceInfoManager'))")
     expect(appSource).toContain("activeView === 'service-info'")
     expect(sidebarSource).toContain('服务信息')
-    expect(databaseSource).toContain('secret_services')
-    expect(databaseSource).toContain('secret_fields')
+    expect(databaseSchemaSource).toContain('secret_services')
+    expect(databaseSchemaSource).toContain('secret_fields')
     expect(mainSource).toContain("import { registerServiceInfoIpc } from './serviceInfoRepository'")
     expect(mainSource).toContain('registerServiceInfoIpc(db)')
     expect(preloadSource).toContain('getServiceInfo')
@@ -64,8 +67,9 @@ describe('CredVaultix update flow wiring', () => {
   it('backs up the database before requesting the standard visible NSIS update flow', () => {
     expect(mainSource).toContain('function prepareDatabaseForUpdateInstall()')
     expect(mainSource).toContain('assertFullWalCheckpoint(database)')
-    expect(mainSource).toContain("backupDatabaseIfExists(databasePath, userDataPath, new Date(), 'update')")
-    expect(mainSource).toContain('validateSqliteBackup(backup.filePath, expectedCounts)')
+    expect(mainSource).toContain('const backup = backupDatabaseIfExists(')
+    expect(mainSource).toContain("    'update',")
+    expect(mainSource).toContain('validateSqliteBackup(backupPath, expectedCounts)')
     expect(mainSource).toContain('autoUpdater.quitAndInstall()')
     expect(mainSource).toContain("electronAutoUpdater.on('before-quit-for-update'")
     expect(mainSource).toContain("app.on('before-quit'")
@@ -155,7 +159,7 @@ describe('CredVaultix update flow wiring', () => {
     expect(accountsViewSource).toContain('function getCreatedTagSuggestions')
     expect(accountsViewSource).toContain('window.electronAPI.getAccountTags()')
     expect(preloadSource).toContain("ipcRenderer.invoke('accounts:getTags')")
-    expect(mainSource).toContain("ipcMain.handle('accounts:getTags'")
+    expect(accountsIpcSource).toContain("ipcMain.handle('accounts:getTags'")
     expect(accountsViewSource).toContain('onContextMenu={(event) => handleTagContextMenu(event, tag)}')
     expect(accountsViewSource).toContain('账号、密码、2FA 和其他字段都不会被删除')
     expect(accountsViewSource).toContain('已创建标签')
@@ -164,10 +168,10 @@ describe('CredVaultix update flow wiring', () => {
     expect(accountsViewSource).not.toContain('getSuggestedPlatformTags')
     expect(accountsViewSource).not.toContain('YouTube')
     expect(accountsViewSource).not.toContain('Figma')
-    expect(accountsViewSource).toContain("const requiresRevealBeforeCopy = fieldKey === 'totp_secret'")
-    expect(accountsViewSource).toContain('onClick={handleCopy}')
-    expect(accountsViewSource).toContain('先显示')
-    expect(accountsViewSource).toContain('已复制')
+    expect(accountFieldsSource).toContain("const requiresRevealBeforeCopy = fieldKey === 'totp_secret'")
+    expect(accountFieldsSource).toContain('onClick={handleCopy}')
+    expect(accountFieldsSource).toContain('先显示')
+    expect(accountFieldsSource).toContain('已复制')
   })
 
   it('uses a single Vite-driven Electron dev launcher', () => {

@@ -27,7 +27,6 @@ import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
-import RefreshIcon from '@mui/icons-material/Refresh'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditIcon from '@mui/icons-material/Edit'
 import SaveIcon from '@mui/icons-material/Save'
@@ -61,7 +60,6 @@ import { useStore } from '../stores/useStore'
 import { AccountRow, AccountTagUsageRow, CustomFieldRow, TagRow, UpdateAccountData } from '../types'
 import {
   AccountPlatform,
-  getAccountPlatformLabel,
 } from '../utils/accountPlatform'
 import {
   ACCOUNT_TAG_INPUT_CONTROL_HEIGHT,
@@ -75,277 +73,23 @@ import { accountHasUndecryptableValues, UNDECRYPTABLE_VALUES_HINT } from '../uti
 import { buildAccountUpdatePatch } from '../utils/accountEdit'
 import { shouldSubmitOnEnter } from '../utils/quickSubmit'
 import useCopyFeedback from '../hooks/useCopyFeedback'
+import {
+  ACCOUNT_PLATFORM_ACCENTS as PLATFORM_ACCENTS,
+  AccountPlatformChip as PlatformChip,
+  SensitiveAccountField as SensitiveField,
+} from './accounts/AccountFields'
+import {
+  accountFieldPanelSx as fieldPanelSx,
+  accountFieldRowSx as fieldBoxSx,
+  accountPanelSx as panelSx,
+} from './accounts/accountStyles'
 
 const MAX_ACCOUNT_TAG_LENGTH = 64
 type AccountNotice = { severity: 'success' | 'error' | 'info'; text: string }
 
-const PLATFORM_ACCENTS: Record<AccountPlatform, string> = {
-  google: '#8ddc9f',
-  microsoft: '#adc6ff',
-  other: '#8fa3ba',
-}
-
-const panelSx = {
-  p: 1.5,
-  borderRadius: 1,
-  mb: 2,
-  bgcolor: 'surface.raised',
-  borderColor: 'border.subtle',
-  boxShadow: 'none',
-}
-
-const fieldPanelSx = {
-  p: 0,
-  borderRadius: 1,
-  mb: 2,
-  overflow: 'hidden',
-  bgcolor: 'surface.raised',
-  borderColor: 'border.subtle',
-  boxShadow: 'none',
-}
-
-const fieldBoxSx = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 1.25,
-  minHeight: 56,
-  px: 1.5,
-  py: 1,
-  borderRadius: 0,
-  border: 0,
-  borderBottom: '1px solid',
-  borderColor: 'border.subtle',
-  bgcolor: 'transparent',
-  '&:last-child': {
-    borderBottom: 0,
-  },
-  '&:hover': {
-    bgcolor: 'action.hover',
-  },
-}
-
-function PlatformChip({ platform }: { platform: AccountPlatform }) {
-  const accent = PLATFORM_ACCENTS[platform]
-
-  return (
-    <Chip
-      size="small"
-      label={getAccountPlatformLabel(platform)}
-      sx={{
-        height: 24,
-        fontWeight: 600,
-        bgcolor: `${accent}22`,
-        color: accent,
-        border: '1px solid',
-        borderColor: `${accent}55`,
-        '& .MuiChip-label': {
-          px: 1,
-        },
-      }}
-    />
-  )
-}
-
 function getCreatedTagSuggestions(tags: AccountTagUsageRow[], currentTags: TagRow[] = []) {
   const currentIds = new Set(currentTags.map((tag) => tag.id))
   return tags.filter((tag) => !currentIds.has(tag.id))
-}
-
-function SensitiveField({
-  icon,
-  label,
-  value,
-  fieldKey,
-  copiedField,
-  onCopy,
-  editing,
-  onChange,
-  onGenerate,
-  onQuickSubmit,
-  error,
-  helperText,
-}: {
-  icon: React.ReactNode
-  label: string
-  value: string
-  fieldKey: string
-  copiedField: string | null
-  onCopy: (val: string, key: string) => void
-  editing: boolean
-  onChange?: (val: string) => void
-  onGenerate?: () => void
-  onQuickSubmit?: (event: React.KeyboardEvent) => void
-  error?: boolean
-  helperText?: string
-}) {
-  const [visible, setVisible] = useState(false)
-  const hasValue = value && value.length > 0
-  const isSecretField = fieldKey === 'password' || fieldKey === 'totp_secret'
-
-  useEffect(() => {
-    setVisible(false)
-  }, [editing, fieldKey])
-
-  if (editing) {
-    return (
-      <TextField
-        fullWidth
-        size="small"
-        label={label}
-        value={value}
-        type={isSecretField && !visible ? 'password' : 'text'}
-        onChange={(event) => onChange?.(event.target.value)}
-        onKeyDown={onQuickSubmit}
-        error={error}
-        helperText={helperText}
-        InputProps={{
-          startAdornment: <InputAdornment position="start">{icon}</InputAdornment>,
-          endAdornment: onGenerate || isSecretField ? (
-            <InputAdornment position="end">
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                {onGenerate && (
-                  <Tooltip title="随机生成高强度密码">
-                    <IconButton size="small" aria-label="随机生成高强度密码" onClick={onGenerate}>
-                      <RefreshIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-                {isSecretField && (
-                  <Tooltip title={visible ? '隐藏敏感值' : '显示敏感值'}>
-                    <IconButton
-                      size="small"
-                      aria-label={visible ? `隐藏${label}` : `显示${label}`}
-                      onClick={() => setVisible((current) => !current)}
-                      edge="end"
-                    >
-                      {visible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-                    </IconButton>
-                  </Tooltip>
-                )}
-              </Box>
-            </InputAdornment>
-          ) : undefined,
-        }}
-        sx={{ mb: 1.5 }}
-      />
-    )
-  }
-
-  if (!hasValue) return null
-
-  const requiresRevealBeforeCopy = fieldKey === 'totp_secret'
-  const canCopy = !requiresRevealBeforeCopy || visible
-  const isCopied = copiedField === fieldKey
-  const handleCopy = () => {
-    if (!canCopy) return
-    void onCopy(value, fieldKey)
-  }
-
-  return (
-    <Box
-      sx={{
-        ...fieldBoxSx,
-        mb: 0,
-        borderColor: isCopied ? 'success.main' : 'border.subtle',
-        bgcolor: isCopied ? 'rgba(52, 168, 83, 0.12)' : 'transparent',
-        boxShadow: isCopied ? 'inset 0 0 0 1px rgba(52, 168, 83, 0.75)' : 'none',
-        transition: 'background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease',
-        '&:hover': {
-          bgcolor: isCopied ? 'rgba(52, 168, 83, 0.16)' : 'action.hover',
-        },
-      }}
-    >
-      <Box
-        component="button"
-        type="button"
-        disabled={!canCopy}
-        aria-label={canCopy ? `复制${label}` : `${label}需先显示才能复制`}
-        onClick={handleCopy}
-        sx={{
-          all: 'unset',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.25,
-          flex: 1,
-          minWidth: 0,
-          alignSelf: 'stretch',
-          cursor: canCopy ? 'pointer' : 'default',
-          '&:focus-visible': {
-            outline: '2px solid',
-            outlineColor: isCopied ? 'success.main' : 'primary.main',
-            outlineOffset: -2,
-          },
-        }}
-      >
-        <Box
-          sx={{
-            width: 32,
-            height: 32,
-            borderRadius: 1,
-            color: 'primary.main',
-            bgcolor: 'surface.sunken',
-            display: 'grid',
-            placeItems: 'center',
-            flexShrink: 0,
-          }}
-        >
-          {icon}
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600 }}>
-            {label}
-          </Typography>
-          <Typography
-            variant="body2"
-            className={isSecretField ? 'mono-data' : undefined}
-            sx={{ color: 'text.primary', mt: 0.2, fontWeight: 600 }}
-            noWrap
-          >
-            {isSecretField && !visible ? '••••••••' : value}
-          </Typography>
-        </Box>
-      </Box>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.85, flexShrink: 0 }}>
-        {requiresRevealBeforeCopy && !visible && (
-          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.74rem', lineHeight: 1.35 }}>
-            先显示
-          </Typography>
-        )}
-        {canCopy && (
-          <Tooltip title={isCopied ? '已复制' : `复制${label}`}>
-            <IconButton
-              size="small"
-              aria-label={`复制${label}`}
-              onClick={(event) => {
-                event.stopPropagation()
-                handleCopy()
-              }}
-              sx={{ color: isCopied ? 'success.main' : 'text.secondary' }}
-            >
-              {isCopied
-                ? <CheckIcon sx={{ fontSize: 16 }} />
-                : <ContentCopyIcon sx={{ fontSize: 16 }} />}
-            </IconButton>
-          </Tooltip>
-        )}
-        {isSecretField && (
-          <Tooltip title={visible ? `隐藏${label}` : `显示${label}`}>
-            <IconButton
-              size="small"
-              aria-label={visible ? `隐藏${label}` : `显示${label}`}
-              onClick={(event) => {
-                event.stopPropagation()
-                setVisible(!visible)
-              }}
-              sx={{ color: 'text.secondary' }}
-            >
-              {visible ? <VisibilityOffIcon sx={{ fontSize: 16 }} /> : <VisibilityIcon sx={{ fontSize: 16 }} />}
-            </IconButton>
-          </Tooltip>
-        )}
-      </Box>
-    </Box>
-  )
 }
 
 function AccountDetail({
@@ -1848,6 +1592,7 @@ export default function AccountsView() {
   const [tagCatalogRevision, setTagCatalogRevision] = useState(0)
   const [focusedAccountId, setFocusedAccountId] = useState<string | null>(null)
   const accountListRef = useRef<HTMLDivElement>(null)
+  const accountListPaneRef = useRef<HTMLDivElement>(null)
   const { copiedKey: copiedField, copy } = useCopyFeedback()
 
   // Drag and drop states for custom account ordering
@@ -1892,12 +1637,16 @@ export default function AccountsView() {
     const doDrag = (moveEvent: MouseEvent) => {
       const newWidth = Math.max(280, Math.min(420, startWidth + (moveEvent.clientX - startX)))
       latestWidth = newWidth
-      setListWidth(newWidth)
+      if (accountListPaneRef.current) {
+        accountListPaneRef.current.style.width = `${newWidth}px`
+        accountListPaneRef.current.style.minWidth = `${newWidth}px`
+      }
     }
 
     const stopDrag = () => {
       window.removeEventListener('mousemove', doDrag)
       window.removeEventListener('mouseup', stopDrag)
+      setListWidth(latestWidth)
       void window.electronAPI.updateAppPreferences({ accountsListWidth: latestWidth })
     }
 
@@ -2161,6 +1910,7 @@ export default function AccountsView() {
   return (
     <Box sx={{ flex: 1, display: 'flex', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
       <Box
+        ref={accountListPaneRef}
         sx={{
           width: renderedListWidth,
           minWidth: renderedListWidth,

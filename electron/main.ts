@@ -1,4 +1,4 @@
-import { app, autoUpdater as electronAutoUpdater, BrowserWindow, clipboard, ipcMain, dialog, nativeImage, session, shell } from 'electron'
+import { app, autoUpdater as electronAutoUpdater, BrowserWindow, clipboard, ipcMain, dialog, session, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import Database from 'better-sqlite3'
 import path from 'path'
@@ -8,10 +8,12 @@ import {
   PROTECTED_TABLES,
   SERVICE_INFO_TABLES,
   assertCountsNotReduced,
+  assertDatabaseIntegrity,
   assertFullWalCheckpoint,
   backupDatabaseIfExists,
   copySqliteSnapshotIfMissing,
   getExistingTableCounts,
+  restoreDatabaseFromBackup,
   type CoreTableCounts,
 } from './databaseSafety'
 import {
@@ -23,36 +25,22 @@ import {
 } from './serviceInfoBackup'
 import { readPreferences, replacePreferences, resetPreferences, updatePreferences } from './preferencesStore'
 import { registerServiceInfoIpc } from './serviceInfoRepository'
-import { accountMatchesSearch } from './accountSearch'
 import { assertValidJsonBackup } from './backupValidation'
-import { normalizeCsvAccountRow } from './csvAccountImport'
 import {
-  type AccountUpdateData,
-  type TotpWriteData,
-  createTotpRecord,
-  deleteTotpRecord,
-  incrementHotpCounter,
   normalizeAccountPlatform,
   normalizeOtpAlgorithm,
   normalizeOtpCounter,
   normalizeOtpDigits,
   normalizeOtpPeriod,
   normalizeOtpType,
-  updateAccountRecord,
-  updateTotpRecord,
 } from './accountTotpRepository'
-import {
-  getTotpQrImage,
-  normalizeTotpQrImageInput,
-  type TotpQrImageInput,
-} from './totpQrImageRepository'
-import { getLinkedTotpByAccountIds, getTagsByAccountIds } from './accountHydration'
 import { pickTagColor } from '../shared/tagColors'
 import { normalizeTotpSource } from '../shared/totpSource'
 import { createClipboardGuard } from './clipboardGuard'
-import { addTagToAccount, deleteTag, getAccountTags, removeTagFromAccount, updateTags } from './accountTagRepository'
-import { addAccountField, deleteAccountField, updateAccountField } from './accountFieldRepository'
-import { hardDeleteAccountRecord, moveAccountToTrash, restoreAccountFromTrash } from './accountLifecycleRepository'
+import { registerAccountIpc } from './ipc/accountsIpc'
+import { registerTotpIpc } from './ipc/totpIpc'
+import { prepareTotpQrImage } from './totpQrImageValidation'
+import { recoverDatabaseAfterFailedImport } from './databaseImportRecovery'
 import { UpdaterController } from './updaterController'
 import { createUpdaterLogger } from './updaterLogger'
 import { resolveUserDataProfile, type UserDataProfile } from './userDataProfile'
@@ -65,8 +53,6 @@ import {
 import type { UpdateSnapshot } from '../shared/update'
 import type { RuntimeDataInfo } from '../shared/runtimeData'
 import fs from 'fs'
-import Papa from 'papaparse'
-import { v4 as uuidv4 } from 'uuid'
 
 let mainWindow: BrowserWindow | null = null
 const APP_ID = 'com.personal.credvaultix'
@@ -80,27 +66,6 @@ let updaterController: UpdaterController | null = null
 let updateSnapshot: UpdateSnapshot | null = null
 let activeUserDataProfile: UserDataProfile
 let hasUnsavedRendererChanges = false
-
-function prepareTotpQrImage(input: TotpQrImageInput | null | undefined) {
-  if (input === null || input === undefined) return input
-  const normalized = normalizeTotpQrImageInput(input)
-  const image = nativeImage.createFromBuffer(normalized.bytes)
-  if (image.isEmpty()) throw new Error('无法读取二维码图片')
-  const { width, height } = image.getSize()
-  if (width < 32 || height < 32 || width > 8192 || height > 8192 || width * height > 40_000_000) {
-    throw new Error('二维码图片尺寸无效或过大')
-  }
-  return {
-    bytes: new Uint8Array(normalized.bytes),
-    mimeType: normalized.mimeType,
-    originalName: normalized.originalName,
-  }
-}
-
-function prepareTotpWriteData<T extends TotpWriteData>(data: T): T {
-  if (!Object.prototype.hasOwnProperty.call(data, 'qrImage')) return data
-  return { ...data, qrImage: prepareTotpQrImage(data.qrImage) } as T
-}
 
 app.setName(APP_NAME)
 
@@ -145,26 +110,34 @@ function isSqliteDatabasePath(filePath: string) {
   return path.extname(filePath).toLowerCase() === '.db'
 }
 
+function quitAfterFatalDatabaseRecovery(error: Error): never {
+  console.error('Fatal database recovery failure:', error)
+  dialog.showErrorBox(
+    'CredVaultix 数据库恢复失败',
+    `${error.message}\n\n程序将立即退出，以避免继续访问已关闭或不完整的数据库。请保留数据目录及其中仍可用的迁移或导入前备份。`
+  )
+  hasUnsavedRendererChanges = false
+  app.quit()
+  throw error
+}
+
 function backupCurrentDatabaseBeforeImport(currentDb: Database.Database) {
   const userDataPath = app.getPath('userData')
   const dbPath = path.join(userDataPath, DATABASE_FILE_NAME)
 
   assertFullWalCheckpoint(currentDb)
-  const backup = backupDatabaseIfExists(dbPath, userDataPath, new Date(), 'import')
+  const expectedCounts = getExistingTableCounts(currentDb, DATA_TABLES)
+  const backup = backupDatabaseIfExists(
+    dbPath,
+    userDataPath,
+    new Date(),
+    'import',
+    (backupPath) => validateSqliteBackup(backupPath, expectedCounts)
+  )
   if (!backup.created || !backup.filePath || !fs.existsSync(backup.filePath)) {
     throw new Error('导入已中止：无法创建当前数据库的安全备份')
   }
-
-  validateSqliteBackup(backup.filePath, getExistingTableCounts(currentDb, DATA_TABLES))
   return backup
-}
-
-function removeDatabaseSidecars(dbPath: string) {
-  for (const sidecarPath of [`${dbPath}-wal`, `${dbPath}-shm`]) {
-    if (fs.existsSync(sidecarPath)) {
-      fs.rmSync(sidecarPath, { force: true })
-    }
-  }
 }
 
 function copyFileIfMissing(sourcePath: string, targetPath: string) {
@@ -254,10 +227,7 @@ async function migrateLegacyUserDataToCredVaultix() {
 function validateSqliteBackup(filePath: string, expectedCounts?: CoreTableCounts) {
   const candidate = new Database(filePath, { readonly: true, fileMustExist: true })
   try {
-    const integrity = candidate.pragma('integrity_check', { simple: true })
-    if (integrity !== 'ok') {
-      throw new Error(`SQLite 完整性检查失败：${String(integrity)}`)
-    }
+    assertDatabaseIntegrity(candidate)
 
     const requiredTables = ['accounts', 'totp_accounts']
     for (const tableName of requiredTables) {
@@ -294,11 +264,16 @@ function prepareDatabaseForUpdateInstall() {
   const databasePath = path.join(userDataPath, DATABASE_FILE_NAME)
   const expectedCounts = getExistingTableCounts(database, DATA_TABLES)
   assertFullWalCheckpoint(database)
-  const backup = backupDatabaseIfExists(databasePath, userDataPath, new Date(), 'update')
+  const backup = backupDatabaseIfExists(
+    databasePath,
+    userDataPath,
+    new Date(),
+    'update',
+    (backupPath) => validateSqliteBackup(backupPath, expectedCounts)
+  )
   if (!backup.created || !backup.filePath || !fs.existsSync(backup.filePath)) {
     throw new Error('无法创建更新前数据库备份，已中止更新安装')
   }
-  validateSqliteBackup(backup.filePath, expectedCounts)
   return backup.filePath
 }
 
@@ -514,7 +489,18 @@ if (hasSingleInstanceLock) {
       callback(permission === 'clipboard-sanitized-write')
     })
 
-    initDatabase()
+    try {
+      initDatabase()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('Error initializing database:', error)
+      dialog.showErrorBox(
+        'CredVaultix 数据库启动失败',
+        `${message}\n\n程序已停止启动，以避免继续写入异常数据库。迁移前备份仍保存在数据目录中。`
+      )
+      app.quit()
+      return
+    }
     registerIpcHandlers()
     createWindow()
     setupAutoUpdater()
@@ -524,6 +510,15 @@ if (hasSingleInstanceLock) {
 app.on('window-all-closed', () => {
   if (!isQuittingForUpdate) {
     app.quit()
+  }
+})
+
+app.on('will-quit', () => {
+  try {
+    const database = getDatabase()
+    if (database?.open) database.close()
+  } catch {
+    // The database may not have initialized when startup was aborted.
   }
 })
 
@@ -547,33 +542,6 @@ function registerIpcHandlers() {
     updatePreferences(app.getPath('userData'), patch)
   )
   ipcMain.handle('preferences:reset', () => resetPreferences(app.getPath('userData')))
-
-  // Tags and linked 2FA rows are fetched in batches to avoid per-account queries
-  // when hydrating full account lists (search re-runs this on every reload).
-  const hydrateAccountRows = (rows: any[]) => {
-    const accountIds = rows.map((row) => row.id)
-    const tagsByAccount = getTagsByAccountIds(db, accountIds)
-    const linkedTotpByAccount = getLinkedTotpByAccountIds(db, accountIds, { decrypt })
-
-    return rows.map((row) => {
-      const linkedTotpAccounts = linkedTotpByAccount.get(row.id) || []
-      return {
-        ...row,
-        platform: normalizeAccountPlatform(row.platform),
-        username: decrypt(row.username),
-        password: decrypt(row.password),
-        phone: decrypt(row.phone),
-        backup_email: decrypt(row.backup_email),
-        // A single linked 2FA record is authoritative; duplicate legacy rows are surfaced instead of auto-resolved.
-        totp_secret: linkedTotpAccounts.length === 1
-          ? linkedTotpAccounts[0].secret
-          : decrypt(row.totp_secret),
-        linked_totp_accounts: linkedTotpAccounts,
-        linked_totp_count: linkedTotpAccounts.length,
-        tags: tagsByAccount.get(row.id) || [],
-      }
-    })
-  }
 
   // Window controls
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
@@ -600,285 +568,14 @@ function registerIpcHandlers() {
     return { success: true, autoClearMs }
   })
 
-  // ============ Accounts ============
-  ipcMain.handle('accounts:getAll', (_event, filters?: { search?: string; favoritesOnly?: boolean; isDeleted?: boolean; platform?: string }) => {
-    let query = 'SELECT * FROM accounts'
-    const conditions: string[] = []
-    const params: any[] = []
-
-    if (filters?.isDeleted) {
-      conditions.push('is_deleted = 1')
-    } else {
-      conditions.push('is_deleted = 0')
-    }
-
-    if (filters?.favoritesOnly) {
-      conditions.push('is_favorite = 1')
-    }
-    if (filters?.platform && filters.platform !== 'all') {
-      conditions.push('platform = ?')
-      params.push(normalizeAccountPlatform(filters.platform))
-    }
-    if (conditions.length > 0) {
-      query += ' WHERE ' + conditions.join(' AND ')
-    }
-    query += ' ORDER BY updated_at DESC'
-
-    const rows = db.prepare(query).all(...params) as any[]
-    const hydratedRows = hydrateAccountRows(rows)
-    return filters?.search
-      ? hydratedRows.filter((account) => accountMatchesSearch(account, filters.search || ''))
-      : hydratedRows
+  registerAccountIpc({
+    getDatabase: () => db,
+    getMainWindow: () => mainWindow,
   })
 
-  ipcMain.handle('accounts:getById', (_event, id: string) => {
-    const row = db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as any
-    if (!row) return null
-    const hydrated = hydrateAccountRows([row])[0]
-
-    // Get custom fields
-    const fields = db.prepare('SELECT * FROM account_custom_fields WHERE account_id = ? ORDER BY sort_order ASC').all(id) as any[]
-    hydrated.customFields = fields.map((f: any) => ({
-      ...f,
-      field_value: f.is_secret ? decrypt(f.field_value) : f.field_value,
-    }))
-    return hydrated
-  })
-
-  ipcMain.handle('accounts:create', (_event, data: { id: string; name: string; platform?: string; username?: string; password?: string; phone?: string; backupEmail?: string; totpSecret?: string; notes?: string }) => {
-    const accountName = String(data.name || '').trim()
-    if (!accountName) throw new Error('Account name is required')
-    const now = new Date().toISOString()
-    db.prepare(`
-      INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      data.id, accountName, normalizeAccountPlatform(data.platform ?? 'google'),
-      encrypt(data.username || ''), encrypt(data.password || ''),
-      encrypt(data.phone || ''), encrypt(data.backupEmail || ''),
-      encrypt(data.totpSecret || ''), data.notes || '',
-      now, now
-    )
-    return { id: data.id }
-  })
-
-  ipcMain.handle('accounts:update', (_event, id: string, data: AccountUpdateData) => {
-    return updateAccountRecord(db, id, data, { encrypt, decrypt })
-  })
-
-  ipcMain.handle('accounts:delete', (_event, id: string) => {
-    return moveAccountToTrash(db, id)
-  })
-
-  ipcMain.handle('accounts:restore', (_event, id: string) => {
-    return restoreAccountFromTrash(db, id)
-  })
-
-  ipcMain.handle('accounts:hardDelete', (_event, id: string) => {
-    return hardDeleteAccountRecord(db, id)
-  })
-
-  ipcMain.handle('accounts:importCsv', async () => {
-    const result = await dialog.showOpenDialog(mainWindow!, {
-      title: '导入 CSV 账号数据',
-      filters: [{ name: 'CSV 文件', extensions: ['csv'] }],
-      properties: ['openFile']
-    })
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return { count: 0, invalidTotpCount: 0, skippedRowCount: 0 }
-    }
-    const raw = fs.readFileSync(result.filePaths[0], 'utf-8')
-    
-    // Parse CSV
-    const parsed = Papa.parse(raw, {
-      header: true,
-      skipEmptyLines: true,
-      transformHeader: (header) => header.trim().toLowerCase()
-    })
-
-    if (parsed.errors.length && parsed.data.length === 0) {
-      return { count: 0, invalidTotpCount: 0, skippedRowCount: 0 }
-    }
-
-    let count = 0
-    let invalidTotpCount = 0
-    let skippedRowCount = 0
-    const now = new Date().toISOString()
-    const insertAccount = db.prepare('INSERT INTO accounts (id, name, platform, username, password, phone, backup_email, totp_secret, notes, is_favorite, is_deleted, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    const insertTotp = db.prepare(`
-      INSERT INTO totp_accounts (
-        id, issuer, label, secret, algorithm, digits, period, otp_type,
-        counter, linked_account_id, sort_order, created_at, source
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-    const maxTotpOrder = db.prepare('SELECT MAX(sort_order) as maxOrder FROM totp_accounts').get() as { maxOrder?: number | null } | undefined
-    let nextTotpOrder = (maxTotpOrder?.maxOrder || 0) + 1
-
-    db.transaction(() => {
-      for (const row of parsed.data as any[]) {
-        const normalized = normalizeCsvAccountRow(row)
-        if (!normalized) {
-          skippedRowCount += 1
-          continue
-        }
-
-        const id = uuidv4()
-        if (normalized.invalidTotpUri) invalidTotpCount += 1
-        
-        insertAccount.run(
-          id, normalized.name,
-          normalizeAccountPlatform(normalized.platform),
-          encrypt(normalized.username), encrypt(normalized.password),
-          encrypt(normalized.phone), encrypt(normalized.backupEmail), encrypt(normalized.totpSecret),
-          normalized.notes, 0, 0, now, now
-        )
-
-        if (normalized.totpSecret) {
-          insertTotp.run(
-            uuidv4(),
-            normalized.otp?.issuer || normalized.name,
-            normalized.otp?.label || normalized.username || normalized.name,
-            encrypt(normalized.totpSecret),
-            normalized.otp?.algorithm || 'SHA1',
-            normalized.otp?.digits || 6,
-            normalized.otp?.period || 30,
-            normalized.otp?.otpType || 'totp',
-            normalized.otp?.counter || 0,
-            id,
-            nextTotpOrder,
-            now,
-            ''
-          )
-          nextTotpOrder += 1
-        }
-        count++
-      }
-    })()
-
-    return { count, invalidTotpCount, skippedRowCount }
-  })
-
-  ipcMain.handle('accounts:addTag', (_event, data: { accountId: string; tagName: string; color?: string }) => {
-    return addTagToAccount(db, data, { createId: uuidv4, pickColor: pickTagColor })
-  })
-
-  ipcMain.handle('accounts:getTags', () => getAccountTags(db))
-
-  ipcMain.handle('accounts:removeTag', (_event, data: { accountId: string; tagId: string }) => {
-    return removeTagFromAccount(db, data)
-  })
-
-  ipcMain.handle('accounts:deleteTag', (_event, tagId: string) => deleteTag(db, tagId))
-  ipcMain.handle('accounts:updateTags', (_event, patches: Array<{ id: string; name: string; color: string }>) => (
-    updateTags(db, patches)
-  ))
-
-  // ============ Custom Fields ============
-  ipcMain.handle('accounts:addField', (_event, data: { id: string; accountId: string; fieldName: string; fieldValue: string; isSecret: boolean }) => {
-    return addAccountField(db, data, { encrypt, decrypt })
-  })
-
-  ipcMain.handle('accounts:updateField', (_event, id: string, data: { fieldName?: string; fieldValue?: string; isSecret?: boolean }) => {
-    return updateAccountField(db, id, data, { encrypt, decrypt })
-  })
-
-  ipcMain.handle('accounts:deleteField', (_event, id: string) => {
-    return deleteAccountField(db, id)
-  })
-
-  // ============ TOTP 2FA ============
-  ipcMain.handle('totp:getAll', () => {
-    return (db.prepare(`
-      SELECT
-        t.*,
-        EXISTS (
-          SELECT 1
-          FROM totp_qr_images qi
-          WHERE qi.totp_account_id = t.id
-        ) AS has_qr_image
-      FROM totp_accounts t
-      ORDER BY t.sort_order ASC, t.label ASC
-    `).all() as any[])
-      .map((account) => {
-        let linkedAccountState: 'active' | 'trashed' | 'missing' | 'unlinked' = 'unlinked'
-        if (account.linked_account_id) {
-          if (account.linked_account_id.startsWith('!deleted-')) {
-            linkedAccountState = 'missing'
-          } else {
-            const linkedAccount = db.prepare('SELECT is_deleted FROM accounts WHERE id = ?')
-              .get(account.linked_account_id) as { is_deleted?: number } | undefined
-            linkedAccountState = linkedAccount
-              ? linkedAccount.is_deleted ? 'trashed' : 'active'
-              : 'missing'
-          }
-        }
-        return {
-          ...account,
-          secret: decrypt(account.secret),
-          linked_account_state: linkedAccountState,
-          has_qr_image: Boolean(account.has_qr_image),
-        }
-      })
-  })
-
-  ipcMain.handle('totp:create', (_event, data: TotpWriteData & { id: string }) => {
-    return createTotpRecord(db, prepareTotpWriteData(data), { encrypt, decrypt, encryptBuffer })
-  })
-
-  ipcMain.handle('totp:update', (_event, id: string, data: TotpWriteData) => {
-    return updateTotpRecord(db, id, prepareTotpWriteData(data), { encrypt, decrypt, encryptBuffer })
-  })
-
-  ipcMain.handle('totp:delete', (_event, id: string) => {
-    return deleteTotpRecord(db, id, { encrypt })
-  })
-
-  ipcMain.handle('totp:incrementCounter', (_event, id: string) => {
-    return incrementHotpCounter(db, id)
-  })
-
-  ipcMain.handle('totp:getQrImage', (_event, id: string) => {
-    const record = getTotpQrImage(db, id, { decryptBuffer })
-    if (!record) return null
-    return {
-      dataUrl: `data:${record.mimeType};base64,${record.bytes.toString('base64')}`,
-      mimeType: record.mimeType,
-      originalName: record.originalName,
-      originalSize: record.originalSize,
-    }
-  })
-
-  ipcMain.handle('totp:copyQrImage', (_event, id: string) => {
-    const record = getTotpQrImage(db, id, { decryptBuffer })
-    if (!record) return { success: false }
-    const image = nativeImage.createFromBuffer(record.bytes)
-    if (image.isEmpty()) throw new Error('无法读取已保存的二维码图片')
-    clipboard.writeImage(image)
-    return { success: true }
-  })
-
-  ipcMain.handle('totp:saveQrImage', async (_event, id: string) => {
-    const record = getTotpQrImage(db, id, { decryptBuffer })
-    if (!record) return { success: false }
-
-    const extension = record.mimeType === 'image/jpeg' ? '.jpg' : '.png'
-    const originalPath = path.parse(record.originalName)
-    const defaultName = `${originalPath.name || '2fa-qrcode'}${extension}`
-    const result = await dialog.showSaveDialog(mainWindow!, {
-      title: '保存 2FA 二维码',
-      defaultPath: defaultName,
-      filters: [{
-        name: record.mimeType === 'image/jpeg' ? 'JPEG 图片' : 'PNG 图片',
-        extensions: record.mimeType === 'image/jpeg' ? ['jpg', 'jpeg'] : ['png'],
-      }],
-    })
-    if (result.canceled || !result.filePath) {
-      return { success: false, canceled: true }
-    }
-
-    fs.writeFileSync(result.filePath, record.bytes)
-    return { success: true, filePath: result.filePath }
+  registerTotpIpc({
+    getDatabase: () => db,
+    getMainWindow: () => mainWindow,
   })
 
   // ============ Database Export/Import ============
@@ -962,8 +659,7 @@ function registerIpcHandlers() {
         const backup = backupCurrentDatabaseBeforeImport(db)
         db.close()
         try {
-          removeDatabaseSidecars(dbPath)
-          fs.copyFileSync(stagedDbPath, dbPath)
+          restoreDatabaseFromBackup(stagedDbPath, dbPath)
           initDatabase()
           db = getDatabase()
           updateServiceInfoDatabase(db)
@@ -975,20 +671,19 @@ function registerIpcHandlers() {
             // The imported database may have failed before a connection was assigned.
           }
 
-          if (!backup.filePath || !fs.existsSync(backup.filePath)) {
-            throw importError
-          }
-
           try {
-            removeDatabaseSidecars(dbPath)
-            fs.copyFileSync(backup.filePath, dbPath)
-            initDatabase()
-            db = getDatabase()
-            updateServiceInfoDatabase(db)
-          } catch (restoreError) {
-            throw new Error(
-              `导入失败，且自动恢复原数据库失败：${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
-              { cause: importError }
+            db = recoverDatabaseAfterFailedImport({
+              importError,
+              backupPath: backup.filePath,
+              databasePath: dbPath,
+              fileExists: fs.existsSync,
+              restoreDatabase: restoreDatabaseFromBackup,
+              initializeDatabase: initDatabase,
+              activateDatabase: updateServiceInfoDatabase,
+            })
+          } catch (recoveryError) {
+            quitAfterFatalDatabaseRecovery(
+              recoveryError instanceof Error ? recoveryError : new Error(String(recoveryError))
             )
           }
           throw importError

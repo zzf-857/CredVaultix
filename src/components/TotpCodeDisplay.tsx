@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { Box, Typography, LinearProgress, IconButton, Tooltip, Fade } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import CheckIcon from '@mui/icons-material/Check'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import * as OTPAuth from 'otpauth'
 import useCopyFeedback from '../hooks/useCopyFeedback'
-import { getTotpRemainingSeconds, getTotpWindow, useSharedNow } from '../hooks/useSharedNow'
+import { useOtpSnapshot } from '../hooks/useOtpSnapshot'
 
 /**
  * Shared inline TOTP code display component.
@@ -32,39 +31,11 @@ export default function TotpCodeDisplay({
   onIncrementCounter?: () => void
   incrementBusy?: boolean
 }) {
-  const [code, setCode] = useState('-'.repeat(digits))
-  const [codeFailed, setCodeFailed] = useState(false)
-  const nowMs = useSharedNow()
-  const isHotp = otpType === 'hotp'
-  const totpWindow = isHotp ? counter : getTotpWindow(nowMs, period)
-  const remaining = isHotp || codeFailed ? (isHotp ? -1 : 0) : getTotpRemainingSeconds(nowMs, period)
+  const otp = useOtpSnapshot({ secret, otpType, algorithm, digits, period, counter })
+  const { code, isHotp, remaining, progress, urgent: isUrgent } = otp
   const { copiedKey, copy } = useCopyFeedback()
   const copyKey = `totp-code:${code}`
   const copied = copiedKey === copyKey
-
-  useEffect(() => {
-    if (!secret || !secret.trim()) {
-      setCode('-'.repeat(digits))
-      setCodeFailed(false)
-      return
-    }
-
-    try {
-      const secretValue = OTPAuth.Secret.fromBase32(secret.replace(/\s/g, '').toUpperCase())
-      if (isHotp) {
-        const hotp = new OTPAuth.HOTP({ algorithm, digits, counter, secret: secretValue })
-        setCode(hotp.generate({ counter }))
-        setCodeFailed(false)
-        return
-      }
-      const totp = new OTPAuth.TOTP({ algorithm, digits, period, secret: secretValue })
-      setCode(totp.generate({ timestamp: totpWindow * Math.max(period, 1) * 1000 }))
-      setCodeFailed(false)
-    } catch {
-      setCode('-'.repeat(digits))
-      setCodeFailed(true)
-    }
-  }, [algorithm, counter, digits, isHotp, period, secret, totpWindow])
 
   const handleCopy = async () => {
     if (/^-+$/.test(code)) return false
@@ -73,8 +44,6 @@ export default function TotpCodeDisplay({
 
   if (!secret || !secret.trim()) return null
 
-  const progress = isHotp ? 100 : (remaining / period) * 100
-  const isUrgent = !isHotp && remaining <= 5
   const splitAt = Math.ceil(code.length / 2)
   const formattedCode = code.length >= 6 ? `${code.slice(0, splitAt)} ${code.slice(splitAt)}` : code
 

@@ -24,11 +24,14 @@ export const SERVICE_INFO_TABLES = [
 export const DATA_TABLES = [...PROTECTED_TABLES, ...SERVICE_INFO_TABLES] as const
 
 export type CoreTableCounts = Record<string, number>
+export type TableIdentitySnapshot = Record<string, string[]>
 
 export interface BackupResult {
   created: boolean
   filePath?: string
 }
+
+export type DatabaseBackupValidator = (filePath: string) => void
 
 export type SqliteSnapshotDatabaseFactory = (
   filePath: string,
@@ -39,6 +42,21 @@ interface WalCheckpointRow {
   busy: number
   log: number
   checkpointed: number
+}
+
+const TABLE_IDENTITY_COLUMNS: Record<string, readonly string[]> = {
+  accounts: ['id'],
+  totp_accounts: ['id'],
+  totp_qr_images: ['totp_account_id'],
+  tags: ['id'],
+  account_custom_fields: ['id'],
+  account_tags: ['account_id', 'tag_id'],
+  secret_groups: ['id'],
+  secret_services: ['id'],
+  secret_field_groups: ['id'],
+  secret_fields: ['id'],
+  model_provider_profiles: ['service_id'],
+  model_provider_key_metadata: ['field_id'],
 }
 
 function formatBackupTimestamp(now: Date) {
@@ -102,7 +120,8 @@ export function backupDatabaseIfExists(
   dbPath: string,
   userDataPath: string,
   now = new Date(),
-  reason: 'migration' | 'import' | 'update' = 'migration'
+  reason: 'migration' | 'import' | 'update' = 'migration',
+  validateBackup?: DatabaseBackupValidator
 ): BackupResult {
   if (!fs.existsSync(dbPath)) {
     return { created: false }
@@ -122,17 +141,58 @@ export function backupDatabaseIfExists(
     suffix += 1
   }
 
-  fs.copyFileSync(dbPath, backupPath)
+  const temporaryPath = `${backupPath}.tmp-${process.pid}-${Date.now()}`
+  try {
+    fs.copyFileSync(dbPath, temporaryPath)
 
-  const sourceSize = fs.statSync(dbPath).size
-  const backupSize = fs.statSync(backupPath).size
-  if (sourceSize !== backupSize) {
-    throw new Error(`Database backup size mismatch: ${sourceSize} !== ${backupSize}`)
+    const sourceSize = fs.statSync(dbPath).size
+    const backupSize = fs.statSync(temporaryPath).size
+    if (sourceSize !== backupSize) {
+      throw new Error(`Database backup size mismatch: ${sourceSize} !== ${backupSize}`)
+    }
+
+    validateBackup?.(temporaryPath)
+    fs.renameSync(temporaryPath, backupPath)
+  } catch (error) {
+    if (fs.existsSync(temporaryPath)) fs.rmSync(temporaryPath, { force: true })
+    throw error
   }
 
   pruneBackupsForReason(userDataPath, reason)
 
   return { created: true, filePath: backupPath }
+}
+
+export function removeSqliteSidecarFiles(dbPath: string) {
+  for (const sidecarPath of [`${dbPath}-wal`, `${dbPath}-shm`]) {
+    if (fs.existsSync(sidecarPath)) {
+      fs.rmSync(sidecarPath, { force: true })
+    }
+  }
+}
+
+export function restoreDatabaseFromBackup(backupPath: string, dbPath: string) {
+  if (!fs.existsSync(backupPath)) {
+    throw new Error(`Database backup does not exist: ${backupPath}`)
+  }
+
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true })
+  const temporaryPath = `${dbPath}.restore-${process.pid}-${Date.now()}.tmp`
+  try {
+    fs.copyFileSync(backupPath, temporaryPath)
+
+    const backupSize = fs.statSync(backupPath).size
+    const restoredSize = fs.statSync(temporaryPath).size
+    if (backupSize !== restoredSize) {
+      throw new Error(`Restored database size mismatch: ${backupSize} !== ${restoredSize}`)
+    }
+
+    removeSqliteSidecarFiles(dbPath)
+    fs.renameSync(temporaryPath, dbPath)
+  } catch (error) {
+    if (fs.existsSync(temporaryPath)) fs.rmSync(temporaryPath, { force: true })
+    throw error
+  }
 }
 
 export async function copySqliteSnapshotIfMissing(
@@ -215,6 +275,34 @@ export function getExistingTableCounts(
   return counts
 }
 
+export function getExistingTableIdentities(
+  db: Database.Database,
+  tableNames: readonly string[] = DATA_TABLES
+): TableIdentitySnapshot {
+  const snapshot: TableIdentitySnapshot = {}
+
+  for (const tableName of tableNames) {
+    assertSafeTableName(tableName)
+    if (!hasTable(db, tableName)) continue
+
+    const identityColumns = TABLE_IDENTITY_COLUMNS[tableName]
+    if (!identityColumns) {
+      throw new Error(`No identity columns configured for protected table ${tableName}`)
+    }
+    identityColumns.forEach(assertSafeTableName)
+
+    const columnList = identityColumns.join(', ')
+    const rows = db
+      .prepare(`SELECT ${columnList} FROM ${tableName} ORDER BY ${columnList}`)
+      .all() as Array<Record<string, unknown>>
+    snapshot[tableName] = rows.map((row) => (
+      JSON.stringify(identityColumns.map((column) => row[column]))
+    ))
+  }
+
+  return snapshot
+}
+
 export function hasServiceInfoSchema(db: Database.Database) {
   return SERVICE_INFO_TABLES.every((tableName) => hasTable(db, tableName))
 }
@@ -243,5 +331,35 @@ export function assertCountsNotReduced(before: CoreTableCounts, after: CoreTable
     if (afterCount < beforeCount) {
       throw new Error(`Migration reduced protected table ${tableName} from ${beforeCount} to ${afterCount}`)
     }
+  }
+}
+
+export function assertTableIdentitiesPreserved(
+  before: TableIdentitySnapshot,
+  after: TableIdentitySnapshot
+) {
+  for (const [tableName, beforeIdentities] of Object.entries(before)) {
+    const afterIdentities = after[tableName]
+    if (!afterIdentities) {
+      throw new Error(`Migration removed protected table ${tableName}`)
+    }
+    if (
+      beforeIdentities.length !== afterIdentities.length ||
+      beforeIdentities.some((identity, index) => identity !== afterIdentities[index])
+    ) {
+      throw new Error(`Migration changed protected identities in table ${tableName}`)
+    }
+  }
+}
+
+export function assertDatabaseIntegrity(db: Database.Database) {
+  const integrity = db.pragma('integrity_check', { simple: true })
+  if (integrity !== 'ok') {
+    throw new Error(`SQLite integrity check failed: ${String(integrity)}`)
+  }
+
+  const foreignKeyViolations = db.pragma('foreign_key_check') as unknown[]
+  if (foreignKeyViolations.length > 0) {
+    throw new Error(`SQLite foreign key check failed with ${foreignKeyViolations.length} violation(s)`)
   }
 }

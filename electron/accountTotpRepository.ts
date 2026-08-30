@@ -405,6 +405,34 @@ export function createTotpRecord(
   })()
 }
 
+export function createTotpRecords(
+  db: Database.Database,
+  records: Array<TotpWriteData & { id: string }>,
+  dependencies: RepositoryDependencies
+) {
+  const validRecords: Array<TotpWriteData & { id: string }> = []
+  let skippedCount = 0
+  for (const record of records) {
+    try {
+      getTotpValues(record)
+      validRecords.push(record)
+    } catch {
+      skippedCount += 1
+    }
+  }
+
+  return db.transaction(() => {
+    let createdCount = 0
+
+    for (const record of validRecords) {
+      createTotpRecord(db, record, dependencies)
+      createdCount += 1
+    }
+
+    return { createdCount, skippedCount }
+  })()
+}
+
 export function updateTotpRecord(
   db: Database.Database,
   id: string,

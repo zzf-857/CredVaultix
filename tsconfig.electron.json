@@ -18,6 +18,8 @@
     },
     "include": [
         "electron",
-        "shared"
+        "shared",
+        "src/types.ts",
+        "src/utils/accountPlatform.ts"
     ]
 }

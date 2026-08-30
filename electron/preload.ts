@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { ElectronAPI } from '../src/types'
 
 const electronAPI = {
   // Window controls
@@ -14,6 +15,7 @@ const electronAPI = {
   // TOTP 2FA
   getTotpAccounts: () => ipcRenderer.invoke('totp:getAll'),
   createTotpAccount: (data: any) => ipcRenderer.invoke('totp:create', data),
+  createTotpAccounts: (data: any[]) => ipcRenderer.invoke('totp:createMany', data),
   updateTotpAccount: (id: string, data: any) => ipcRenderer.invoke('totp:update', id, data),
   deleteTotpAccount: (id: string) => ipcRenderer.invoke('totp:delete', id),
   incrementTotpCounter: (id: string) => ipcRenderer.invoke('totp:incrementCounter', id),
@@ -87,6 +89,6 @@ const electronAPI = {
   // Database
   exportDatabase: () => ipcRenderer.invoke('db:export'),
   importDatabase: () => ipcRenderer.invoke('db:import'),
-}
+} satisfies ElectronAPI
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)

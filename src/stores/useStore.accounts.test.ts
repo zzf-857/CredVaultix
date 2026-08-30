@@ -95,6 +95,29 @@ describe('account store loading', () => {
     expect(createTotpAccount).toHaveBeenCalledTimes(1)
   })
 
+  it('creates a migration batch with one IPC call and one refresh pass', async () => {
+    const createTotpAccounts = vi.fn().mockResolvedValue({ createdCount: 2, skippedCount: 0 })
+    const getTotpAccounts = vi.fn().mockResolvedValue([])
+    const getAccounts = vi.fn().mockResolvedValue([])
+    vi.stubGlobal('window', {
+      electronAPI: { createTotpAccounts, getTotpAccounts, getAccounts },
+    })
+    const { useStore } = await import('./useStore')
+
+    const result = await useStore.getState().createTotpAccounts([
+      { issuer: 'Example', label: 'first', secret: 'JBSWY3DPEHPK3PXP' },
+      { issuer: 'Example', label: 'second', secret: 'KRUGS4ZANFZSAYJA' },
+    ])
+
+    expect(result).toEqual({ createdCount: 2, skippedCount: 0, refreshFailed: false })
+    expect(createTotpAccounts).toHaveBeenCalledTimes(1)
+    const submitted = createTotpAccounts.mock.calls[0][0]
+    expect(submitted).toHaveLength(2)
+    expect(new Set(submitted.map((record: { id: string }) => record.id)).size).toBe(2)
+    expect(getTotpAccounts).toHaveBeenCalledTimes(1)
+    expect(getAccounts).toHaveBeenCalledTimes(2)
+  })
+
   it('prunes pinned and custom-order preferences when an account is hard deleted', async () => {
     const updateAppPreferences = vi.fn().mockResolvedValue({})
     vi.stubGlobal('window', {

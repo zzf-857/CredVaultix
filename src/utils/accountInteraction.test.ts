@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import mainSource from '../../electron/main.ts?raw'
 import accountLifecycleSource from '../../electron/accountLifecycleRepository.ts?raw'
+import accountsIpcSource from '../../electron/ipc/accountsIpc.ts?raw'
+import totpIpcSource from '../../electron/ipc/totpIpc.ts?raw'
 import accountsViewSource from '../components/AccountsView.tsx?raw'
 import twoFactorSource from '../components/TwoFactorPanel.tsx?raw'
 import storeSource from '../stores/useStore.ts?raw'
@@ -87,6 +88,23 @@ describe('account interaction safeguards', () => {
     expect(deleteDialogSource).not.toContain("component: 'form'")
   })
 
+  it('closes the add dialog for dragged migration QR codes and clears temporary secrets when promoting them', () => {
+    const qrHandlerSource = twoFactorSource.slice(
+      twoFactorSource.indexOf('const handleQrFile ='),
+      twoFactorSource.indexOf('const loadStoredQrPreview =')
+    )
+    const promoteTemporarySource = twoFactorSource.slice(
+      twoFactorSource.indexOf('const handleSaveTempToPermanent ='),
+      twoFactorSource.indexOf('const cancelQrFormRequest =')
+    )
+
+    expect(qrHandlerSource).toContain("if (decoded.kind === 'migration')")
+    expect(qrHandlerSource).toContain('resetDialog()')
+    expect(qrHandlerSource).not.toContain('if (dialogOpen) resetDialog()')
+    expect(promoteTemporarySource).toContain('resetTempDialog()')
+    expect(promoteTemporarySource).not.toContain('setTempDialogOpen(false)')
+  })
+
   it('routes deletion through the unsaved-change guard and merges filtered sorting', () => {
     expect(accountsViewSource).toContain("{ kind: 'delete'; accountId: string }")
     expect(accountsViewSource).toContain("setPendingAccountAction({ kind: 'delete', accountId })")
@@ -94,9 +112,10 @@ describe('account interaction safeguards', () => {
   })
 
   it('keeps linked account synchronization inside main-process transactions', () => {
-    expect(mainSource).toContain('updateAccountRecord(db, id, data, { encrypt, decrypt })')
-    expect(mainSource).toContain('createTotpRecord(db, prepareTotpWriteData(data), { encrypt, decrypt, encryptBuffer })')
-    expect(mainSource).toContain('deleteTotpRecord(db, id, { encrypt })')
+    expect(accountsIpcSource).toContain('updateAccountRecord(options.getDatabase(), id, data, { encrypt, decrypt })')
+    expect(totpIpcSource).toContain('createTotpRecord(')
+    expect(totpIpcSource).toContain('prepareTotpWriteData(data)')
+    expect(totpIpcSource).toContain('deleteTotpRecord(options.getDatabase(), id, { encrypt })')
     expect(twoFactorSource).not.toContain('window.electronAPI.updateAccount(editingTarget.linked_account_id')
   })
 
@@ -109,6 +128,11 @@ describe('account interaction safeguards', () => {
   })
 
   it('keeps Google Authenticator imports in a named source group', () => {
+    const migrationImportSource = twoFactorSource.slice(
+      twoFactorSource.indexOf('const handleMigrationImport ='),
+      twoFactorSource.indexOf('const handleRequestDelete =')
+    )
+
     expect(twoFactorSource).toContain('groupTotpAccountsBySource')
     expect(twoFactorSource).toContain('来源名称')
     expect(twoFactorSource).toContain('source,')
@@ -116,5 +140,8 @@ describe('account interaction safeguards', () => {
     expect(twoFactorSource).toContain('rememberTotpGroupAtEnd')
     expect(twoFactorSource).toContain('draggable')
     expect(twoFactorSource).toContain('onToggle={groupId ? () => persistCollapsedGroups')
+    expect(migrationImportSource).toContain('await createTotpAccounts(migrationEntries.map')
+    expect(migrationImportSource).not.toContain('for (const entry of migrationEntries)')
+    expect(migrationImportSource).toContain('批量导入失败')
   })
 })

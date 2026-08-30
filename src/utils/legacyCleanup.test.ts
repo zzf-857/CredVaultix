@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import databaseSource from '../../electron/database.ts?raw'
+import databaseSchemaSource from '../../electron/databaseSchema.ts?raw'
 import mainSource from '../../electron/main.ts?raw'
 import preloadSource from '../../electron/preload.ts?raw'
 
@@ -32,10 +32,10 @@ describe('legacy 1.x cleanup', () => {
   })
 
   it('does not create prompt or folder database tables for new installs', () => {
-    expect(databaseSource).not.toContain('CREATE TABLE IF NOT EXISTS folders')
-    expect(databaseSource).not.toContain('CREATE TABLE IF NOT EXISTS prompts')
-    expect(databaseSource).not.toContain('CREATE TABLE IF NOT EXISTS prompt_tags')
-    expect(databaseSource).not.toContain('folder_id TEXT')
-    expect(databaseSource).not.toContain('idx_accounts_folder')
+    expect(databaseSchemaSource).not.toContain('CREATE TABLE IF NOT EXISTS folders')
+    expect(databaseSchemaSource).not.toContain('CREATE TABLE IF NOT EXISTS prompts')
+    expect(databaseSchemaSource).not.toContain('CREATE TABLE IF NOT EXISTS prompt_tags')
+    expect(databaseSchemaSource).not.toContain('folder_id TEXT')
+    expect(databaseSchemaSource).not.toContain('idx_accounts_folder')
   })
 })

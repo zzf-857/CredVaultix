@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import accountsViewSource from '../components/AccountsView.tsx?raw'
+import accountFieldsSource from '../components/accounts/AccountFields.tsx?raw'
 import twoFactorPanelSource from '../components/TwoFactorPanel.tsx?raw'
 import serviceDetailSource from '../components/service-info/ServiceDetail.tsx?raw'
 
 describe('sensitive value editing controls', () => {
   it('masks account passwords, 2FA secrets, and sensitive custom fields until revealed', () => {
-    expect(accountsViewSource).toContain("type={isSecretField && !visible ? 'password' : 'text'}")
+    expect(accountFieldsSource).toContain("type={isSecretField && !visible ? 'password' : 'text'}")
     expect(accountsViewSource).toContain("type={newFieldIsSecret && !newFieldValueVisible ? 'password' : 'text'}")
     expect(accountsViewSource).toContain("type={linkSecretVisible ? 'text' : 'password'}")
   })

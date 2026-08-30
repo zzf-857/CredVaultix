@@ -38,6 +38,7 @@ export interface ElectronAPI {
 
   getTotpAccounts: () => Promise<TotpAccountRow[]>
   createTotpAccount: (data: CreateTotpData) => Promise<{ id: string; created?: boolean }>
+  createTotpAccounts: (data: CreateTotpData[]) => Promise<{ createdCount: number; skippedCount: number }>
   updateTotpAccount: (id: string, data: UpdateTotpData) => Promise<{ success: boolean }>
   deleteTotpAccount: (id: string) => Promise<{ success: boolean }>
   incrementTotpCounter: (id: string) => Promise<{ success: boolean; counter: number }>

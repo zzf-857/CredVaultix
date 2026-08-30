@@ -7,6 +7,7 @@ import {
   DATA_TABLES,
   MAX_BACKUPS_PER_REASON,
   assertCountsNotReduced,
+  assertDatabaseIntegrity,
   assertFullWalCheckpoint,
   backupDatabaseIfExists,
   buildDatabaseBackupPath,
@@ -14,6 +15,7 @@ import {
   getExistingTableCounts,
   hasPlaintextTotpSecrets,
   hasServiceInfoSchema,
+  restoreDatabaseFromBackup,
 } from './databaseSafety'
 
 function createFakeDatabase(tableCounts: Record<string, number>) {
@@ -65,6 +67,36 @@ function openNodeSqliteDatabase(
 }
 
 describe('databaseSafety', () => {
+  it('rejects foreign-key orphans even when SQLite integrity_check is otherwise clean', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'credvaultix-foreign-key-'))
+    const dbPath = join(dir, 'orphan.db')
+    const database = new DatabaseSync(dbPath)
+    try {
+      database.exec(`
+        PRAGMA foreign_keys = OFF;
+        CREATE TABLE parents (id TEXT PRIMARY KEY);
+        CREATE TABLE children (
+          id TEXT PRIMARY KEY,
+          parent_id TEXT REFERENCES parents(id)
+        );
+        INSERT INTO children (id, parent_id) VALUES ('child-1', 'missing-parent');
+      `)
+    } finally {
+      database.close()
+    }
+
+    const readonlyDatabase = openNodeSqliteDatabase(dbPath, {
+      readonly: true,
+      fileMustExist: true,
+    })
+    try {
+      expect(() => assertDatabaseIntegrity(readonlyDatabase)).toThrow(/foreign key check failed/i)
+    } finally {
+      readonlyDatabase.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('accepts only a complete, non-busy WAL checkpoint before a file backup', () => {
     const checkpoint = (result: unknown) => ({
       pragma: () => result,
@@ -164,6 +196,72 @@ describe('service info schema readiness', () => {
     })
 
     expect(hasServiceInfoSchema(db as any)).toBe(true)
+  })
+
+  it('validates the temporary backup before publishing or pruning it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'credvaultix-backup-validation-'))
+    try {
+      const dbPath = join(dir, 'credvaultix.db')
+      writeFileSync(dbPath, 'current-data')
+      const oldBackups = Array.from({ length: MAX_BACKUPS_PER_REASON + 1 }, (_, index) => (
+        `credvaultix-before-migration-2026-07-01-10000${index}.db`
+      ))
+      for (const fileName of oldBackups) writeFileSync(join(dir, fileName), 'verified-old-data')
+
+      expect(() => backupDatabaseIfExists(
+        dbPath,
+        dir,
+        new Date('2026-07-01T10:11:12.000Z'),
+        'migration',
+        () => {
+          throw new Error('simulated validation failure')
+        }
+      )).toThrow('simulated validation failure')
+
+      const remainingFiles = readdirSync(dir)
+      expect(oldBackups.every((fileName) => remainingFiles.includes(fileName))).toBe(true)
+      expect(remainingFiles).not.toContain('credvaultix-before-migration-2026-07-01-101112.db')
+      expect(remainingFiles.some((fileName) => fileName.includes('.tmp-'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('replaces a database through a temporary file and removes stale WAL sidecars', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'credvaultix-restore-atomic-'))
+    try {
+      const backupPath = join(dir, 'backup.db')
+      const dbPath = join(dir, 'credvaultix.db')
+      writeFileSync(backupPath, 'verified-backup')
+      writeFileSync(dbPath, 'failed-migration')
+      writeFileSync(`${dbPath}-wal`, 'stale-wal')
+      writeFileSync(`${dbPath}-shm`, 'stale-shm')
+
+      restoreDatabaseFromBackup(backupPath, dbPath)
+
+      expect(readFileSync(dbPath, 'utf-8')).toBe('verified-backup')
+      expect(readdirSync(dir)).not.toContain('credvaultix.db-wal')
+      expect(readdirSync(dir)).not.toContain('credvaultix.db-shm')
+      expect(readdirSync(dir).some((fileName) => fileName.includes('.restore-'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leaves the active database untouched when the restore source is missing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'credvaultix-restore-missing-'))
+    try {
+      const dbPath = join(dir, 'credvaultix.db')
+      writeFileSync(dbPath, 'active-data')
+      writeFileSync(`${dbPath}-wal`, 'active-wal')
+
+      expect(() => restoreDatabaseFromBackup(join(dir, 'missing.db'), dbPath))
+        .toThrow('Database backup does not exist')
+      expect(readFileSync(dbPath, 'utf-8')).toBe('active-data')
+      expect(readFileSync(`${dbPath}-wal`, 'utf-8')).toBe('active-wal')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('copies a complete SQLite snapshot including uncheckpointed WAL rows', async () => {

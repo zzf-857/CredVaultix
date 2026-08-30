@@ -1,5 +1,16 @@
-import { describe, expect, it } from 'vitest'
-import { getTotpRemainingSeconds, getTotpWindow } from './useSharedNow'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  getSharedNowMs,
+  getTotpRemainingSeconds,
+  getTotpWindow,
+  resetSharedNowForTests,
+  subscribeSharedNow,
+} from './useSharedNow'
+
+afterEach(() => {
+  resetSharedNowForTests()
+  vi.useRealTimers()
+})
 
 describe('shared TOTP ticker math', () => {
   it('counts remaining seconds inside a period window', () => {
@@ -19,5 +30,40 @@ describe('shared TOTP ticker math', () => {
   it('falls back to a 30 second period when the configured period is invalid', () => {
     expect(getTotpRemainingSeconds(1_000, 0)).toBe(29)
     expect(getTotpWindow(30_000, 0)).toBe(1)
+  })
+})
+
+describe('shared TOTP ticker scheduling', () => {
+  it('refreshes immediately on the first subscription and then ticks on whole seconds', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(12_345)
+    resetSharedNowForTests(1_000)
+    const snapshots: number[] = []
+
+    const unsubscribe = subscribeSharedNow(() => snapshots.push(getSharedNowMs()))
+
+    expect(snapshots).toEqual([12_345])
+    vi.advanceTimersByTime(654)
+    expect(snapshots).toEqual([12_345])
+    vi.advanceTimersByTime(1)
+    expect(snapshots).toEqual([12_345, 13_000])
+    vi.advanceTimersByTime(1_000)
+    expect(snapshots).toEqual([12_345, 13_000, 14_000])
+
+    unsubscribe()
+  })
+
+  it('stops scheduling updates after the last subscriber leaves', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(20_250)
+    resetSharedNowForTests(0)
+    const listener = vi.fn()
+    const unsubscribe = subscribeSharedNow(listener)
+
+    expect(listener).toHaveBeenCalledTimes(1)
+    unsubscribe()
+    vi.advanceTimersByTime(5_000)
+
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 })
