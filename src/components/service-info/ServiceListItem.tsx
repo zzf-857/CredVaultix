@@ -6,6 +6,7 @@ import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import type { SecretServiceRow } from '../../types'
 import ProviderIcon from './ProviderIcon'
+import { hasDragType, SERVICE_DRAG_TYPE } from './dragTypes'
 
 export default function ServiceListItem({
   service,
@@ -38,20 +39,22 @@ export default function ServiceListItem({
           event.preventDefault()
           return
         }
-        event.dataTransfer.setData('text/plain', service.id)
+        event.dataTransfer.setData(SERVICE_DRAG_TYPE, service.id)
         event.dataTransfer.effectAllowed = 'move'
         onDragStart(service.id)
       }}
       onDragEnd={onDragEnd}
       onDragOver={(event) => {
+        if (!hasDragType(Array.from(event.dataTransfer.types), SERVICE_DRAG_TYPE)) return
         event.preventDefault()
         event.stopPropagation()
         event.dataTransfer.dropEffect = 'move'
       }}
       onDrop={(event) => {
+        if (!hasDragType(Array.from(event.dataTransfer.types), SERVICE_DRAG_TYPE)) return
         event.preventDefault()
         event.stopPropagation()
-        const droppedId = event.dataTransfer.getData('text/plain')
+        const droppedId = event.dataTransfer.getData(SERVICE_DRAG_TYPE)
         if (droppedId && droppedId !== service.id) {
           onDropBefore(service.id, droppedId)
         }

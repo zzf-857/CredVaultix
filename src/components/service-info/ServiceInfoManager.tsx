@@ -39,6 +39,7 @@ import ServiceDetail from './ServiceDetail'
 import {
   buildServiceFormSubmission,
   createEmptyServiceFormValues,
+  findNamedGroup,
   type ServiceFormValues,
 } from './serviceForm'
 import { getModelProviderById } from './modelProviders'
@@ -241,11 +242,6 @@ export default function ServiceInfoManager() {
     setNavigationBlockReason(null)
   }
 
-  const findGroupByName = (name: string) => {
-    const normalized = name.trim().toLowerCase()
-    return orderedGroups.find((group) => group.name.trim().toLowerCase() === normalized)
-  }
-
   const createService = async () => {
     const name = serviceForm.name.trim()
     const providerMissing = serviceForm.mode === 'model-provider' && !serviceForm.providerId.trim()
@@ -254,7 +250,9 @@ export default function ServiceInfoManager() {
     let createdGroup: { id: string; name: string } | null = null
     try {
       const trimmedGroupName = serviceForm.groupName.trim()
-      const existingGroup = trimmedGroupName ? findGroupByName(trimmedGroupName) : undefined
+      const existingGroup = trimmedGroupName
+        ? findNamedGroup(orderedGroups, trimmedGroupName)
+        : undefined
       const reusablePendingGroup = pendingServiceGroup
         && pendingServiceGroup.name.trim().toLowerCase() === trimmedGroupName.toLowerCase()
         ? pendingServiceGroup

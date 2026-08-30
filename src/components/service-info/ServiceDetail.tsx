@@ -49,6 +49,7 @@ import {
   buildServiceFormSubmission,
   createEmptyServiceFormValues,
   createServiceFormValues,
+  findNamedGroup,
   type ServiceFormValues,
 } from './serviceForm'
 
@@ -219,11 +220,6 @@ export default function ServiceDetail() {
     setNavigationBlockReason(null)
   }
 
-  const findServiceGroupByName = (name: string) => {
-    const normalized = name.trim().toLowerCase()
-    return orderedServiceGroups.find((group) => group.name.trim().toLowerCase() === normalized)
-  }
-
   const saveService = async () => {
     const name = serviceForm.name.trim()
     const providerMissing = serviceForm.mode === 'model-provider' && !serviceForm.providerId.trim()
@@ -232,7 +228,9 @@ export default function ServiceDetail() {
     let createdGroup: { id: string; name: string } | null = null
     try {
       const trimmedGroupName = serviceForm.groupName.trim()
-      const existingGroup = trimmedGroupName ? findServiceGroupByName(trimmedGroupName) : undefined
+      const existingGroup = trimmedGroupName
+        ? findNamedGroup(orderedServiceGroups, trimmedGroupName)
+        : undefined
       const reusablePendingGroup = pendingServiceGroup
         && pendingServiceGroup.name.trim().toLowerCase() === trimmedGroupName.toLowerCase()
         ? pendingServiceGroup
@@ -266,10 +264,13 @@ export default function ServiceDetail() {
       const refreshFailed = await refreshServiceData(service.id)
       reportCommittedMutation('服务信息已保存', refreshFailed, '服务信息已保存但刷新失败')
     } catch (error) {
+      const refreshFailed = createdGroup
+        ? await refreshServiceData(service.id)
+        : false
       setNotice({
         severity: 'error',
         text: createdGroup
-          ? `分组“${createdGroup.name}”已创建，但服务信息保存失败，可直接重试且不会重复创建该分组：${error instanceof Error ? error.message : String(error)}`
+          ? `分组“${createdGroup.name}”已创建，但服务信息保存失败，可直接重试且不会重复创建该分组：${error instanceof Error ? error.message : String(error)}${refreshFailed ? '；界面刷新也失败' : ''}`
           : `服务信息保存失败：${error instanceof Error ? error.message : String(error)}`,
       })
     } finally {

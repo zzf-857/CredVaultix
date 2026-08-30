@@ -56,6 +56,14 @@ export interface BuildServiceFormSubmissionOptions {
   clearProviderProfileForGeneral?: boolean
 }
 
+export function findNamedGroup<T extends { name: string }>(
+  groups: readonly T[],
+  name: string
+) {
+  const normalized = name.trim().toLowerCase()
+  return groups.find((group) => group.name.trim().toLowerCase() === normalized)
+}
+
 export function createServiceApiKeyDraft(fieldId = uuidv4()): ServiceApiKeyDraft {
   return {
     fieldId,

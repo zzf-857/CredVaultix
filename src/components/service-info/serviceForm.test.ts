@@ -12,6 +12,7 @@ import {
   createServiceApiKeyDraft,
   createServiceApiKeyDraftFromField,
   createServiceFormValues,
+  findNamedGroup,
   getServiceBaseUrlError,
   getServiceApiKeyDraftError,
   removeServiceApiKeyDraft,
@@ -79,6 +80,16 @@ const profile: ModelProviderProfileDetail = {
 }
 
 describe('model provider service form', () => {
+  it('matches an existing group without case or surrounding-space drift', () => {
+    const groups = [
+      { id: 'production', name: 'Production' },
+      { id: 'staging', name: 'Staging' },
+    ]
+
+    expect(findNamedGroup(groups, '  PRODUCTION  ')).toEqual(groups[0])
+    expect(findNamedGroup(groups, 'missing')).toBeUndefined()
+  })
+
   it('starts in model-provider mode with stable field ids and one encrypted key draft', () => {
     const values = createEmptyServiceFormValues({
       baseUrlFieldId: 'new-base-url',

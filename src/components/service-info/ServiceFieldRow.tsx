@@ -9,6 +9,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import type { SecretFieldRow } from '../../types'
 import useCopyFeedback from '../../hooks/useCopyFeedback'
+import { hasDragType, SERVICE_FIELD_DRAG_TYPE } from './dragTypes'
 
 export default function ServiceFieldRow({
   field,
@@ -41,20 +42,22 @@ export default function ServiceFieldRow({
     <Box
       draggable
       onDragStart={(event) => {
-        event.dataTransfer.setData('text/plain', field.id)
+        event.dataTransfer.setData(SERVICE_FIELD_DRAG_TYPE, field.id)
         event.dataTransfer.effectAllowed = 'move'
         onDragStart(field.id)
       }}
       onDragEnd={onDragEnd}
       onDragOver={(event) => {
+        if (!hasDragType(Array.from(event.dataTransfer.types), SERVICE_FIELD_DRAG_TYPE)) return
         event.preventDefault()
         event.stopPropagation()
         event.dataTransfer.dropEffect = 'move'
       }}
       onDrop={(event) => {
+        if (!hasDragType(Array.from(event.dataTransfer.types), SERVICE_FIELD_DRAG_TYPE)) return
         event.preventDefault()
         event.stopPropagation()
-        const droppedId = event.dataTransfer.getData('text/plain')
+        const droppedId = event.dataTransfer.getData(SERVICE_FIELD_DRAG_TYPE)
         if (droppedId && droppedId !== field.id) {
           onDropBefore(field.id, droppedId)
         }
