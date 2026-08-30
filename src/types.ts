@@ -1,7 +1,17 @@
 import type { AccountPlatform } from './utils/accountPlatform'
 import type { UpdateActionResult, UpdateSnapshot } from '../shared/update'
+import type {
+  ModelProviderProfileCommand,
+  ModelProviderProfileDetail,
+} from '../shared/serviceInfo'
 
 export type { UpdateSnapshot } from '../shared/update'
+export type {
+  ModelProviderKeyCommand,
+  ModelProviderProfileCommand,
+  ModelProviderProfileDetail,
+  ServiceEditorMode,
+} from '../shared/serviceInfo'
 
 export interface AppPreferences {
   sidebarWidth?: number
@@ -86,7 +96,7 @@ export interface ElectronAPI {
   onUpdateMessage: (callback: (message: UpdateSnapshot) => void) => () => void
 
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
-  importDatabase: () => Promise<{ success: boolean }>
+  importDatabase: () => Promise<{ success: boolean; warning?: string }>
 }
 
 export interface TagRow {
@@ -172,6 +182,7 @@ export interface SecretServiceRow {
   sort_order: number
   created_at: string
   updated_at: string
+  provider_id?: string | null
 }
 
 export interface SecretFieldGroupRow {
@@ -206,6 +217,7 @@ export interface ServiceDetailPayload {
   service: SecretServiceRow
   fieldGroups: SecretFieldGroupRow[]
   fields: SecretFieldRow[]
+  modelProvider: ModelProviderProfileDetail | null
 }
 
 export interface CreateSecretServiceData {
@@ -216,6 +228,7 @@ export interface CreateSecretServiceData {
   url?: string
   notes?: string
   linkedAccountId?: string | null
+  providerProfile?: ModelProviderProfileCommand | null
 }
 
 export interface UpdateSecretServiceData {
@@ -226,6 +239,7 @@ export interface UpdateSecretServiceData {
   url?: string
   notes?: string
   isFavorite?: number
+  providerProfile?: ModelProviderProfileCommand | null
 }
 
 export interface CreateSecretFieldData {

@@ -38,10 +38,10 @@ import ServiceGroupList from './ServiceGroupList'
 import ServiceDetail from './ServiceDetail'
 import {
   buildServiceFormSubmission,
-  buildServicePresetFields,
   createEmptyServiceFormValues,
   type ServiceFormValues,
 } from './serviceForm'
+import { getModelProviderById } from './modelProviders'
 
 const GROUP_COLORS = ['#7d98d5', '#70a6b5', '#d09a61', '#64b58a', '#9c8ccf', '#8a90a0']
 
@@ -73,7 +73,16 @@ function assertMutationSucceeded(result: { success: boolean }, failureMessage: s
 function serviceMatches(service: SecretServiceRow, query: string) {
   const keyword = query.trim().toLowerCase()
   if (!keyword) return true
-  return [service.name, service.description, service.url, service.notes]
+  const provider = getModelProviderById(service.provider_id)
+  return [
+    service.name,
+    service.description,
+    service.url,
+    service.notes,
+    service.provider_id,
+    provider?.name,
+    ...(provider?.aliases || []),
+  ]
     .join(' ')
     .toLowerCase()
     .includes(keyword)
@@ -92,6 +101,7 @@ export default function ServiceInfoManager() {
     serviceSearchQuery,
     serviceSortMode,
     setSelectedService,
+    setNavigationBlockReason,
     setServiceSearchQuery,
     setServiceSortMode,
     toggleSelectedServiceId,
@@ -99,6 +109,7 @@ export default function ServiceInfoManager() {
 
   const [draggingServiceId, setDraggingServiceId] = useState<string | null>(null)
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false)
+  const [serviceProviderInputPending, setServiceProviderInputPending] = useState(false)
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
   const [moveDialogOpen, setMoveDialogOpen] = useState(false)
   const [editingGroup, setEditingGroup] = useState<SecretGroupRow | null>(null)
@@ -114,6 +125,12 @@ export default function ServiceInfoManager() {
   const [listLoadState, setListLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [listLoadError, setListLoadError] = useState('')
   const mutationLockRef = useRef(false)
+  const serviceFormBaselineRef = useRef('')
+  const serviceFormDirty = serviceDialogOpen
+    && (
+      JSON.stringify(serviceForm) !== serviceFormBaselineRef.current
+      || serviceProviderInputPending
+    )
 
   const loadInitialServiceInfo = async () => {
     setListLoadState('loading')
@@ -138,6 +155,12 @@ export default function ServiceInfoManager() {
       })
     }
   }, [accounts.length, loadAllAccounts])
+
+  useEffect(() => {
+    if (!serviceDialogOpen) return
+    setNavigationBlockReason(serviceFormDirty ? '新建服务内容尚未保存' : null)
+    return () => setNavigationBlockReason(null)
+  }, [serviceDialogOpen, serviceFormDirty, setNavigationBlockReason])
 
   const visibleServices = useMemo(() => {
     return sortServiceInfoItems(
@@ -202,7 +225,10 @@ export default function ServiceInfoManager() {
 
   const openCreateServiceDialog = () => {
     if (mutationLockRef.current) return
-    setServiceForm(createEmptyServiceFormValues())
+    const nextForm = createEmptyServiceFormValues()
+    serviceFormBaselineRef.current = JSON.stringify(nextForm)
+    setServiceForm(nextForm)
+    setServiceProviderInputPending(false)
     setPendingServiceGroup(null)
     setServiceDialogOpen(true)
   }
@@ -210,7 +236,9 @@ export default function ServiceInfoManager() {
   const closeServiceDialog = () => {
     if (mutationLockRef.current) return
     setServiceDialogOpen(false)
+    setServiceProviderInputPending(false)
     setPendingServiceGroup(null)
+    setNavigationBlockReason(null)
   }
 
   const findGroupByName = (name: string) => {
@@ -220,7 +248,8 @@ export default function ServiceInfoManager() {
 
   const createService = async () => {
     const name = serviceForm.name.trim()
-    if (!name || !beginMutation()) return
+    const providerMissing = serviceForm.mode === 'model-provider' && !serviceForm.providerId.trim()
+    if (!name || providerMissing || !beginMutation()) return
 
     let createdGroup: { id: string; name: string } | null = null
     try {
@@ -250,35 +279,13 @@ export default function ServiceInfoManager() {
       })
       if (!result?.id) throw new Error('新服务未返回有效结果')
 
-      let presetError: unknown = null
-      for (const presetField of buildServicePresetFields(serviceForm)) {
-        try {
-          const fieldResult = await window.electronAPI.createSecretField({
-            id: uuidv4(),
-            serviceId: result.id,
-            fieldName: presetField.fieldName,
-            fieldValue: presetField.fieldValue,
-            isSecret: presetField.isSecret,
-          })
-          if (!fieldResult?.id) throw new Error(`${presetField.fieldName} 未返回有效结果`)
-        } catch (error) {
-          presetError = error
-          break
-        }
-      }
-
       setServiceDialogOpen(false)
       setServiceForm(createEmptyServiceFormValues())
+      setServiceProviderInputPending(false)
       setPendingServiceGroup(null)
-      const refreshed = await reloadAfterSuccessfulChange('服务已创建')
+      setNavigationBlockReason(null)
+      await reloadAfterSuccessfulChange('服务已创建')
       setSelectedService(result.id)
-
-      if (presetError) {
-        setNotice({
-          severity: 'error',
-          text: `服务已创建，但预设字段保存失败：${errorMessage(presetError)}${refreshed ? '' : '；列表刷新也失败'}`,
-        })
-      }
     } catch (error) {
       if (createdGroup) {
         await reportPartialFailure(
@@ -657,6 +664,8 @@ export default function ServiceInfoManager() {
         groups={orderedGroups}
         accounts={accounts}
         busy={mutationBusy}
+        dirty={serviceFormDirty}
+        onPendingProviderInputChange={setServiceProviderInputPending}
         onChange={(patch) => setServiceForm((current) => ({ ...current, ...patch }))}
         onClose={closeServiceDialog}
         onSubmit={() => { void createService() }}

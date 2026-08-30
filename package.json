@@ -28,6 +28,7 @@
   "dependencies": {
     "@emotion/react": "^11.13.0",
     "@emotion/styled": "^11.13.0",
+    "@lobehub/icons-static-svg": "1.94.0",
     "@mui/icons-material": "^5.16.0",
     "@mui/material": "^5.16.0",
     "better-sqlite3": "^12.11.1",

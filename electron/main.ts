@@ -10,6 +10,7 @@ import {
   assertCountsNotReduced,
   assertFullWalCheckpoint,
   backupDatabaseIfExists,
+  copySqliteSnapshotIfMissing,
   getExistingTableCounts,
   type CoreTableCounts,
 } from './databaseSafety'
@@ -177,7 +178,7 @@ function copyDirectoryIfMissing(sourcePath: string, targetPath: string) {
   return true
 }
 
-function migrateLegacyUserDataToCredVaultix() {
+async function migrateLegacyUserDataToCredVaultix() {
   const appDataPath = app.getPath('appData')
   const targetUserDataPath = app.getPath('userData')
   const targetDbPath = path.join(targetUserDataPath, DATABASE_FILE_NAME)
@@ -199,17 +200,24 @@ function migrateLegacyUserDataToCredVaultix() {
     },
   ]
 
-  try {
-    for (const source of legacySources) {
-      if (path.resolve(source.directory) === path.resolve(targetUserDataPath)) {
-        continue
-      }
+  for (const source of legacySources) {
+    if (path.resolve(source.directory) === path.resolve(targetUserDataPath)) {
+      continue
+    }
 
-      const sourceDbPath = path.join(source.directory, source.databaseFileName)
-      if (copyFileIfMissing(sourceDbPath, targetDbPath)) {
+    const sourceDbPath = path.join(source.directory, source.databaseFileName)
+    try {
+      if (await copySqliteSnapshotIfMissing(sourceDbPath, targetDbPath)) {
         console.log(`Migrated legacy ${source.name} database into ${APP_NAME}`)
       }
+    } catch (error) {
+      throw new Error(
+        `无法安全迁移旧数据库“${sourceDbPath}”；原数据库未被修改`,
+        { cause: error }
+      )
+    }
 
+    try {
       copyFileIfMissing(
         path.join(source.directory, 'preferences.json'),
         path.join(targetUserDataPath, 'preferences.json')
@@ -234,9 +242,9 @@ function migrateLegacyUserDataToCredVaultix() {
           }
         }
       }
+    } catch (error) {
+      console.warn(`Failed to migrate auxiliary data from ${source.name}:`, error)
     }
-  } catch (err) {
-    console.error('Error migrating legacy user data:', err)
   }
 }
 
@@ -482,9 +490,20 @@ function createWindow() {
 }
 
 if (hasSingleInstanceLock) {
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     if (!usesExplicitUserDataDirectory) {
-      migrateLegacyUserDataToCredVaultix()
+      try {
+        await migrateLegacyUserDataToCredVaultix()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error('Error migrating legacy user data:', error)
+        dialog.showErrorBox(
+          'CredVaultix 数据迁移已中止',
+          `${message}\n\n为避免数据丢失，程序不会创建新的空数据库。请保留旧数据目录并检查磁盘权限或数据库完整性。`
+        )
+        app.quit()
+        return
+      }
     }
 
     // The renderer never needs runtime permissions beyond sanitized clipboard writes.
@@ -915,43 +934,57 @@ function registerIpcHandlers() {
     if (result.canceled || result.filePaths.length === 0) return { success: false }
 
     const filePath = result.filePaths[0]
+    let warning: string | undefined
 
     if (isSqliteDatabasePath(filePath)) {
       const dbPath = path.join(app.getPath('userData'), DATABASE_FILE_NAME)
-      validateSqliteBackup(filePath)
-      const backup = backupCurrentDatabaseBeforeImport(db)
-      db.close()
+      const stagingDirectory = fs.mkdtempSync(path.join(app.getPath('temp'), 'credvaultix-import-'))
+      const stagedDbPath = path.join(stagingDirectory, 'candidate.db')
       try {
-        removeDatabaseSidecars(dbPath)
-        fs.copyFileSync(filePath, dbPath)
-        initDatabase()
-        db = getDatabase()
-        updateServiceInfoDatabase(db)
-      } catch (importError) {
-        try {
-          const failedDatabase = getDatabase()
-          if (failedDatabase?.open) failedDatabase.close()
-        } catch {
-          // The imported database may have failed before a connection was assigned.
-        }
+        const snapshotted = await copySqliteSnapshotIfMissing(filePath, stagedDbPath)
+        if (!snapshotted) throw new Error('无法创建待导入数据库的安全快照')
+        validateSqliteBackup(stagedDbPath)
 
-        if (!backup.filePath || !fs.existsSync(backup.filePath)) {
-          throw importError
-        }
-
+        const backup = backupCurrentDatabaseBeforeImport(db)
+        db.close()
         try {
           removeDatabaseSidecars(dbPath)
-          fs.copyFileSync(backup.filePath, dbPath)
+          fs.copyFileSync(stagedDbPath, dbPath)
           initDatabase()
           db = getDatabase()
           updateServiceInfoDatabase(db)
-        } catch (restoreError) {
-          throw new Error(
-            `导入失败，且自动恢复原数据库失败：${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
-            { cause: importError }
-          )
+        } catch (importError) {
+          try {
+            const failedDatabase = getDatabase()
+            if (failedDatabase?.open) failedDatabase.close()
+          } catch {
+            // The imported database may have failed before a connection was assigned.
+          }
+
+          if (!backup.filePath || !fs.existsSync(backup.filePath)) {
+            throw importError
+          }
+
+          try {
+            removeDatabaseSidecars(dbPath)
+            fs.copyFileSync(backup.filePath, dbPath)
+            initDatabase()
+            db = getDatabase()
+            updateServiceInfoDatabase(db)
+          } catch (restoreError) {
+            throw new Error(
+              `导入失败，且自动恢复原数据库失败：${restoreError instanceof Error ? restoreError.message : String(restoreError)}`,
+              { cause: importError }
+            )
+          }
+          throw importError
         }
-        throw importError
+      } finally {
+        try {
+          fs.rmSync(stagingDirectory, { recursive: true, force: true })
+        } catch (error) {
+          console.warn('Failed to remove SQLite import staging directory:', error)
+        }
       }
     } else {
       const raw = fs.readFileSync(filePath, 'utf-8')
@@ -1073,10 +1106,15 @@ function registerIpcHandlers() {
 
       const importedPreferences = data.preferences
       if (importedPreferences && typeof importedPreferences === 'object' && !Array.isArray(importedPreferences)) {
-        replacePreferences(app.getPath('userData'), importedPreferences as Record<string, unknown>)
+        try {
+          replacePreferences(app.getPath('userData'), importedPreferences as Record<string, unknown>)
+        } catch (error) {
+          console.error('Database data imported, but preferences could not be restored:', error)
+          warning = '数据库内容已恢复，但界面偏好未能恢复；现有偏好保持不变'
+        }
       }
     }
 
-    return { success: true }
+    return { success: true, warning }
   })
 }

@@ -46,4 +46,24 @@ describe('ServiceDetail mutation safety', () => {
     expect(saveGroup).toContain('字段组已创建，但移动所选字段失败')
     expect(saveGroup.indexOf('setGroupDialogOpen(false)')).toBeLessThan(saveGroup.indexOf('moveSecretFields'))
   })
+
+  it('updates service metadata and provider credentials in one transaction command', () => {
+    const saveService = getHandlerSource('saveService', 'openCreateFieldDialog')
+
+    expect(saveService.match(/window\.electronAPI\.updateSecretService\(/g)).toHaveLength(1)
+    expect(saveService).toContain('clearProviderProfileForGeneral: Boolean(modelProvider)')
+    expect(saveService).not.toContain('updateSecretField(')
+    expect(saveService).not.toContain('createSecretField(')
+    expect(serviceDetailSource).not.toContain('buildServicePresetFields')
+  })
+
+  it('shows claimed provider fields once and protects dirty provider edits', () => {
+    expect(serviceDetailSource).toContain('!claimedFieldIds.has(field.id)')
+    expect(serviceDetailSource).toContain('<ApiCredentialList')
+    expect(serviceDetailSource).toContain('fields={groupedFields.ungrouped}')
+    expect(serviceDetailSource).toContain("setNavigationBlockReason(serviceFormDirty ? '服务信息修改尚未保存' : null)")
+    expect(serviceDetailSource).toContain('dirty={serviceFormDirty}')
+    expect(serviceDetailSource).toContain('|| serviceProviderInputPending')
+    expect(serviceDetailSource).toContain('onPendingProviderInputChange={setServiceProviderInputPending}')
+  })
 })

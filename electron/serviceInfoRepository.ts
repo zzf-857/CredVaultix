@@ -1,6 +1,12 @@
 import { app, ipcMain, shell } from 'electron'
 import type Database from 'better-sqlite3'
 import { decrypt, encrypt } from './crypto'
+import type {
+  ModelProviderKeyCommand,
+  ModelProviderProfileCommand,
+  ModelProviderProfileDetail,
+} from '../shared/serviceInfo'
+import { resolveSensitiveFieldUpdate } from './sensitiveFieldUpdate'
 
 function nowIso() {
   return new Date().toISOString()
@@ -97,11 +103,287 @@ function requireSingleChange(result: Database.RunResult) {
   }
 }
 
+interface SecretFieldRecord {
+  id: string
+  service_id: string
+  field_value: string
+  is_secret: number
+}
+
+function requireId(value: unknown, label: string) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${label} is required`)
+  }
+  return value.trim()
+}
+
+function normalizeSortOrder(value: unknown, fallback: number) {
+  return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : fallback
+}
+
+function requireUniqueIds(value: unknown, label: string) {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`)
+  const ids = value.map((id) => requireId(id, label))
+  if (new Set(ids).size !== ids.length) throw new Error(`${label} contains duplicate ids`)
+  return ids
+}
+
+function getSecretField(db: Database.Database, fieldId: string) {
+  return db.prepare(`
+    SELECT id, service_id, field_value, is_secret
+    FROM secret_fields
+    WHERE id = ?
+  `).get(fieldId) as SecretFieldRecord | undefined
+}
+
+function assertFieldOwnedByService(
+  db: Database.Database,
+  serviceId: string,
+  fieldId: string,
+  allowMissing = false
+) {
+  const field = getSecretField(db, fieldId)
+  if (!field) {
+    if (allowMissing) return undefined
+    throw new Error(`Service field ${fieldId} does not exist`)
+  }
+  if (field.service_id !== serviceId) {
+    throw new Error(`Service field ${fieldId} does not belong to service ${serviceId}`)
+  }
+  return field
+}
+
+function updateManagedField(
+  db: Database.Database,
+  serviceId: string,
+  command: Pick<ModelProviderKeyCommand, 'fieldId' | 'fieldName' | 'fieldValue' | 'isSecret' | 'sortOrder'>,
+  kind: 'base-url' | 'api-key'
+) {
+  const fieldId = requireId(command.fieldId, `${kind} field id`)
+  const current = assertFieldOwnedByService(db, serviceId, fieldId, true)
+  const timestamp = nowIso()
+
+  if (!current) {
+    const isSecret = kind === 'api-key' ? command.isSecret !== false : false
+    const fieldName = command.fieldName === undefined
+      ? kind === 'api-key' ? 'API Key' : 'Base URL'
+      : requireName(command.fieldName, `${kind} field name`)
+    const fieldValue = typeof command.fieldValue === 'string' ? command.fieldValue : ''
+    const fallbackSortOrder = nextFieldSortOrder(db, serviceId, null)
+    const sortOrder = kind === 'api-key'
+      ? normalizeSortOrder(command.sortOrder, fallbackSortOrder)
+      : fallbackSortOrder
+
+    db.prepare(`
+      INSERT INTO secret_fields (
+        id, service_id, group_id, field_name, field_value, is_secret,
+        sort_order, created_at, updated_at
+      ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)
+    `).run(
+      fieldId,
+      serviceId,
+      fieldName,
+      isSecret ? encrypt(fieldValue) : fieldValue,
+      isSecret ? 1 : 0,
+      sortOrder,
+      timestamp,
+      timestamp
+    )
+    return
+  }
+
+  const currentIsSecret = Boolean(current.is_secret)
+  const nextIsSecret = kind === 'api-key' && command.isSecret !== undefined
+    ? Boolean(command.isSecret)
+    : currentIsSecret
+  const updates: string[] = []
+  const params: unknown[] = []
+
+  if (command.fieldName !== undefined) {
+    updates.push('field_name = ?')
+    params.push(requireName(command.fieldName, `${kind} field name`))
+  }
+
+  const valueUpdate = resolveSensitiveFieldUpdate({
+    currentValue: current.field_value,
+    currentIsSecret,
+    nextValue: command.fieldValue,
+    valueProvided: command.fieldValue !== undefined,
+    nextIsSecret,
+    encrypt,
+    decrypt,
+  })
+  if (valueUpdate.shouldWrite) {
+    updates.push('field_value = ?', 'is_secret = ?')
+    params.push(valueUpdate.storedValue, nextIsSecret ? 1 : 0)
+  }
+
+  if (updates.length === 0) return
+  updates.push('updated_at = ?')
+  params.push(timestamp, fieldId, serviceId)
+  requireSingleChange(db.prepare(`
+    UPDATE secret_fields
+    SET ${updates.join(', ')}
+    WHERE id = ? AND service_id = ?
+  `).run(...params))
+}
+
+function readModelProviderDetail(
+  db: Database.Database,
+  serviceId: string
+): ModelProviderProfileDetail | null {
+  const profile = db.prepare(`
+    SELECT provider_id, base_url_field_id
+    FROM model_provider_profiles
+    WHERE service_id = ?
+  `).get(serviceId) as { provider_id: string; base_url_field_id: string | null } | undefined
+  if (!profile) return null
+
+  const keys = db.prepare(`
+    SELECT metadata.field_id, metadata.purpose, metadata.manual_balance, metadata.sort_order
+    FROM model_provider_key_metadata AS metadata
+    INNER JOIN secret_fields AS field ON field.id = metadata.field_id
+    WHERE field.service_id = ?
+    ORDER BY metadata.sort_order ASC, metadata.created_at ASC, metadata.field_id ASC
+  `).all(serviceId) as Array<{
+    field_id: string
+    purpose: string
+    manual_balance: string
+    sort_order: number
+  }>
+
+  return {
+    providerId: profile.provider_id,
+    baseUrlFieldId: profile.base_url_field_id,
+    keys: keys.map((key) => ({
+      fieldId: key.field_id,
+      purpose: key.purpose,
+      manualBalance: key.manual_balance,
+      sortOrder: key.sort_order,
+    })),
+  }
+}
+
+function clearModelProviderMetadata(db: Database.Database, serviceId: string) {
+  db.prepare(`
+    DELETE FROM model_provider_key_metadata
+    WHERE field_id IN (SELECT id FROM secret_fields WHERE service_id = ?)
+  `).run(serviceId)
+  db.prepare('DELETE FROM model_provider_profiles WHERE service_id = ?').run(serviceId)
+}
+
+function applyModelProviderProfile(
+  db: Database.Database,
+  serviceId: string,
+  profile: ModelProviderProfileCommand | null | undefined
+) {
+  if (profile === undefined) return
+  if (profile === null) {
+    clearModelProviderMetadata(db, serviceId)
+    return
+  }
+  if (!profile || typeof profile !== 'object') {
+    throw new Error('Model provider profile is invalid')
+  }
+
+  const providerId = requireId(profile.providerId, 'Provider id')
+  if (!Array.isArray(profile.keys)) throw new Error('Provider keys must be an array')
+  const keyIds = profile.keys.map((key) => requireId(key?.fieldId, 'Provider key field id'))
+  if (new Set(keyIds).size !== keyIds.length) {
+    throw new Error('Provider keys contain duplicate field ids')
+  }
+  const detachKeyIds = requireUniqueIds(profile.detachKeyIds, 'Detached provider key ids')
+  const keyIdSet = new Set(keyIds)
+  if (detachKeyIds.some((fieldId) => keyIdSet.has(fieldId))) {
+    throw new Error('A provider key cannot be updated and detached together')
+  }
+
+  const baseUrlFieldId = profile.baseUrl
+    ? requireId(profile.baseUrl.fieldId, 'Base URL field id')
+    : null
+  if (baseUrlFieldId && (keyIdSet.has(baseUrlFieldId) || detachKeyIds.includes(baseUrlFieldId))) {
+    throw new Error('The Base URL field cannot also be used as an API key')
+  }
+
+  if (baseUrlFieldId) {
+    assertFieldOwnedByService(db, serviceId, baseUrlFieldId, true)
+    const existingKeyMetadata = db.prepare(`
+      SELECT field_id
+      FROM model_provider_key_metadata
+      WHERE field_id = ?
+    `).get(baseUrlFieldId)
+    if (existingKeyMetadata) {
+      throw new Error('The Base URL field cannot also be used as an API key')
+    }
+  }
+  for (const fieldId of keyIds) {
+    assertFieldOwnedByService(db, serviceId, fieldId, true)
+  }
+  for (const fieldId of detachKeyIds) {
+    assertFieldOwnedByService(db, serviceId, fieldId)
+    const metadata = db.prepare(`
+      SELECT field_id FROM model_provider_key_metadata WHERE field_id = ?
+    `).get(fieldId)
+    if (!metadata) throw new Error(`Provider key metadata ${fieldId} does not exist`)
+  }
+
+  if (profile.baseUrl) {
+    updateManagedField(db, serviceId, {
+      ...profile.baseUrl,
+      sortOrder: 0,
+    }, 'base-url')
+  }
+
+  const timestamp = nowIso()
+  db.prepare(`
+    INSERT INTO model_provider_profiles (
+      service_id, provider_id, base_url_field_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(service_id) DO UPDATE SET
+      provider_id = excluded.provider_id,
+      base_url_field_id = excluded.base_url_field_id,
+      updated_at = excluded.updated_at
+  `).run(serviceId, providerId, baseUrlFieldId, timestamp, timestamp)
+
+  const upsertMetadata = db.prepare(`
+    INSERT INTO model_provider_key_metadata (
+      field_id, purpose, manual_balance, sort_order, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(field_id) DO UPDATE SET
+      purpose = excluded.purpose,
+      manual_balance = excluded.manual_balance,
+      sort_order = excluded.sort_order,
+      updated_at = excluded.updated_at
+  `)
+  for (const key of profile.keys) {
+    updateManagedField(db, serviceId, key, 'api-key')
+    upsertMetadata.run(
+      key.fieldId,
+      typeof key.purpose === 'string' ? key.purpose : '',
+      typeof key.manualBalance === 'string' ? key.manualBalance : '',
+      normalizeSortOrder(key.sortOrder, 0),
+      timestamp,
+      timestamp
+    )
+  }
+
+  const detachMetadata = db.prepare('DELETE FROM model_provider_key_metadata WHERE field_id = ?')
+  for (const fieldId of detachKeyIds) {
+    requireSingleChange(detachMetadata.run(fieldId))
+  }
+}
+
 export function registerServiceInfoIpc(initialDatabase: Database.Database) {
   let db = initialDatabase
   ipcMain.handle('serviceInfo:getAll', () => ({
     groups: db.prepare('SELECT * FROM secret_groups ORDER BY sort_order ASC, name ASC').all(),
-    services: db.prepare('SELECT * FROM secret_services WHERE is_deleted = 0 ORDER BY sort_order ASC, updated_at DESC').all(),
+    services: db.prepare(`
+      SELECT service.*, profile.provider_id
+      FROM secret_services AS service
+      LEFT JOIN model_provider_profiles AS profile ON profile.service_id = service.id
+      WHERE service.is_deleted = 0
+      ORDER BY service.sort_order ASC, service.updated_at DESC
+    `).all(),
   }))
 
   ipcMain.handle('serviceInfo:getDetail', (_event, serviceId: string) => {
@@ -118,7 +400,7 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
         field_value: field.is_secret ? decrypt(field.field_value) : field.field_value,
       }))
 
-    return { service, fieldGroups, fields }
+    return { service, fieldGroups, fields, modelProvider: readModelProviderDetail(db, serviceId) }
   })
 
   ipcMain.handle('serviceInfo:createGroup', (_event, data: { id: string; name: string; color?: string }) => {
@@ -157,24 +439,27 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
   })
 
   ipcMain.handle('serviceInfo:createService', (_event, data: any) => {
-    const groupId = normalizeNullableId(data.groupId)
-    const createdAt = nowIso()
-    db.prepare(`
-      INSERT INTO secret_services (id, group_id, linked_account_id, name, description, url, notes, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      data.id,
-      groupId,
-      normalizeLinkedAccountId(db, data.linkedAccountId),
-      requireName(data.name, 'Service name'),
-      data.description || '',
-      data.url || '',
-      data.notes || '',
-      nextServiceSortOrder(db, groupId),
-      createdAt,
-      createdAt
-    )
-    return { id: data.id }
+    return db.transaction(() => {
+      const groupId = normalizeNullableId(data.groupId)
+      const createdAt = nowIso()
+      db.prepare(`
+        INSERT INTO secret_services (id, group_id, linked_account_id, name, description, url, notes, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        data.id,
+        groupId,
+        normalizeLinkedAccountId(db, data.linkedAccountId),
+        requireName(data.name, 'Service name'),
+        data.description || '',
+        data.url || '',
+        data.notes || '',
+        nextServiceSortOrder(db, groupId),
+        createdAt,
+        createdAt
+      )
+      applyModelProviderProfile(db, data.id, data.providerProfile)
+      return { id: data.id }
+    })()
   })
 
   ipcMain.handle('serviceInfo:updateService', (_event, id: string, data: any) => {
@@ -205,6 +490,8 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
       if (data.isFavorite !== undefined) { updates.push('is_favorite = ?'); params.push(data.isFavorite ? 1 : 0) }
       params.push(id)
       const result = db.prepare(`UPDATE secret_services SET ${updates.join(', ')} WHERE id = ? AND is_deleted = 0`).run(...params)
+      if (result.changes !== 1) return { success: false }
+      applyModelProviderProfile(db, id, data.providerProfile)
       return { success: result.changes === 1 }
     })()
   })
@@ -217,7 +504,13 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
   })
 
   ipcMain.handle('serviceInfo:getDeletedServices', () => (
-    db.prepare('SELECT * FROM secret_services WHERE is_deleted = 1 ORDER BY deleted_at DESC, updated_at DESC').all()
+    db.prepare(`
+      SELECT service.*, profile.provider_id
+      FROM secret_services AS service
+      LEFT JOIN model_provider_profiles AS profile ON profile.service_id = service.id
+      WHERE service.is_deleted = 1
+      ORDER BY service.deleted_at DESC, service.updated_at DESC
+    `).all()
   ))
 
   ipcMain.handle('serviceInfo:restoreService', (_event, id: string) => {
@@ -364,14 +657,18 @@ export function registerServiceInfoIpc(initialDatabase: Database.Database) {
 
     if (data.groupId !== undefined) { updates.push('group_id = ?'); params.push(groupId) }
     if (data.fieldName !== undefined) { updates.push('field_name = ?'); params.push(requireName(data.fieldName, 'Field name')) }
-    if (data.fieldValue !== undefined || data.isSecret !== undefined) {
-      const plainValue = data.fieldValue !== undefined
-        ? data.fieldValue
-        : currentIsSecret
-          ? decrypt(current.field_value)
-          : current.field_value
+    const valueUpdate = resolveSensitiveFieldUpdate({
+      currentValue: current.field_value,
+      currentIsSecret,
+      nextValue: data.fieldValue,
+      valueProvided: data.fieldValue !== undefined,
+      nextIsSecret,
+      encrypt,
+      decrypt,
+    })
+    if (valueUpdate.shouldWrite) {
       updates.push('field_value = ?')
-      params.push(nextIsSecret ? encrypt(plainValue) : plainValue)
+      params.push(valueUpdate.storedValue)
     }
     if (data.isSecret !== undefined) { updates.push('is_secret = ?'); params.push(nextIsSecret ? 1 : 0) }
 

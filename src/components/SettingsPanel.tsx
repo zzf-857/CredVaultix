@@ -200,10 +200,14 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     try {
       const result = await importDatabase()
       if (result.success) {
+        const messages = [
+          result.warning || '',
+          result.refreshFailed ? '部分界面刷新失败；重新打开对应页面会再次读取' : '',
+        ].filter(Boolean)
         setNotice({
-          severity: result.refreshFailed ? 'info' : 'success',
-          text: result.refreshFailed
-            ? '备份已恢复，但部分界面刷新失败；重新打开对应页面会再次读取'
+          severity: messages.length > 0 ? 'info' : 'success',
+          text: messages.length > 0
+            ? `备份数据已恢复；${messages.join('；')}`
             : '备份已恢复，账号、2FA 和服务信息已重新加载',
         })
       }

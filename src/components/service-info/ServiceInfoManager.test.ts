@@ -19,6 +19,7 @@ const service = {
   sort_order: 1,
   created_at: '2026-07-01T00:00:00.000Z',
   updated_at: '2026-07-01T00:00:00.000Z',
+  provider_id: 'tencent-hunyuan',
 }
 
 describe('ServiceInfoManager', () => {
@@ -43,6 +44,30 @@ describe('ServiceInfoManager', () => {
     expect(html).toContain('Tencent Cloud API')
     expect(html).toContain('未分组')
     expect(html).toContain('腾讯云密钥')
+    expect(html).toContain('<img')
+  })
+
+  it('keeps the generic fixed-size fallback for an ordinary service', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ServiceGroupList, {
+        title: '未分组',
+        services: [{ ...service, id: 'ordinary-service', provider_id: null }],
+        selectedServiceId: null,
+        selectedServiceIds: [],
+        draggingServiceId: null,
+        onSelectService: () => undefined,
+        onToggleServiceSelected: () => undefined,
+        onToggleFavorite: () => undefined,
+        onDropToGroup: () => undefined,
+        onDragStart: () => undefined,
+        onDragEnd: () => undefined,
+        onDropBefore: () => undefined,
+      })
+    )
+
+    expect(html).not.toContain('<img')
+    expect(html).toContain('width:32px')
+    expect(html).toContain('height:32px')
   })
 
   it('renders batch action labels for selected records', () => {
@@ -75,5 +100,25 @@ describe('ServiceInfoManager', () => {
     expect(serviceInfoManagerSource).toContain('但列表刷新失败')
     expect(serviceInfoManagerSource).toContain("severity: 'warning'")
     expect(serviceInfoManagerSource).toContain('pendingServiceGroup')
+  })
+
+  it('creates provider fields through the single transactional service command', () => {
+    const createStart = serviceInfoManagerSource.indexOf('const createService =')
+    const createEnd = serviceInfoManagerSource.indexOf('const openCreateGroupDialog =', createStart)
+    const createHandler = serviceInfoManagerSource.slice(createStart, createEnd)
+
+    expect(createHandler.match(/window\.electronAPI\.createSecretService\(/g)).toHaveLength(1)
+    expect(createHandler).toContain('buildServiceFormSubmission(serviceForm, groupId)')
+    expect(createHandler).not.toContain('createSecretField(')
+    expect(serviceInfoManagerSource).not.toContain('buildServicePresetFields')
+  })
+
+  it('searches provider aliases and blocks navigation for a dirty service draft', () => {
+    expect(serviceInfoManagerSource).toContain('getModelProviderById(service.provider_id)')
+    expect(serviceInfoManagerSource).toContain('provider?.aliases')
+    expect(serviceInfoManagerSource).toContain("setNavigationBlockReason(serviceFormDirty ? '新建服务内容尚未保存' : null)")
+    expect(serviceInfoManagerSource).toContain('dirty={serviceFormDirty}')
+    expect(serviceInfoManagerSource).toContain('|| serviceProviderInputPending')
+    expect(serviceInfoManagerSource).toContain('onPendingProviderInputChange={setServiceProviderInputPending}')
   })
 })

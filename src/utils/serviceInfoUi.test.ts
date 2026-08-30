@@ -24,11 +24,11 @@ describe('service information UI polish', () => {
     expect(serviceFormDialogSource).toContain('Autocomplete')
     expect(serviceFormDialogSource).toContain('freeSolo')
     expect(serviceFormDialogSource).toContain('label="用途说明"')
-    expect(serviceFormDialogSource).toContain('label="访问网址"')
+    expect(serviceFormDialogSource).toContain('label="控制台网址"')
     expect(serviceFormDialogSource).toContain('label="关联主账号"')
     expect(serviceFormDialogSource).toContain('label="备注"')
     expect(serviceInfoManagerSource).toContain('buildServiceFormSubmission(serviceForm, groupId)')
-    expect(serviceDetailSource).toContain('buildServiceFormSubmission(serviceForm, groupId)')
+    expect(serviceDetailSource).toContain('buildServiceFormSubmission(serviceForm, groupId, {')
   })
 
   it('submits the shared form with native form semantics', () => {
@@ -39,14 +39,14 @@ describe('service information UI polish', () => {
     expect(serviceFormDialogSource).toContain('multiline')
   })
 
-  it('offers a Base URL and API Key preset through fixed field labels', () => {
-    expect(serviceFormDialogSource).toContain('Base URL + API Key')
+  it('offers a provider-first Base URL and multi-Key flow without legacy preset writes', () => {
+    expect(serviceFormDialogSource).toContain('<ProviderAutocomplete')
     expect(serviceFormDialogSource).toContain('label="Base URL"')
-    expect(serviceFormDialogSource).toContain('label="API Key"')
-    expect(serviceInfoManagerSource).toContain('buildServicePresetFields(serviceForm)')
-    expect(serviceInfoManagerSource).toContain('window.electronAPI.createSecretField')
-    expect(serviceDetailSource).toContain('servicePresetFieldsNeedSaving(serviceForm, fields)')
-    expect(serviceDetailSource).toContain('findPresetField(fields, presetField.fieldName)')
+    expect(serviceFormDialogSource).toContain('<ApiKeyEditor')
+    expect(serviceFormDialogSource).toContain('keyErrors={apiKeyErrors}')
+    expect(serviceInfoManagerSource).not.toContain('buildServicePresetFields')
+    expect(serviceDetailSource).not.toContain('servicePresetFieldsNeedSaving')
+    expect(serviceDetailSource).toContain('clearProviderProfileForGeneral: Boolean(modelProvider)')
   })
 
   it('submits editable service forms with Enter without hijacking multiline or combobox input', () => {

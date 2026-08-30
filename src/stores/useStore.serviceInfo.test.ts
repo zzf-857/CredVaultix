@@ -19,6 +19,7 @@ const service = {
 const detail = {
   service,
   fieldGroups: [],
+  modelProvider: null,
   fields: [
     {
       id: 'field-1',
@@ -116,6 +117,129 @@ describe('service info store slice', () => {
         serviceDetailLoadError: '读取服务详情失败：simulated read failure',
       })
     })
+  })
+
+  it('invalidates stale detail and field selection when refreshing the selected service fails', async () => {
+    const { useStore } = await import('./useStore')
+
+    useStore.getState().setSelectedService('svc-1')
+    await vi.waitFor(() => {
+      expect(useStore.getState().selectedServiceDetail).toEqual(detail)
+    })
+    useStore.getState().toggleSelectedFieldId('field-1')
+    expect(useStore.getState().selectedFieldIds).toEqual(['field-1'])
+
+    vi.mocked(window.electronAPI.getServiceDetail).mockRejectedValueOnce(new Error('simulated refresh failure'))
+    await expect(useStore.getState().loadServiceDetail('svc-1')).rejects.toThrow('simulated refresh failure')
+
+    expect(useStore.getState()).toMatchObject({
+      selectedServiceId: 'svc-1',
+      selectedServiceDetail: null,
+      selectedFieldIds: [],
+      serviceDetailLoadError: '读取服务详情失败：simulated refresh failure',
+    })
+  })
+
+  it('ignores a detail response after the service is no longer selected', async () => {
+    let resolveDetail!: (value: typeof detail) => void
+    const pendingDetail = new Promise<typeof detail>((resolve) => {
+      resolveDetail = resolve
+    })
+    vi.mocked(window.electronAPI.getServiceDetail).mockReturnValueOnce(pendingDetail)
+    const { useStore } = await import('./useStore')
+
+    useStore.getState().setSelectedService('svc-1')
+    expect(useStore.getState().selectedServiceId).toBe('svc-1')
+    useStore.getState().setSelectedService(null)
+    resolveDetail(detail)
+    await pendingDetail
+
+    await vi.waitFor(() => {
+      expect(useStore.getState()).toMatchObject({
+        selectedServiceId: null,
+        selectedServiceDetail: null,
+      })
+    })
+  })
+
+  it('invalidates and reloads a selected service detail after importing the same service id', async () => {
+    const importedService = {
+      ...service,
+      name: 'Imported OpenAI API',
+      updated_at: '2026-07-03T00:00:00.000Z',
+    }
+    const importedDetail = {
+      service: importedService,
+      fieldGroups: [],
+      modelProvider: {
+        providerId: 'openai',
+        baseUrlFieldId: null,
+        keys: [{ fieldId: 'field-imported', purpose: 'Production', manualBalance: '$20', sortOrder: 1 }],
+      },
+      fields: [{
+        ...detail.fields[0],
+        id: 'field-imported',
+        field_name: 'API Key',
+        field_value: 'imported-api-key',
+        updated_at: '2026-07-03T00:00:00.000Z',
+      }],
+    }
+    const api = window.electronAPI
+    vi.mocked(api.getServiceInfo).mockResolvedValueOnce({ groups: [], services: [importedService] })
+    vi.mocked(api.getServiceDetail)
+      .mockResolvedValueOnce(detail)
+      .mockImplementationOnce(async () => {
+        expect(useStore.getState().selectedServiceDetail).toBeNull()
+        return importedDetail
+      })
+    Object.assign(api, {
+      importDatabase: vi.fn().mockResolvedValue({ success: true }),
+      getTotpAccounts: vi.fn().mockResolvedValue([]),
+      getAccounts: vi.fn().mockResolvedValue([]),
+      getAppPreferences: vi.fn().mockResolvedValue({ accountsPinnedIds: [], accountsCustomOrder: [] }),
+    })
+    const { useStore } = await import('./useStore')
+
+    useStore.getState().setSelectedService(service.id)
+    await vi.waitFor(() => {
+      expect(useStore.getState().selectedServiceDetail).toEqual(detail)
+    })
+
+    const result = await useStore.getState().importDatabase()
+
+    expect(result).toMatchObject({ success: true, refreshFailed: false })
+    expect(api.getServiceDetail).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().selectedServiceDetail).toEqual(importedDetail)
+  })
+
+  it('keeps stale selected details invalidated when their post-import reload fails', async () => {
+    const api = window.electronAPI
+    vi.mocked(api.getServiceDetail)
+      .mockResolvedValueOnce(detail)
+      .mockRejectedValueOnce(new Error('simulated imported detail failure'))
+    Object.assign(api, {
+      importDatabase: vi.fn().mockResolvedValue({ success: true }),
+      getTotpAccounts: vi.fn().mockResolvedValue([]),
+      getAccounts: vi.fn().mockResolvedValue([]),
+      getAppPreferences: vi.fn().mockResolvedValue({ accountsPinnedIds: [], accountsCustomOrder: [] }),
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { useStore } = await import('./useStore')
+
+    useStore.getState().setSelectedService(service.id)
+    await vi.waitFor(() => {
+      expect(useStore.getState().selectedServiceDetail).toEqual(detail)
+    })
+
+    const result = await useStore.getState().importDatabase()
+
+    expect(result).toMatchObject({ success: true, refreshFailed: true })
+    expect(useStore.getState()).toMatchObject({
+      selectedServiceId: service.id,
+      selectedServiceDetail: null,
+      serviceDetailLoadError: '读取服务详情失败：simulated imported detail failure',
+    })
+    consoleError.mockRestore()
   })
 
   it('loads, restores, and permanently deletes service recycle-bin entries', async () => {

@@ -1,12 +1,14 @@
 import type Database from 'better-sqlite3'
 
-export const SERVICE_INFO_BACKUP_VERSION = 6
+export const SERVICE_INFO_BACKUP_VERSION = 7
 
 interface BackupData {
   secretGroups?: any[]
   secretServices?: any[]
   secretFieldGroups?: any[]
   secretFields?: any[]
+  modelProviderProfiles?: any[]
+  modelProviderKeyMetadata?: any[]
 }
 
 export interface ServiceAccountLink {
@@ -20,6 +22,8 @@ export function readServiceInfoBackupData(db: Database.Database) {
     secretServices: db.prepare('SELECT * FROM secret_services').all(),
     secretFieldGroups: db.prepare('SELECT * FROM secret_field_groups').all(),
     secretFields: db.prepare('SELECT * FROM secret_fields').all(),
+    modelProviderProfiles: db.prepare('SELECT * FROM model_provider_profiles').all(),
+    modelProviderKeyMetadata: db.prepare('SELECT * FROM model_provider_key_metadata').all(),
   }
 }
 
@@ -28,7 +32,9 @@ export function hasServiceInfoBackupData(data: BackupData) {
     data.secretGroups ||
       data.secretServices ||
       data.secretFieldGroups ||
-      data.secretFields
+      data.secretFields ||
+      data.modelProviderProfiles ||
+      data.modelProviderKeyMetadata
   )
 }
 
@@ -62,6 +68,8 @@ export function restoreLegacyServiceAccountLinks(
 }
 
 export function clearServiceInfoBackupTables(db: Database.Database) {
+  db.prepare('DELETE FROM model_provider_key_metadata').run()
+  db.prepare('DELETE FROM model_provider_profiles').run()
   db.prepare('DELETE FROM secret_fields').run()
   db.prepare('DELETE FROM secret_field_groups').run()
   db.prepare('DELETE FROM secret_services').run()
@@ -144,6 +152,39 @@ export function importServiceInfoBackupData(
       field.sort_order || 0,
       field.created_at || now,
       field.updated_at || now
+    )
+  }
+
+  const insertModelProviderProfile = db.prepare(`
+    INSERT INTO model_provider_profiles (
+      service_id, provider_id, base_url_field_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)
+  `)
+  for (const profile of data.modelProviderProfiles || []) {
+    insertModelProviderProfile.run(
+      profile.service_id,
+      typeof profile.provider_id === 'string' && profile.provider_id.trim()
+        ? profile.provider_id.trim()
+        : 'custom',
+      profile.base_url_field_id || null,
+      profile.created_at || now,
+      profile.updated_at || now
+    )
+  }
+
+  const insertModelProviderKeyMetadata = db.prepare(`
+    INSERT INTO model_provider_key_metadata (
+      field_id, purpose, manual_balance, sort_order, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  for (const metadata of data.modelProviderKeyMetadata || []) {
+    insertModelProviderKeyMetadata.run(
+      metadata.field_id,
+      typeof metadata.purpose === 'string' ? metadata.purpose : '',
+      typeof metadata.manual_balance === 'string' ? metadata.manual_balance : '',
+      Number.isInteger(metadata.sort_order) && metadata.sort_order >= 0 ? metadata.sort_order : 0,
+      metadata.created_at || now,
+      metadata.updated_at || now
     )
   }
 }

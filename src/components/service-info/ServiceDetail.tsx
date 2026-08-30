@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -41,15 +41,14 @@ import { getGroupedItems, moveIdsBefore, sortServiceInfoItems } from '../../util
 import EmptyState from '../common/EmptyState'
 import SectionLabel from '../common/SectionLabel'
 import BatchActionBar from './BatchActionBar'
+import ApiCredentialList from './ApiCredentialList'
+import ProviderIcon from './ProviderIcon'
 import ServiceFormDialog from './ServiceFormDialog'
 import ServiceFieldGroup from './ServiceFieldGroup'
 import {
   buildServiceFormSubmission,
-  buildServicePresetFields,
   createEmptyServiceFormValues,
   createServiceFormValues,
-  findPresetField,
-  servicePresetFieldsNeedSaving,
   type ServiceFormValues,
 } from './serviceForm'
 
@@ -72,6 +71,7 @@ export default function ServiceDetail() {
     selectedServiceDetail,
     serviceGroups,
     serviceDetailLoadError,
+    setNavigationBlockReason,
     setSelectedService,
     toggleSelectedFieldId,
     navigateToAccount,
@@ -79,6 +79,7 @@ export default function ServiceDetail() {
 
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null)
   const [serviceDialogOpen, setServiceDialogOpen] = useState(false)
+  const [serviceProviderInputPending, setServiceProviderInputPending] = useState(false)
   const [fieldDialogOpen, setFieldDialogOpen] = useState(false)
   const [groupDialogOpen, setGroupDialogOpen] = useState(false)
   const [moveDialogOpen, setMoveDialogOpen] = useState(false)
@@ -95,16 +96,42 @@ export default function ServiceDetail() {
   const [targetGroupId, setTargetGroupId] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget>(null)
   const mutationBusyRef = useRef(false)
+  const serviceFormBaselineRef = useRef('')
   const [mutationBusy, setMutationBusy] = useState(false)
   const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   const fields = selectedServiceDetail?.fields || []
   const fieldGroups = selectedServiceDetail?.fieldGroups || []
-  const groupedFields = useMemo(() => getGroupedItems(sortServiceInfoItems(fields, 'manual')), [fields])
+  const modelProvider = selectedServiceDetail?.modelProvider || null
+  const claimedFieldIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (modelProvider?.baseUrlFieldId) ids.add(modelProvider.baseUrlFieldId)
+    for (const key of modelProvider?.keys || []) ids.add(key.fieldId)
+    return ids
+  }, [modelProvider])
+  const generalFields = useMemo(
+    () => fields.filter((field) => !claimedFieldIds.has(field.id)),
+    [claimedFieldIds, fields]
+  )
+  const groupedFields = useMemo(
+    () => getGroupedItems(sortServiceInfoItems(generalFields, 'manual')),
+    [generalFields]
+  )
   const orderedServiceGroups = useMemo(
     () => [...serviceGroups].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name, 'zh-Hans-CN')),
     [serviceGroups]
   )
+  const serviceFormDirty = serviceDialogOpen
+    && (
+      JSON.stringify(serviceForm) !== serviceFormBaselineRef.current
+      || serviceProviderInputPending
+    )
+
+  useEffect(() => {
+    if (!serviceDialogOpen) return
+    setNavigationBlockReason(serviceFormDirty ? '服务信息修改尚未保存' : null)
+    return () => setNavigationBlockReason(null)
+  }, [serviceDialogOpen, serviceFormDirty, setNavigationBlockReason])
 
   if (!selectedServiceDetail) {
     if (selectedServiceId) {
@@ -176,7 +203,10 @@ export default function ServiceDetail() {
   const openEditServiceDialog = () => {
     if (mutationBusyRef.current) return
     const currentGroupName = orderedServiceGroups.find((group) => group.id === service.group_id)?.name || ''
-    setServiceForm(createServiceFormValues(service, currentGroupName, fields))
+    const nextForm = createServiceFormValues(service, currentGroupName, fields, modelProvider)
+    serviceFormBaselineRef.current = JSON.stringify(nextForm)
+    setServiceForm(nextForm)
+    setServiceProviderInputPending(false)
     setPendingServiceGroup(null)
     setServiceDialogOpen(true)
   }
@@ -184,7 +214,9 @@ export default function ServiceDetail() {
   const closeServiceDialog = () => {
     if (mutationBusyRef.current) return
     setServiceDialogOpen(false)
+    setServiceProviderInputPending(false)
     setPendingServiceGroup(null)
+    setNavigationBlockReason(null)
   }
 
   const findServiceGroupByName = (name: string) => {
@@ -194,7 +226,8 @@ export default function ServiceDetail() {
 
   const saveService = async () => {
     const name = serviceForm.name.trim()
-    if (!name || !beginMutation()) return
+    const providerMissing = serviceForm.mode === 'model-provider' && !serviceForm.providerId.trim()
+    if (!name || providerMissing || !beginMutation()) return
 
     let createdGroup: { id: string; name: string } | null = null
     try {
@@ -219,52 +252,19 @@ export default function ServiceDetail() {
       }
 
       const result = await window.electronAPI.updateSecretService(service.id, {
-        ...buildServiceFormSubmission(serviceForm, groupId),
+        ...buildServiceFormSubmission(serviceForm, groupId, {
+          clearProviderProfileForGeneral: Boolean(modelProvider),
+        }),
       })
       assertMutationSucceeded(result, '服务不存在或已被删除')
 
-      let presetError: unknown = null
-      const presetFields = servicePresetFieldsNeedSaving(serviceForm, fields)
-        ? buildServicePresetFields(serviceForm)
-        : []
-      for (const presetField of presetFields) {
-        try {
-          const existingField = findPresetField(fields, presetField.fieldName)
-          if (existingField) {
-            const fieldResult = await window.electronAPI.updateSecretField(existingField.id, {
-              fieldName: presetField.fieldName,
-              fieldValue: presetField.fieldValue,
-              isSecret: presetField.isSecret,
-            })
-            assertMutationSucceeded(fieldResult, `${presetField.fieldName} 不存在或已被删除`)
-          } else {
-            const fieldResult = await window.electronAPI.createSecretField({
-              id: uuidv4(),
-              serviceId: service.id,
-              fieldName: presetField.fieldName,
-              fieldValue: presetField.fieldValue,
-              isSecret: presetField.isSecret,
-            })
-            if (!fieldResult?.id) throw new Error(`${presetField.fieldName} 未返回有效结果`)
-          }
-        } catch (error) {
-          presetError = error
-          break
-        }
-      }
-
       setServiceDialogOpen(false)
+      setServiceProviderInputPending(false)
       setPendingServiceGroup(null)
+      setNavigationBlockReason(null)
+      clearSelectedFieldIds()
       const refreshFailed = await refreshServiceData(service.id)
-
-      if (presetError) {
-        setNotice({
-          severity: 'error',
-          text: `服务信息已保存，但预设字段保存失败：${presetError instanceof Error ? presetError.message : String(presetError)}${refreshFailed ? '；界面刷新也失败' : ''}`,
-        })
-      } else {
-        reportCommittedMutation('服务信息已保存', refreshFailed, '服务信息已保存但刷新失败')
-      }
+      reportCommittedMutation('服务信息已保存', refreshFailed, '服务信息已保存但刷新失败')
     } catch (error) {
       setNotice({
         severity: 'error',
@@ -624,22 +624,26 @@ export default function ServiceDetail() {
     <Box aria-busy={mutationBusy} sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', bgcolor: 'background.default' }}>
       <Box sx={{ px: 2, py: 1.25, borderBottom: '1px solid', borderColor: 'border.subtle', bgcolor: 'background.paper' }}>
         <Box sx={{ display: 'grid', gridTemplateColumns: '40px minmax(0, 1fr) auto', alignItems: 'start', gap: 1.25, minWidth: 0 }}>
-          <Box
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 1,
-              display: 'grid',
-              placeItems: 'center',
-              bgcolor: 'surface.raised',
-              border: '1px solid',
-              borderColor: 'border.subtle',
-              color: 'primary.main',
-              flexShrink: 0,
-            }}
-          >
-            <VpnKeyOutlinedIcon sx={{ fontSize: 22 }} />
-          </Box>
+          {modelProvider ? (
+            <ProviderIcon providerId={modelProvider.providerId} size={40} />
+          ) : (
+            <Box
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: 1,
+                display: 'grid',
+                placeItems: 'center',
+                bgcolor: 'surface.raised',
+                border: '1px solid',
+                borderColor: 'border.subtle',
+                color: 'primary.main',
+                flexShrink: 0,
+              }}
+            >
+              <VpnKeyOutlinedIcon sx={{ fontSize: 22 }} />
+            </Box>
+          )}
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="h6" noWrap sx={{ fontSize: '1.05rem' }}>
               {service.name}
@@ -727,7 +731,7 @@ export default function ServiceDetail() {
           </Button>
         </Box>
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          {fields.length} 个字段
+          {modelProvider ? `${generalFields.length} 个普通字段` : `${fields.length} 个字段`}
         </Typography>
       </Box>
 
@@ -744,6 +748,16 @@ export default function ServiceDetail() {
           <Alert severity="warning" sx={{ mb: 1.5 }}>
             {UNDECRYPTABLE_VALUES_HINT}
           </Alert>
+        )}
+        {modelProvider && (
+          <Box sx={{ mb: 1.5 }}>
+            <ApiCredentialList
+              profile={modelProvider}
+              fields={fields}
+              onManage={openEditServiceDialog}
+              disabled={mutationBusy}
+            />
+          </Box>
         )}
         <ServiceFieldGroup
           title="未分组"
@@ -800,6 +814,10 @@ export default function ServiceDetail() {
         groups={orderedServiceGroups}
         accounts={accounts}
         busy={mutationBusy}
+        fields={fields}
+        dirty={serviceFormDirty}
+        lockModelProviderMode={Boolean(modelProvider)}
+        onPendingProviderInputChange={setServiceProviderInputPending}
         onChange={(patch) => setServiceForm((current) => ({ ...current, ...patch }))}
         onClose={closeServiceDialog}
         onSubmit={() => { void saveService() }}

@@ -31,8 +31,8 @@ function createDatabase(serviceId: string, deleted: boolean) {
 
   const db = {
     prepare(sql: string) {
-      if (sql.includes('SELECT * FROM secret_services WHERE is_deleted = 1')) {
-        return { all: () => state.service?.is_deleted ? [{ ...state.service }] : [] }
+      if (sql.includes('FROM secret_services AS service') && sql.includes('service.is_deleted = 1')) {
+        return { all: () => state.service?.is_deleted ? [{ ...state.service, provider_id: null }] : [] }
       }
       if (sql.includes('SELECT is_deleted FROM secret_services')) {
         return { get: (id: string) => state.service?.id === id ? { is_deleted: state.service.is_deleted } : undefined }
@@ -90,6 +90,7 @@ function createServiceInfoDatabase() {
       color TEXT DEFAULT '',
       sort_order INTEGER DEFAULT 0,
       is_collapsed INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT '',
       updated_at TEXT DEFAULT ''
     );
     CREATE TABLE secret_services (
@@ -124,6 +125,22 @@ function createServiceInfoDatabase() {
       field_value TEXT DEFAULT '',
       is_secret INTEGER DEFAULT 0,
       sort_order INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT '',
+      updated_at TEXT DEFAULT ''
+    );
+    CREATE TABLE model_provider_profiles (
+      service_id TEXT PRIMARY KEY REFERENCES secret_services(id) ON DELETE CASCADE,
+      provider_id TEXT NOT NULL,
+      base_url_field_id TEXT REFERENCES secret_fields(id) ON DELETE SET NULL,
+      created_at TEXT DEFAULT '',
+      updated_at TEXT DEFAULT ''
+    );
+    CREATE TABLE model_provider_key_metadata (
+      field_id TEXT PRIMARY KEY REFERENCES secret_fields(id) ON DELETE CASCADE,
+      purpose TEXT NOT NULL DEFAULT '',
+      manual_balance TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT '',
       updated_at TEXT DEFAULT ''
     );
 
@@ -234,6 +251,78 @@ describe('service information IPC lifecycle', () => {
     }
   })
 
+  it('does not rewrite undecryptable service field ciphertext during metadata-only edits', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+    const ciphertext = `${'a'.repeat(32)}:${'b'.repeat(32)}:cafe`
+
+    try {
+      db.prepare(`
+        UPDATE secret_fields
+        SET field_name = 'Old name', field_value = ?, is_secret = 1
+        WHERE id = 'field-1'
+      `).run(ciphertext)
+      registerServiceInfoIpc(db as any)
+      const updateField = ipcHandlers.get('serviceInfo:updateField')!
+
+      expect(updateField(undefined, 'field-1', {
+        fieldName: 'New name',
+        fieldValue: ciphertext,
+        isSecret: true,
+      })).toEqual({ success: true })
+      expect(db.prepare(`
+        SELECT field_name, field_value, is_secret
+        FROM secret_fields WHERE id = 'field-1'
+      `).get()).toEqual({
+        field_name: 'New name',
+        field_value: ciphertext,
+        is_secret: 1,
+      })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('requires a replacement value before changing protection on an undecryptable service field', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+    const ciphertext = `${'a'.repeat(32)}:${'b'.repeat(32)}:cafe`
+
+    try {
+      db.prepare(`
+        UPDATE secret_fields SET field_value = ?, is_secret = 1 WHERE id = 'field-1'
+      `).run(ciphertext)
+      registerServiceInfoIpc(db as any)
+      const updateField = ipcHandlers.get('serviceInfo:updateField')!
+
+      expect(() => updateField(undefined, 'field-1', {
+        fieldValue: ciphertext,
+        isSecret: false,
+      })).toThrow(/无法解密/)
+      expect(db.prepare(`
+        SELECT field_value, is_secret FROM secret_fields WHERE id = 'field-1'
+      `).get()).toEqual({ field_value: ciphertext, is_secret: 1 })
+
+      expect(updateField(undefined, 'field-1', {
+        fieldValue: 'replacement',
+        isSecret: true,
+      })).toEqual({ success: true })
+      const replaced = db.prepare(`
+        SELECT field_value, is_secret FROM secret_fields WHERE id = 'field-1'
+      `).get() as { field_value: string; is_secret: number }
+      expect(replaced.is_secret).toBe(1)
+      expect(replaced.field_value).not.toBe(ciphertext)
+      expect(replaced.field_value).not.toContain('replacement')
+
+      expect(updateField(undefined, 'field-1', { isSecret: false })).toEqual({ success: true })
+      expect(db.prepare(`
+        SELECT field_value, is_secret FROM secret_fields WHERE id = 'field-1'
+      `).get()).toEqual({ field_value: 'replacement', is_secret: 0 })
+    } finally {
+      db.close()
+    }
+  })
+
   it('appends a service to the end of its new group but keeps sort order when the group is unchanged', async () => {
     const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
     const db = createServiceInfoDatabase()
@@ -313,6 +402,372 @@ describe('service information IPC lifecycle', () => {
         { id: 'service-1', group_id: 'group-1', sort_order: 1 },
         { id: 'service-2', group_id: 'group-1', sort_order: 2 },
       ])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('creates a model provider, Base URL, and multiple encrypted keys in one transaction', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+
+    try {
+      registerServiceInfoIpc(db as any)
+      const createService = ipcHandlers.get('serviceInfo:createService')!
+      const getDetail = ipcHandlers.get('serviceInfo:getDetail')!
+      const getAll = ipcHandlers.get('serviceInfo:getAll')!
+
+      expect(createService(undefined, {
+        id: 'provider-service',
+        name: 'OpenAI',
+        providerProfile: {
+          providerId: 'openai',
+          baseUrl: {
+            fieldId: 'provider-base-url',
+            fieldValue: 'https://api.openai.com/v1',
+          },
+          keys: [
+            {
+              fieldId: 'provider-key-production',
+              fieldValue: 'sk-production',
+              purpose: '生产环境',
+              manualBalance: '$20',
+              sortOrder: 1,
+            },
+            {
+              fieldId: 'provider-key-development',
+              fieldName: 'Development Key',
+              fieldValue: 'sk-development',
+              purpose: '开发测试',
+              manualBalance: '$5',
+              sortOrder: 2,
+            },
+          ],
+          detachKeyIds: [],
+        },
+      })).toEqual({ id: 'provider-service' })
+
+      const rawFields = db.prepare(`
+        SELECT id, field_name, field_value, is_secret, sort_order
+        FROM secret_fields
+        WHERE service_id = 'provider-service'
+        ORDER BY id
+      `).all() as Array<Record<string, any>>
+      expect(rawFields).toHaveLength(3)
+      expect(rawFields.find((field) => field.id === 'provider-base-url')).toMatchObject({
+        field_name: 'Base URL',
+        field_value: 'https://api.openai.com/v1',
+        is_secret: 0,
+      })
+      for (const keyId of ['provider-key-production', 'provider-key-development']) {
+        const key = rawFields.find((field) => field.id === keyId)!
+        expect(key.is_secret).toBe(1)
+        expect(key.field_value).not.toContain(keyId.endsWith('production') ? 'sk-production' : 'sk-development')
+      }
+
+      expect(getDetail(undefined, 'provider-service').modelProvider).toEqual({
+        providerId: 'openai',
+        baseUrlFieldId: 'provider-base-url',
+        keys: [
+          { fieldId: 'provider-key-production', purpose: '生产环境', manualBalance: '$20', sortOrder: 1 },
+          { fieldId: 'provider-key-development', purpose: '开发测试', manualBalance: '$5', sortOrder: 2 },
+        ],
+      })
+      expect(getAll().services.find((service: any) => service.id === 'provider-service').provider_id)
+        .toBe('openai')
+    } finally {
+      db.close()
+    }
+  })
+
+  it('claims existing fields without rewriting ciphertext and detaches metadata without deleting fields', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+    const undecryptableCiphertext = `${'a'.repeat(32)}:${'b'.repeat(32)}:cafe`
+
+    try {
+      db.prepare(`
+        UPDATE secret_fields
+        SET field_name = 'legacy_apikey', field_value = ?, is_secret = 1,
+            group_id = 'field-group-1', sort_order = 37, updated_at = 'legacy-timestamp'
+        WHERE id = 'field-1'
+      `).run(undecryptableCiphertext)
+      db.prepare(`
+        UPDATE secret_fields
+        SET field_name = 'legacy_baseurl', field_value = 'https://legacy.example/v1', is_secret = 0
+        WHERE id = 'field-2'
+      `).run()
+
+      registerServiceInfoIpc(db as any)
+      const updateService = ipcHandlers.get('serviceInfo:updateService')!
+      expect(updateService(undefined, 'service-1', {
+        providerProfile: {
+          providerId: 'custom',
+          baseUrl: { fieldId: 'field-2' },
+          keys: [{
+            fieldId: 'field-1',
+            purpose: '旧生产 Key',
+            manualBalance: '未知',
+            sortOrder: 1,
+          }],
+          detachKeyIds: [],
+        },
+      })).toEqual({ success: true })
+
+      expect(db.prepare(`
+        SELECT field_name, field_value, is_secret, group_id, sort_order, updated_at
+        FROM secret_fields WHERE id = 'field-1'
+      `).get()).toEqual({
+        field_name: 'legacy_apikey',
+        field_value: undecryptableCiphertext,
+        is_secret: 1,
+        group_id: 'field-group-1',
+        sort_order: 37,
+        updated_at: 'legacy-timestamp',
+      })
+
+      expect(updateService(undefined, 'service-1', {
+        providerProfile: {
+          providerId: 'custom',
+          baseUrl: { fieldId: 'field-2' },
+          keys: [],
+          detachKeyIds: ['field-1'],
+        },
+      })).toEqual({ success: true })
+      expect(db.prepare("SELECT field_value FROM secret_fields WHERE id = 'field-1'").get())
+        .toEqual({ field_value: undecryptableCiphertext })
+      expect(db.prepare("SELECT field_id FROM model_provider_key_metadata WHERE field_id = 'field-1'").get())
+        .toBeUndefined()
+
+      expect(updateService(undefined, 'service-1', { providerProfile: null })).toEqual({ success: true })
+      expect(db.prepare("SELECT service_id FROM model_provider_profiles WHERE service_id = 'service-1'").get())
+        .toBeUndefined()
+      expect(db.prepare("SELECT COUNT(*) AS count FROM secret_fields WHERE service_id = 'service-1'").get())
+        .toEqual({ count: 2 })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('protects undecryptable provider keys from managed-field rewrites', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+    const undecryptableCiphertext = `${'a'.repeat(32)}:${'b'.repeat(32)}:cafe`
+
+    try {
+      db.prepare(`
+        UPDATE secret_fields
+        SET field_name = 'Old API Key', field_value = ?, is_secret = 1
+        WHERE id = 'field-1'
+      `).run(undecryptableCiphertext)
+
+      registerServiceInfoIpc(db as any)
+      const updateService = ipcHandlers.get('serviceInfo:updateService')!
+
+      expect(updateService(undefined, 'service-1', {
+        providerProfile: {
+          providerId: 'custom',
+          baseUrl: null,
+          keys: [{
+            fieldId: 'field-1',
+            fieldName: 'Renamed API Key',
+            fieldValue: undecryptableCiphertext,
+            isSecret: true,
+            purpose: '生产环境',
+            manualBalance: '$10',
+            sortOrder: 1,
+          }],
+          detachKeyIds: [],
+        },
+      })).toEqual({ success: true })
+      expect(db.prepare(`
+        SELECT field_name, field_value, is_secret
+        FROM secret_fields WHERE id = 'field-1'
+      `).get()).toEqual({
+        field_name: 'Renamed API Key',
+        field_value: undecryptableCiphertext,
+        is_secret: 1,
+      })
+
+      expect(() => updateService(undefined, 'service-1', {
+        providerProfile: {
+          providerId: 'custom',
+          baseUrl: null,
+          keys: [{
+            fieldId: 'field-1',
+            isSecret: false,
+            purpose: '不得提交',
+            manualBalance: '$0',
+            sortOrder: 1,
+          }],
+          detachKeyIds: [],
+        },
+      })).toThrow(/无法解密/)
+      expect(db.prepare(`
+        SELECT field_value, is_secret FROM secret_fields WHERE id = 'field-1'
+      `).get()).toEqual({ field_value: undecryptableCiphertext, is_secret: 1 })
+      expect(db.prepare(`
+        SELECT purpose, manual_balance
+        FROM model_provider_key_metadata WHERE field_id = 'field-1'
+      `).get()).toEqual({ purpose: '生产环境', manual_balance: '$10' })
+
+      expect(updateService(undefined, 'service-1', {
+        providerProfile: {
+          providerId: 'custom',
+          baseUrl: null,
+          keys: [{
+            fieldId: 'field-1',
+            fieldValue: 'replacement-provider-key',
+            isSecret: false,
+            purpose: '已替换',
+            manualBalance: '$20',
+            sortOrder: 1,
+          }],
+          detachKeyIds: [],
+        },
+      })).toEqual({ success: true })
+      expect(db.prepare(`
+        SELECT field_value, is_secret FROM secret_fields WHERE id = 'field-1'
+      `).get()).toEqual({ field_value: 'replacement-provider-key', is_secret: 0 })
+    } finally {
+      db.close()
+    }
+  })
+
+  it('rolls back service and field creation when provider metadata insertion fails', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+
+    try {
+      db.exec(`
+        CREATE TRIGGER reject_provider_key_metadata
+        BEFORE INSERT ON model_provider_key_metadata
+        BEGIN
+          SELECT RAISE(ABORT, 'simulated provider metadata failure');
+        END;
+      `)
+      registerServiceInfoIpc(db as any)
+      const createService = ipcHandlers.get('serviceInfo:createService')!
+
+      expect(() => createService(undefined, {
+        id: 'rolled-back-provider',
+        name: 'Rollback Provider',
+        providerProfile: {
+          providerId: 'custom',
+          baseUrl: { fieldId: 'rolled-back-base', fieldValue: 'https://rollback.test' },
+          keys: [{
+            fieldId: 'rolled-back-key',
+            fieldValue: 'should-not-survive',
+            purpose: '',
+            manualBalance: '',
+            sortOrder: 1,
+          }],
+          detachKeyIds: [],
+        },
+      })).toThrow(/simulated provider metadata failure/)
+
+      expect(db.prepare("SELECT id FROM secret_services WHERE id = 'rolled-back-provider'").get()).toBeUndefined()
+      expect(db.prepare("SELECT id FROM secret_fields WHERE service_id = 'rolled-back-provider'").all()).toEqual([])
+      expect(db.prepare("SELECT service_id FROM model_provider_profiles WHERE service_id = 'rolled-back-provider'").get())
+        .toBeUndefined()
+    } finally {
+      db.close()
+    }
+  })
+
+  it('rejects provider field ids owned by another service and rolls back the service update', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+
+    try {
+      registerServiceInfoIpc(db as any)
+      const updateService = ipcHandlers.get('serviceInfo:updateService')!
+      expect(() => updateService(undefined, 'service-1', {
+        name: 'Should Roll Back',
+        providerProfile: {
+          providerId: 'custom',
+          baseUrl: null,
+          keys: [{
+            fieldId: 'field-3',
+            purpose: '',
+            manualBalance: '',
+            sortOrder: 1,
+          }],
+          detachKeyIds: [],
+        },
+      })).toThrow(/does not belong to service/)
+      expect(db.prepare("SELECT name FROM secret_services WHERE id = 'service-1'").get())
+        .toEqual({ name: 'Service 1' })
+      expect(db.prepare("SELECT service_id FROM model_provider_profiles WHERE service_id = 'service-1'").get())
+        .toBeUndefined()
+    } finally {
+      db.close()
+    }
+  })
+
+  it('rejects a persisted provider Key reused as Base URL and rolls back every update', async () => {
+    const { registerServiceInfoIpc } = await import('./serviceInfoRepository')
+    const db = createServiceInfoDatabase()
+
+    try {
+      registerServiceInfoIpc(db as any)
+      const updateService = ipcHandlers.get('serviceInfo:updateService')!
+
+      expect(updateService(undefined, 'service-1', {
+        providerProfile: {
+          providerId: 'openai',
+          baseUrl: null,
+          keys: [{
+            fieldId: 'field-1',
+            purpose: '生产环境',
+            manualBalance: '$10',
+            sortOrder: 1,
+          }],
+          detachKeyIds: [],
+        },
+      })).toEqual({ success: true })
+
+      const fieldBefore = db.prepare(`
+        SELECT field_name, field_value, is_secret, updated_at
+        FROM secret_fields WHERE id = 'field-1'
+      `).get()
+      const profileBefore = db.prepare(`
+        SELECT provider_id, base_url_field_id, updated_at
+        FROM model_provider_profiles WHERE service_id = 'service-1'
+      `).get()
+      const keyMetadataBefore = db.prepare(`
+        SELECT purpose, manual_balance, sort_order, updated_at
+        FROM model_provider_key_metadata WHERE field_id = 'field-1'
+      `).get()
+
+      expect(() => updateService(undefined, 'service-1', {
+        name: 'Should Roll Back',
+        providerProfile: {
+          providerId: 'anthropic',
+          baseUrl: {
+            fieldId: 'field-1',
+            fieldName: 'Base URL',
+            fieldValue: 'https://api.anthropic.com',
+          },
+          keys: [],
+          detachKeyIds: [],
+        },
+      })).toThrow(/Base URL field cannot also be used as an API key/)
+
+      expect(db.prepare("SELECT name FROM secret_services WHERE id = 'service-1'").get())
+        .toEqual({ name: 'Service 1' })
+      expect(db.prepare(`
+        SELECT field_name, field_value, is_secret, updated_at
+        FROM secret_fields WHERE id = 'field-1'
+      `).get()).toEqual(fieldBefore)
+      expect(db.prepare(`
+        SELECT provider_id, base_url_field_id, updated_at
+        FROM model_provider_profiles WHERE service_id = 'service-1'
+      `).get()).toEqual(profileBefore)
+      expect(db.prepare(`
+        SELECT purpose, manual_balance, sort_order, updated_at
+        FROM model_provider_key_metadata WHERE field_id = 'field-1'
+      `).get()).toEqual(keyMetadataBefore)
     } finally {
       db.close()
     }

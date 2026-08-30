@@ -5,6 +5,7 @@ import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import type { SecretServiceRow } from '../../types'
+import ProviderIcon from './ProviderIcon'
 
 export default function ServiceListItem({
   service,
@@ -109,21 +110,25 @@ export default function ServiceListItem({
           cursor: 'pointer',
         }}
       >
-        <Box
-          sx={{
-            width: 32,
-            height: 32,
-            borderRadius: 1,
-            display: 'grid',
-            placeItems: 'center',
-            bgcolor: 'surface.raised',
-            color: service.is_favorite ? 'warning.main' : 'primary.main',
-            border: '1px solid',
-            borderColor: service.is_favorite ? 'warning.main' : 'border.subtle',
-          }}
-        >
-          <VpnKeyOutlinedIcon sx={{ fontSize: 18 }} />
-        </Box>
+        {service.provider_id ? (
+          <ProviderIcon providerId={service.provider_id} size={32} />
+        ) : (
+          <Box
+            sx={{
+              width: 32,
+              height: 32,
+              borderRadius: 1,
+              display: 'grid',
+              placeItems: 'center',
+              bgcolor: 'surface.raised',
+              color: service.is_favorite ? 'warning.main' : 'primary.main',
+              border: '1px solid',
+              borderColor: service.is_favorite ? 'warning.main' : 'border.subtle',
+            }}
+          >
+            <VpnKeyOutlinedIcon sx={{ fontSize: 18 }} />
+          </Box>
+        )}
         <Box sx={{ minWidth: 0 }}>
           <Typography variant="body2" noWrap sx={{ fontWeight: 600, color: 'text.primary', fontSize: '0.875rem', lineHeight: 1.35 }}>
             {service.name}

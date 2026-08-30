@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import type Database from 'better-sqlite3'
+import Database from 'better-sqlite3'
 import { isEncryptedValue } from './encryptionFormat'
 
 export const PROTECTED_TABLES = [
@@ -17,7 +17,11 @@ export const SERVICE_INFO_TABLES = [
   'secret_services',
   'secret_field_groups',
   'secret_fields',
+  'model_provider_profiles',
+  'model_provider_key_metadata',
 ] as const
+
+export const DATA_TABLES = [...PROTECTED_TABLES, ...SERVICE_INFO_TABLES] as const
 
 export type CoreTableCounts = Record<string, number>
 
@@ -25,6 +29,11 @@ export interface BackupResult {
   created: boolean
   filePath?: string
 }
+
+export type SqliteSnapshotDatabaseFactory = (
+  filePath: string,
+  options: { readonly: true; fileMustExist: true }
+) => Database.Database
 
 interface WalCheckpointRow {
   busy: number
@@ -124,6 +133,41 @@ export function backupDatabaseIfExists(
   pruneBackupsForReason(userDataPath, reason)
 
   return { created: true, filePath: backupPath }
+}
+
+export async function copySqliteSnapshotIfMissing(
+  sourcePath: string,
+  targetPath: string,
+  openDatabase: SqliteSnapshotDatabaseFactory = (filePath, options) => new Database(filePath, options)
+) {
+  if (!fs.existsSync(sourcePath) || fs.existsSync(targetPath)) return false
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+  const source = openDatabase(sourcePath, { readonly: true, fileMustExist: true })
+
+  try {
+    const sourceCounts = getExistingTableCounts(source, DATA_TABLES)
+    await source.backup(targetPath)
+
+    const target = openDatabase(targetPath, { readonly: true, fileMustExist: true })
+    try {
+      const integrity = target.pragma('integrity_check', { simple: true })
+      if (integrity !== 'ok') {
+        throw new Error(`SQLite snapshot integrity check failed: ${String(integrity)}`)
+      }
+      assertCountsNotReduced(sourceCounts, getExistingTableCounts(target, Object.keys(sourceCounts)))
+    } finally {
+      target.close()
+    }
+
+    return true
+  } catch (error) {
+    if (source.open) source.close()
+    if (fs.existsSync(targetPath)) fs.rmSync(targetPath, { force: true })
+    throw error
+  } finally {
+    if (source.open) source.close()
+  }
 }
 
 export function assertFullWalCheckpoint(db: Database.Database) {

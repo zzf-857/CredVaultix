@@ -3,7 +3,9 @@ import fs from 'fs'
 import path from 'path'
 import { app } from 'electron'
 import {
+  DATA_TABLES,
   assertCountsNotReduced,
+  assertFullWalCheckpoint,
   backupDatabaseIfExists,
   getExistingTableCounts,
   hasPlaintextTotpSecrets,
@@ -35,12 +37,31 @@ export function initDatabase() {
 
   if (needsServiceInfoMigration || needsTotpEncryptionMigration || needsTotpQrImageMigration) {
     const checkpointDb = new Database(dbPath, { fileMustExist: true })
+    let countsBeforeMigration: ReturnType<typeof getExistingTableCounts>
     try {
-      checkpointDb.pragma('wal_checkpoint(FULL)')
+      countsBeforeMigration = getExistingTableCounts(checkpointDb, DATA_TABLES)
+      assertFullWalCheckpoint(checkpointDb)
     } finally {
       checkpointDb.close()
     }
-    backupDatabaseIfExists(dbPath, userDataPath)
+    const backup = backupDatabaseIfExists(dbPath, userDataPath)
+    if (!backup.created || !backup.filePath || !fs.existsSync(backup.filePath)) {
+      throw new Error('数据库迁移已中止：无法创建迁移前安全备份')
+    }
+
+    const backupDb = new Database(backup.filePath, { readonly: true, fileMustExist: true })
+    try {
+      const integrity = backupDb.pragma('integrity_check', { simple: true })
+      if (integrity !== 'ok') {
+        throw new Error(`数据库迁移已中止：迁移前备份完整性检查失败（${String(integrity)}）`)
+      }
+      assertCountsNotReduced(
+        countsBeforeMigration,
+        getExistingTableCounts(backupDb, Object.keys(countsBeforeMigration))
+      )
+    } finally {
+      backupDb.close()
+    }
   }
 
   db = new Database(dbPath)
@@ -49,7 +70,7 @@ export function initDatabase() {
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
 
-  const protectedCountsBefore = getExistingTableCounts(db)
+  const protectedCountsBefore = getExistingTableCounts(db, DATA_TABLES)
 
   // Create tables
   db.exec(`
@@ -170,11 +191,29 @@ export function initDatabase() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS model_provider_profiles (
+      service_id TEXT PRIMARY KEY REFERENCES secret_services(id) ON DELETE CASCADE,
+      provider_id TEXT NOT NULL,
+      base_url_field_id TEXT DEFAULT NULL REFERENCES secret_fields(id) ON DELETE SET NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS model_provider_key_metadata (
+      field_id TEXT PRIMARY KEY REFERENCES secret_fields(id) ON DELETE CASCADE,
+      purpose TEXT NOT NULL DEFAULT '',
+      manual_balance TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_secret_services_group ON secret_services(group_id);
     CREATE INDEX IF NOT EXISTS idx_secret_services_deleted ON secret_services(is_deleted);
     CREATE INDEX IF NOT EXISTS idx_secret_field_groups_service ON secret_field_groups(service_id);
     CREATE INDEX IF NOT EXISTS idx_secret_fields_service ON secret_fields(service_id);
     CREATE INDEX IF NOT EXISTS idx_secret_fields_group ON secret_fields(group_id);
+    CREATE INDEX IF NOT EXISTS idx_model_provider_keys_sort ON model_provider_key_metadata(sort_order);
   `)
 
   // Migrations for existing databases
@@ -249,7 +288,7 @@ export function initDatabase() {
     }
   })()
 
-  const protectedCountsAfter = getExistingTableCounts(db)
+  const protectedCountsAfter = getExistingTableCounts(db, DATA_TABLES)
   assertCountsNotReduced(protectedCountsBefore, protectedCountsAfter)
 }
 

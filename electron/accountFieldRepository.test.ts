@@ -77,6 +77,52 @@ describe('account custom field repository', () => {
     expect(deleteAccountField(db as any, 'missing', dependencies.now)).toEqual({ success: false })
   })
 
+  it('keeps undecryptable ciphertext byte-for-byte when only field metadata changes', () => {
+    const ciphertext = `${'a'.repeat(32)}:${'b'.repeat(32)}:cafe`
+    db.prepare(`
+      INSERT INTO account_custom_fields (id, account_id, field_name, field_value, is_secret)
+      VALUES ('field-1', 'account-1', 'Old name', ?, 1)
+    `).run(ciphertext)
+
+    expect(updateAccountField(db as any, 'field-1', {
+      fieldName: 'New name',
+      fieldValue: ciphertext,
+      isSecret: true,
+    }, dependencies)).toEqual({ success: true })
+    expect(db.prepare(`
+      SELECT field_name, field_value, is_secret
+      FROM account_custom_fields WHERE id = 'field-1'
+    `).get()).toEqual({
+      field_name: 'New name',
+      field_value: ciphertext,
+      is_secret: 1,
+    })
+  })
+
+  it('requires a replacement value before changing protection on undecryptable ciphertext', () => {
+    const ciphertext = `${'a'.repeat(32)}:${'b'.repeat(32)}:cafe`
+    db.prepare(`
+      INSERT INTO account_custom_fields (id, account_id, field_name, field_value, is_secret)
+      VALUES ('field-1', 'account-1', 'Locked', ?, 1)
+    `).run(ciphertext)
+
+    expect(() => updateAccountField(db as any, 'field-1', {
+      fieldValue: ciphertext,
+      isSecret: false,
+    }, dependencies)).toThrow(/无法解密/)
+    expect(db.prepare(`
+      SELECT field_value, is_secret FROM account_custom_fields WHERE id = 'field-1'
+    `).get()).toEqual({ field_value: ciphertext, is_secret: 1 })
+
+    expect(updateAccountField(db as any, 'field-1', {
+      fieldValue: 'replacement',
+      isSecret: true,
+    }, dependencies)).toEqual({ success: true })
+    expect(db.prepare(`
+      SELECT field_value, is_secret FROM account_custom_fields WHERE id = 'field-1'
+    `).get()).toEqual({ field_value: 'enc:replacement', is_secret: 1 })
+  })
+
   it('rolls back the field insert when updating the parent account fails', () => {
     db.exec(`
       CREATE TRIGGER reject_account_update BEFORE UPDATE ON accounts

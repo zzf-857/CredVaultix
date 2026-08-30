@@ -1,13 +1,16 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync, backup as backupSqlite } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import {
+  DATA_TABLES,
   MAX_BACKUPS_PER_REASON,
   assertCountsNotReduced,
   assertFullWalCheckpoint,
   backupDatabaseIfExists,
   buildDatabaseBackupPath,
+  copySqliteSnapshotIfMissing,
   getExistingTableCounts,
   hasPlaintextTotpSecrets,
   hasServiceInfoSchema,
@@ -32,6 +35,33 @@ function createFakeDatabase(tableCounts: Record<string, number>) {
       }
     },
   }
+}
+
+function openNodeSqliteDatabase(
+  filePath: string,
+  options: { readonly: true; fileMustExist: true }
+) {
+  const database = new DatabaseSync(filePath, { readOnly: options.readonly })
+  let open = true
+
+  return {
+    get open() {
+      return open
+    },
+    prepare: database.prepare.bind(database),
+    pragma(source: string, pragmaOptions?: { simple?: boolean }) {
+      const row = database.prepare(`PRAGMA ${source}`).get() as Record<string, unknown> | undefined
+      return pragmaOptions?.simple && row ? Object.values(row)[0] : row ? [row] : []
+    },
+    backup(targetPath: string) {
+      return backupSqlite(database, targetPath)
+    },
+    close() {
+      if (!open) return
+      database.close()
+      open = false
+    },
+  } as any
 }
 
 describe('databaseSafety', () => {
@@ -129,9 +159,65 @@ describe('service info schema readiness', () => {
       secret_services: 0,
       secret_field_groups: 0,
       secret_fields: 0,
+      model_provider_profiles: 0,
+      model_provider_key_metadata: 0,
     })
 
     expect(hasServiceInfoSchema(db as any)).toBe(true)
+  })
+
+  it('copies a complete SQLite snapshot including uncheckpointed WAL rows', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'credvaultix-wal-snapshot-'))
+    const sourcePath = join(dir, 'legacy.db')
+    const targetPath = join(dir, 'credvaultix.db')
+    const source = new DatabaseSync(sourcePath)
+
+    try {
+      source.exec('PRAGMA journal_mode = WAL')
+      source.exec('PRAGMA wal_autocheckpoint = 0')
+      source.exec(`
+        CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+        INSERT INTO accounts (id, name) VALUES ('before-checkpoint', 'Existing account');
+      `)
+      source.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+      source.prepare('INSERT INTO accounts (id, name) VALUES (?, ?)')
+        .run('wal-only', 'Latest account')
+
+      expect(await copySqliteSnapshotIfMissing(
+        sourcePath,
+        targetPath,
+        openNodeSqliteDatabase
+      )).toBe(true)
+
+      const target = new DatabaseSync(targetPath, { readOnly: true })
+      try {
+        expect(target.prepare('SELECT id, name FROM accounts ORDER BY id').all()).toEqual([
+          { id: 'before-checkpoint', name: 'Existing account' },
+          { id: 'wal-only', name: 'Latest account' },
+        ])
+        expect(target.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
+      } finally {
+        target.close()
+      }
+    } finally {
+      source.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('treats model provider metadata as protected service information data', () => {
+    expect(DATA_TABLES).toContain('accounts')
+    expect(DATA_TABLES).toContain('secret_fields')
+    expect(DATA_TABLES).toContain('model_provider_profiles')
+    expect(DATA_TABLES).toContain('model_provider_key_metadata')
+
+    const legacyServiceDb = createFakeDatabase({
+      secret_groups: 1,
+      secret_services: 2,
+      secret_field_groups: 1,
+      secret_fields: 4,
+    })
+    expect(hasServiceInfoSchema(legacyServiceDb as any)).toBe(false)
   })
 })
 

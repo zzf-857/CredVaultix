@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { resolveSensitiveFieldUpdate } from './sensitiveFieldUpdate'
 
 interface FieldDependencies {
   encrypt: (value: string) => string
@@ -64,14 +65,18 @@ export function updateAccountField(
     updates.push('field_name = ?')
     params.push(normalizeFieldName(data.fieldName))
   }
-  if (data.fieldValue !== undefined || data.isSecret !== undefined) {
-    const plainValue = data.fieldValue !== undefined
-      ? data.fieldValue
-      : currentIsSecret
-        ? dependencies.decrypt(current.field_value)
-        : current.field_value
+  const valueUpdate = resolveSensitiveFieldUpdate({
+    currentValue: current.field_value,
+    currentIsSecret,
+    nextValue: data.fieldValue,
+    valueProvided: data.fieldValue !== undefined,
+    nextIsSecret,
+    encrypt: dependencies.encrypt,
+    decrypt: dependencies.decrypt,
+  })
+  if (valueUpdate.shouldWrite) {
     updates.push('field_value = ?')
-    params.push(nextIsSecret ? dependencies.encrypt(plainValue) : plainValue)
+    params.push(valueUpdate.storedValue)
   }
   if (data.isSecret !== undefined) {
     updates.push('is_secret = ?')

@@ -6,10 +6,9 @@ import type {
   AccountUpdateResult,
   CreateTotpData,
   CsvImportResult,
-  SecretFieldGroupRow,
-  SecretFieldRow,
   SecretGroupRow,
   SecretServiceRow,
+  ServiceDetailPayload,
   ServiceInfoSortMode,
   TotpAccountRow,
   TotpQrImagePayload,
@@ -20,12 +19,6 @@ import type { AccountPlatform } from '../utils/accountPlatform'
 import { resolveAppPreferences } from '../utils/appPreferences'
 
 type ActiveView = 'accounts' | '2fa' | 'trash' | 'service-info'
-
-interface SelectedServiceDetail {
-  service: SecretServiceRow
-  fieldGroups: SecretFieldGroupRow[]
-  fields: SecretFieldRow[]
-}
 
 interface MutationRefreshResult {
   refreshFailed: boolean
@@ -50,7 +43,7 @@ interface AppState {
   serviceGroups: SecretGroupRow[]
   secretServices: SecretServiceRow[]
   selectedServiceId: string | null
-  selectedServiceDetail: SelectedServiceDetail | null
+  selectedServiceDetail: ServiceDetailPayload | null
   serviceDetailLoadError: string | null
   serviceSearchQuery: string
   serviceSortMode: ServiceInfoSortMode
@@ -118,7 +111,7 @@ interface AppState {
   navigateToAccount: (accountId: string) => void
 
   exportDatabase: () => Promise<{ success: boolean; filePath?: string }>
-  importDatabase: () => Promise<{ success: boolean; refreshFailed?: boolean }>
+  importDatabase: () => Promise<{ success: boolean; refreshFailed?: boolean; warning?: string }>
   importCsvAccounts: () => Promise<CsvImportResult>
 }
 
@@ -221,19 +214,23 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   loadServiceDetail: async (serviceId) => {
-    let detail: SelectedServiceDetail | null
+    let detail: ServiceDetailPayload | null
     try {
       detail = await window.electronAPI.getServiceDetail(serviceId)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       set((state) => state.selectedServiceId === serviceId
-        ? { serviceDetailLoadError: `读取服务详情失败：${message}` }
+        ? {
+            selectedServiceDetail: null,
+            serviceDetailLoadError: `读取服务详情失败：${message}`,
+            selectedFieldIds: [],
+          }
         : {})
       throw error
     }
 
     set((state) => {
-      if (state.selectedServiceId && state.selectedServiceId !== serviceId) {
+      if (state.selectedServiceId !== serviceId) {
         return {}
       }
 
@@ -505,6 +502,13 @@ export const useStore = create<AppState>((set, get) => ({
     const result = await window.electronAPI.importDatabase()
     let refreshFailed = false
     if (result.success) {
+      const selectedServiceId = get().selectedServiceId
+      set({
+        selectedServiceDetail: null,
+        serviceDetailLoadError: null,
+        selectedFieldIds: [],
+      })
+
       refreshFailed = await settleRefreshes('database import', [
         get().loadTotpAccounts(),
         get().loadAccounts(),
@@ -514,6 +518,14 @@ export const useStore = create<AppState>((set, get) => ({
         get().loadTrashServices(),
         get().loadAppPreferences(),
       ])
+
+      if (selectedServiceId && get().selectedServiceId === selectedServiceId) {
+        const detailRefreshFailed = await settleRefreshes('database import selected service detail', [
+          get().loadServiceDetail(selectedServiceId),
+        ])
+        refreshFailed = refreshFailed || detailRefreshFailed
+      }
+
       set((state) => ({ dataRevision: state.dataRevision + 1 }))
     }
     return { ...result, refreshFailed }
