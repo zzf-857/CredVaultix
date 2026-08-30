@@ -1,0 +1,329 @@
+<!DOCTYPE html><html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>CredVaultix | 账户管理</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@450&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "error-container": "#93000a",
+                    "surface-container-highest": "#353534",
+                    "on-surface": "#e5e2e1",
+                    "primary-fixed": "#d8e2ff",
+                    "outline": "#8c909f",
+                    "tertiary-container": "#df7412",
+                    "inverse-on-surface": "#313030",
+                    "surface-tint": "#adc6ff",
+                    "on-tertiary-container": "#461f00",
+                    "on-primary-fixed-variant": "#004395",
+                    "error": "#ffb4ab",
+                    "surface-variant": "#353534",
+                    "surface-bright": "#393939",
+                    "background": "#131313",
+                    "on-primary": "#002e6a",
+                    "surface-dim": "#131313",
+                    "on-error-container": "#ffdad6",
+                    "secondary-fixed-dim": "#b7c8e1",
+                    "on-error": "#690005",
+                    "on-secondary-fixed": "#0b1c30",
+                    "primary-fixed-dim": "#adc6ff",
+                    "surface-container-lowest": "#0e0e0e",
+                    "outline-variant": "#424754",
+                    "primary": "#adc6ff",
+                    "secondary-fixed": "#d3e4fe",
+                    "inverse-surface": "#e5e2e1",
+                    "on-primary-container": "#00285d",
+                    "on-surface-variant": "#c2c6d6",
+                    "on-background": "#e5e2e1",
+                    "inverse-primary": "#005ac2",
+                    "on-secondary": "#213145",
+                    "tertiary-fixed": "#ffdcc6",
+                    "surface-container": "#201f1f",
+                    "on-secondary-container": "#a9bad3",
+                    "on-tertiary": "#502400",
+                    "surface": "#131313",
+                    "secondary": "#b7c8e1",
+                    "surface-container-low": "#1c1b1b",
+                    "on-tertiary-fixed-variant": "#723600",
+                    "tertiary-fixed-dim": "#ffb786",
+                    "tertiary": "#ffb786",
+                    "on-primary-fixed": "#001a42",
+                    "secondary-container": "#3a4a5f",
+                    "primary-container": "#4d8eff",
+                    "surface-container-high": "#2a2a2a",
+                    "on-tertiary-fixed": "#311400",
+                    "on-secondary-fixed-variant": "#38485d"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "list_width": "320px",
+                    "stack_gap_md": "1rem",
+                    "grid_unit": "4px",
+                    "sidebar_collapsed": "64px",
+                    "container_padding": "1.5rem",
+                    "sidebar_width": "240px",
+                    "stack_gap_sm": "0.5rem"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "mono-data": ["JetBrains Mono"],
+                    "body-sm": ["Inter"],
+                    "label-caps": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "mono-data": ["13px", {"lineHeight": "20px", "fontWeight": "450"}],
+                    "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                    "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                    "headline-lg": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "headline-md": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #131313;
+            color: #e5e2e1;
+            overflow: hidden;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #424754;
+            border-radius: 2px;
+        }
+        .secure-dot {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .pane-divider {
+            border-color: #424754;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+<!-- Top Navigation Bar -->
+<header class="flex justify-between items-center w-full px-4 border-b border-outline-variant dark:border-outline-variant bg-background dark:bg-background h-12 z-50">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-primary cursor-pointer">menu</span>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-2 text-on-surface-variant text-sm">search</span>
+<input class="bg-surface-container-low border border-outline-variant rounded-sm pl-8 pr-4 py-1 text-body-sm font-body-sm focus:outline-none focus:ring-1 focus:ring-primary w-64" placeholder="搜索凭据..." type="text">
+</div>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-1 hover:bg-surface-container-highest transition-colors rounded">
+<span class="material-symbols-outlined text-on-surface-variant">remove</span>
+</button>
+<button class="p-1 hover:bg-surface-container-highest transition-colors rounded">
+<span class="material-symbols-outlined text-on-surface-variant">maximize</span>
+</button>
+<button class="p-1 hover:bg-error-container/20 hover:text-error transition-colors rounded">
+<span class="material-symbols-outlined text-on-surface-variant">close</span>
+</button>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden">
+<!-- Collapsed Side Navigation -->
+<nav class="fixed left-0 top-12 bottom-0 w-[60px] flex flex-col z-40 bg-surface-container-low dark:bg-surface-container-low border-r border-outline-variant transition-all duration-200 ease-in-out items-center py-4 gap-6">
+<!-- Compact Brand Logo -->
+<div class="w-8 h-8 bg-primary rounded-sm flex items-center justify-center mb-2">
+<span class="material-symbols-outlined text-on-primary text-xl" style="font-variation-settings: 'FILL' 1;">security</span>
+</div>
+<!-- Navigation Icons -->
+<div class="flex flex-col gap-2 w-full px-2">
+<div class="group relative flex justify-center py-3 rounded bg-secondary-container text-on-secondary-container border-l-2 border-primary cursor-pointer" title="账户">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">person</span>
+</div>
+<div class="group relative flex justify-center py-3 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer" title="服务">
+<span class="material-symbols-outlined">hub</span>
+</div>
+<div class="group relative flex justify-center py-3 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer" title="双重认证令牌">
+<span class="material-symbols-outlined">vpn_key</span>
+</div>
+<div class="group relative flex justify-center py-3 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer" title="回收站">
+<span class="material-symbols-outlined">delete</span>
+</div>
+</div>
+<div class="mt-auto flex flex-col gap-2 w-full px-2">
+<div class="group relative flex justify-center py-3 rounded text-on-surface-variant hover:bg-surface-container-high transition-all cursor-pointer" title="设置">
+<span class="material-symbols-outlined">settings</span>
+</div>
+<div class="group relative flex justify-center py-3 rounded text-error hover:bg-error-container/10 transition-all cursor-pointer" title="锁定保险库">
+<span class="material-symbols-outlined">lock</span>
+</div>
+</div>
+</nav>
+<!-- Main Content Wrapper (Shifted for Collapsed Sidebar) -->
+<main class="flex flex-1 ml-[60px] overflow-hidden">
+<!-- Middle Pane: Account List -->
+<section class="w-[320px] flex flex-col border-r border-outline-variant bg-surface-dim">
+<div class="p-4 flex items-center justify-between">
+<h2 class="font-headline-md text-headline-md text-on-surface">所有账户</h2>
+<button class="bg-primary text-on-primary px-3 py-1 rounded text-label-caps font-label-caps hover:bg-primary-container transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">add</span>
+                        新建
+                    </button>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar">
+<!-- List Item: Active -->
+<div class="flex items-center gap-3 p-3 mx-2 mb-1 rounded bg-secondary-container/30 border-l-2 border-primary cursor-pointer group">
+<div class="w-10 h-10 rounded bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">cloud</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-md text-body-md text-on-surface truncate">Google Cloud Console</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">admin@company.io</p>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+</div>
+<!-- List Items: Inactive -->
+<div class="flex items-center gap-3 p-3 mx-2 mb-1 rounded hover:bg-surface-container-high transition-colors cursor-pointer group">
+<div class="w-10 h-10 rounded bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant">account_balance</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-md text-body-md text-on-surface truncate">HSBC Business Prime</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">corp_treasury_01</p>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+</div>
+<div class="flex items-center gap-3 p-3 mx-2 mb-1 rounded hover:bg-surface-container-high transition-colors cursor-pointer group">
+<div class="w-10 h-10 rounded bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant">code</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-md text-body-md text-on-surface truncate">GitHub Organization</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">dev_ops_lead</p>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+</div>
+<div class="flex items-center gap-3 p-3 mx-2 mb-1 rounded hover:bg-surface-container-high transition-colors cursor-pointer group opacity-60">
+<div class="w-10 h-10 rounded bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant">terminal</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-md text-body-md text-on-surface truncate">AWS Production Root</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">root_backup</p>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-outline"></span>
+</div>
+<div class="flex items-center gap-3 p-3 mx-2 mb-1 rounded hover:bg-surface-container-high transition-colors cursor-pointer group">
+<div class="w-10 h-10 rounded bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant">database</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-md text-body-md text-on-surface truncate">MongoDB Atlas</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant truncate">db_manager_shanghai</p>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+</div>
+</div>
+</section>
+<!-- Right Pane: Detail View -->
+<section class="flex-1 bg-background flex flex-col p-6 overflow-y-auto custom-scrollbar">
+<!-- Header Actions -->
+<div class="flex justify-between items-start mb-8">
+<div class="flex items-center gap-4">
+<div class="w-16 h-16 rounded bg-surface-container-highest flex items-center justify-center border border-outline-variant">
+<span class="material-symbols-outlined text-3xl text-primary">cloud</span>
+</div>
+<div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface">Google Cloud Console</h1>
+<div class="flex gap-2 mt-1">
+<span class="bg-surface-container-high px-2 py-0.5 rounded text-label-caps font-label-caps text-on-surface-variant">生产环境</span>
+<span class="bg-surface-container-high px-2 py-0.5 rounded text-label-caps font-label-caps text-on-surface-variant">基础设施</span>
+</div>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high rounded transition-colors" title="编辑">
+<span class="material-symbols-outlined">edit</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-container-high rounded transition-colors" title="收藏">
+<span class="material-symbols-outlined">star</span>
+</button>
+<button class="p-2 text-error hover:bg-error-container/20 rounded transition-colors" title="删除">
+<span class="material-symbols-outlined">delete</span>
+</button>
+</div>
+</div>
+<!-- Credential Fields -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+<!-- Username Field -->
+<div class="space-y-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">用户名 / 邮箱</label>
+<div class="flex items-center gap-2 group">
+<div class="flex-1 bg-surface-container-low border border-outline-variant rounded p-3 font-mono-data text-mono-data text-on-surface flex justify-between items-center">
+<span class="">admin@company.io</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm cursor-pointer hover:text-primary transition-colors">content_copy</span>
+</div>
+</div>
+</div>
+<!-- Password Field -->
+<div class="space-y-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">密码</label>
+<div class="flex items-center gap-2 group">
+<div class="flex-1 bg-surface-container-low border border-outline-variant rounded p-3 font-mono-data text-mono-data text-on-surface flex justify-between items-center">
+<span id="password-display" class="">••••••••••••••••</span>
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-sm cursor-pointer hover:text-primary transition-colors" id="toggle-pass">visibility</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm cursor-pointer hover:text-primary transition-colors">content_copy</span>
+</div>
+</div>
+</div>
+</div>
+<!-- URL Field -->
+<div class="space-y-2 md:col-span-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">登录链接</label>
+<div class="flex-1 bg-surface-container-low border border-outline-variant rounded p-3 font-body-md text-body-md text-on-surface flex justify-between items-center">
+<span class="text-primary underline cursor-pointer truncate">https://console.cloud.google.com/auth/login</span>
+<span class="material-symbols-outlined text-on-surface-variant text-sm cursor-pointer hover:text-primary transition-colors">open_in_new</span>
+</div>
+</div>
+</div>
+<!-- 2FA & Security Section -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+<div class="bg-surface-container-low border border-outline-variant p-4 rounded flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant">2FA 验证码</span>
+<div class="flex items-end justify-between">
+<span class="font-mono-data text-2xl tracking-widest text-primary">842 109</span>
+<div class="w-8 h-8 flex items-center justify-center">
+<svg class="w-full h-full -rotate-90">
+<circle class="text-surface-container-highest" cx="16" cy="16" fill="transparent" r="14" stroke="currentColor" stroke-width="2"></circle>
+<circle class="text-primary" cx="16" cy="16" fill="transparent" r="14" stroke="currentColor" stroke-dasharray="88" stroke-dashoffset="22" stroke-width="2"></circle>
+</svg>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-low border border-outline-variant p-4 rounded flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-on-surface-variant">密码强度</span>
+<div class="flex items-center gap-2 mt-2">
+<div class="flex-1 h-1 bg-green-500 rounded-full"></div>
+<div class="flex-1 h-1 bg-green-500 rounded-full"></div>
+<div class="flex-1 h-1 bg-green-500 rounded-full"></div>
+</div></div></div></section></main></div>
+
+</body></html>

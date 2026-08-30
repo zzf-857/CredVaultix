@@ -1,0 +1,392 @@
+<!DOCTYPE html><html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>CredVaultix - 2FA 验证器</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@450&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "error-container": "#93000a",
+                    "surface-container-highest": "#353534",
+                    "on-surface": "#e5e2e1",
+                    "primary-fixed": "#d8e2ff",
+                    "outline": "#8c909f",
+                    "tertiary-container": "#df7412",
+                    "inverse-on-surface": "#313030",
+                    "surface-tint": "#adc6ff",
+                    "on-tertiary-container": "#461f00",
+                    "on-primary-fixed-variant": "#004395",
+                    "error": "#ffb4ab",
+                    "surface-variant": "#353534",
+                    "surface-bright": "#393939",
+                    "background": "#131313",
+                    "on-primary": "#002e6a",
+                    "surface-dim": "#131313",
+                    "on-error-container": "#ffdad6",
+                    "secondary-fixed-dim": "#b7c8e1",
+                    "on-error": "#690005",
+                    "on-secondary-fixed": "#0b1c30",
+                    "primary-fixed-dim": "#adc6ff",
+                    "surface-container-lowest": "#0e0e0e",
+                    "outline-variant": "#424754",
+                    "primary": "#adc6ff",
+                    "secondary-fixed": "#d3e4fe",
+                    "inverse-surface": "#e5e2e1",
+                    "on-primary-container": "#00285d",
+                    "on-surface-variant": "#c2c6d6",
+                    "on-background": "#e5e2e1",
+                    "inverse-primary": "#005ac2",
+                    "on-secondary": "#213145",
+                    "tertiary-fixed": "#ffdcc6",
+                    "surface-container": "#201f1f",
+                    "on-secondary-container": "#a9bad3",
+                    "on-tertiary": "#502400",
+                    "surface": "#131313",
+                    "secondary": "#b7c8e1",
+                    "surface-container-low": "#1c1b1b",
+                    "on-tertiary-fixed-variant": "#723600",
+                    "tertiary-fixed-dim": "#ffb786",
+                    "tertiary": "#ffb786",
+                    "on-primary-fixed": "#001a42",
+                    "secondary-container": "#3a4a5f",
+                    "primary-container": "#4d8eff",
+                    "surface-container-high": "#2a2a2a",
+                    "on-tertiary-fixed": "#311400",
+                    "on-secondary-fixed-variant": "#38485d"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "list_width": "320px",
+                    "stack_gap_md": "1rem",
+                    "grid_unit": "4px",
+                    "sidebar_collapsed": "64px",
+                    "container_padding": "1.5rem",
+                    "sidebar_width": "240px",
+                    "stack_gap_sm": "0.5rem"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "mono-data": ["JetBrains Mono"],
+                    "body-sm": ["Inter"],
+                    "label-caps": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "mono-data": ["13px", {"lineHeight": "20px", "fontWeight": "450"}],
+                    "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                    "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                    "headline-lg": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "headline-md": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #131313;
+            color: #e5e2e1;
+            margin: 0;
+            overflow: hidden;
+            user-select: none;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .timer-ring {
+            transition: stroke-dashoffset 1s linear;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #424754;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="font-body-md text-body-md">
+<!-- Top AppBar (Title Bar) -->
+<header class="fixed top-0 left-0 right-0 h-12 flex justify-between items-center px-4 bg-background border-b border-outline-variant z-50 select-none">
+<div class="flex items-center gap-4">
+<span class="font-headline-md text-headline-md text-on-surface tracking-tight">CredVaultix</span>
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container-highest rounded border border-outline-variant">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<input class="bg-transparent border-none text-body-sm focus:ring-0 w-48 p-0 text-on-surface placeholder:text-on-surface-variant" placeholder="搜索令牌..." type="text">
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="w-10 h-10 flex items-center justify-center hover:bg-surface-container-highest transition-colors rounded">
+<span class="material-symbols-outlined text-[18px]">remove</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center hover:bg-surface-container-highest transition-colors rounded">
+<span class="material-symbols-outlined text-[18px]">maximize</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center hover:bg-error-container text-on-error-container transition-colors rounded">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+</header>
+<!-- Side Navigation -->
+<aside class="fixed left-0 top-12 bottom-0 w-sidebar_width bg-surface-container-low border-r border-outline-variant flex flex-col z-40">
+<div class="p-6">
+<h2 class="font-headline-md text-headline-md font-bold text-primary">CredVaultix</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant">本地保险库</p>
+</div>
+<nav class="flex-1 px-2 space-y-1">
+<a class="flex items-center gap-3 px-4 py-2.5 rounded text-on-surface-variant hover:bg-surface-container-high transition-all duration-200" href="#">
+<span class="material-symbols-outlined">person</span>
+<span class="font-label-caps text-label-caps">账户</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded text-on-surface-variant hover:bg-surface-container-high transition-all duration-200" href="#">
+<span class="material-symbols-outlined">hub</span>
+<span class="font-label-caps text-label-caps">服务</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded bg-secondary-container text-on-secondary-container border-l-2 border-primary transition-all duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">vpn_key</span>
+<span class="font-label-caps text-label-caps">2FA 验证器</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded text-on-surface-variant hover:bg-surface-container-high transition-all duration-200" href="#">
+<span class="material-symbols-outlined">delete</span>
+<span class="font-label-caps text-label-caps">回收站</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded text-on-surface-variant hover:bg-surface-container-high transition-all duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-caps text-label-caps">设置</span>
+</a>
+</nav>
+<div class="p-4 border-t border-outline-variant">
+<button class="w-full py-2 bg-primary text-on-primary font-bold rounded flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-[18px]">lock</span>
+                锁定保险库
+            </button>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-sidebar_width pt-12 h-screen overflow-hidden flex flex-col bg-background">
+<!-- Header / Breadcrumbs -->
+<div class="px-container_padding py-6 flex justify-between items-end border-b border-outline-variant bg-surface-dim">
+<div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface">2FA 验证器</h1>
+<div class="mt-1 flex items-center gap-2">
+<a class="text-primary hover:underline font-body-sm text-body-sm flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-[16px]">arrow_back</span>
+                        返回账户列表
+                    </a>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="px-4 py-2 bg-surface-container-high border border-outline-variant text-on-surface rounded flex items-center gap-2 hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-[18px]">sync</span>
+                    强制刷新
+                </button>
+</div>
+</div>
+<!-- Grid of TOTP Cards -->
+<div class="flex-1 overflow-y-auto custom-scrollbar p-container_padding">
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-stack_gap_md pb-24">
+<!-- Card 1 -->
+<div class="bg-surface-container-low border border-outline-variant rounded p-4 group hover:border-primary transition-all relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-primary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary-container">alternate_email</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Google</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">user@example.com</p>
+</div>
+</div>
+<div class="relative w-8 h-8">
+<svg class="w-full h-full">
+<circle cx="16" cy="16" fill="none" r="14" stroke="#424754" stroke-width="2"></circle>
+<circle class="timer-ring" cx="16" cy="16" fill="none" r="14" stroke="#adc6ff" stroke-dasharray="88" stroke-dashoffset="22" stroke-width="2" style="stroke-dashoffset: 49.8667; stroke: rgb(173, 198, 255);"></circle>
+</svg>
+<span class="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-primary" style="color: rgb(173, 198, 255);">13s</span>
+</div>
+</div>
+<div class="bg-background border border-outline-variant rounded p-3 flex items-center justify-between group-hover:bg-surface-container-high transition-colors">
+<span class="font-mono-data text-[24px] tracking-[0.2em] text-primary">582 910</span>
+<button class="p-2 hover:bg-primary-container hover:text-on-primary-container rounded transition-colors text-on-surface-variant" title="复制验证码">
+<span class="material-symbols-outlined">content_copy</span>
+</button>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-container-low border border-outline-variant rounded p-4 group hover:border-primary transition-all relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-secondary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-on-secondary-container">terminal</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">GitHub</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">dev_lead_vault</p>
+</div>
+</div>
+<div class="relative w-8 h-8">
+<svg class="w-full h-full">
+<circle cx="16" cy="16" fill="none" r="14" stroke="#424754" stroke-width="2"></circle>
+<circle class="timer-ring" cx="16" cy="16" fill="none" r="14" stroke="#adc6ff" stroke-dasharray="88" stroke-dashoffset="80" stroke-width="2" style="stroke-dashoffset: 49.8667; stroke: rgb(173, 198, 255);"></circle>
+</svg>
+<span class="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-primary" style="color: rgb(173, 198, 255);">13s</span>
+</div>
+</div>
+<div class="bg-background border border-outline-variant rounded p-3 flex items-center justify-between group-hover:bg-surface-container-high transition-colors">
+<span class="font-mono-data text-[24px] tracking-[0.2em] text-error">120 445</span>
+<button class="p-2 hover:bg-primary-container hover:text-on-primary-container rounded transition-colors text-on-surface-variant" title="复制验证码">
+<span class="material-symbols-outlined">content_copy</span>
+</button>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-container-low border border-outline-variant rounded p-4 group hover:border-primary transition-all relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-tertiary-container rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-on-tertiary-container">shopping_cart</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">亚马逊 AWS</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">root_admin_01</p>
+</div>
+</div>
+<div class="relative w-8 h-8">
+<svg class="w-full h-full">
+<circle cx="16" cy="16" fill="none" r="14" stroke="#424754" stroke-width="2"></circle>
+<circle class="timer-ring" cx="16" cy="16" fill="none" r="14" stroke="#adc6ff" stroke-dasharray="88" stroke-dashoffset="44" stroke-width="2" style="stroke-dashoffset: 49.8667; stroke: rgb(173, 198, 255);"></circle>
+</svg>
+<span class="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-primary" style="color: rgb(173, 198, 255);">13s</span>
+</div>
+</div>
+<div class="bg-background border border-outline-variant rounded p-3 flex items-center justify-between group-hover:bg-surface-container-high transition-colors">
+<span class="font-mono-data text-[24px] tracking-[0.2em] text-primary">883 102</span>
+<button class="p-2 hover:bg-primary-container hover:text-on-primary-container rounded transition-colors text-on-surface-variant" title="复制验证码">
+<span class="material-symbols-outlined">content_copy</span>
+</button>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-container-low border border-outline-variant rounded p-4 group hover:border-primary transition-all relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-surface-container-highest rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface">shield</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">克劳德弗莱尔</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">security@vaultix.io</p>
+</div>
+</div>
+<div class="relative w-8 h-8">
+<svg class="w-full h-full">
+<circle cx="16" cy="16" fill="none" r="14" stroke="#424754" stroke-width="2"></circle>
+<circle class="timer-ring" cx="16" cy="16" fill="none" r="14" stroke="#adc6ff" stroke-dasharray="88" stroke-dashoffset="10" stroke-width="2" style="stroke-dashoffset: 49.8667; stroke: rgb(173, 198, 255);"></circle>
+</svg>
+<span class="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-primary" style="color: rgb(173, 198, 255);">13s</span>
+</div>
+</div>
+<div class="bg-background border border-outline-variant rounded p-3 flex items-center justify-between group-hover:bg-surface-container-high transition-colors">
+<span class="font-mono-data text-[24px] tracking-[0.2em] text-primary">003 491</span>
+<button class="p-2 hover:bg-primary-container hover:text-on-primary-container rounded transition-colors text-on-surface-variant" title="复制验证码">
+<span class="material-symbols-outlined">content_copy</span>
+</button>
+</div>
+</div>
+<!-- Empty State / Add New Placeholder -->
+<button class="border-2 border-dashed border-outline-variant rounded p-4 flex flex-col items-center justify-center gap-2 text-on-surface-variant hover:border-primary hover:text-primary transition-all group">
+<div class="w-12 h-12 rounded-full border-2 border-dashed border-outline-variant flex items-center justify-center group-hover:border-primary">
+<span class="material-symbols-outlined text-[32px]">add</span>
+</div>
+<span class="font-headline-md text-headline-md">添加新令牌</span>
+<span class="font-body-sm text-body-sm opacity-60">扫描二维码或输入密钥</span>
+</button>
+</div>
+</div>
+<!-- Floating Action Footer -->
+<div class="absolute bottom-6 left-1/2 -translate-x-1/2 transform flex justify-center w-full max-w-xl pointer-events-none">
+<div class="pointer-events-auto flex items-center gap-3 bg-surface-container-high/90 backdrop-blur-md border border-outline-variant px-6 py-4 rounded-full shadow-2xl">
+<button class="bg-primary text-on-primary px-6 py-2.5 rounded-full font-bold flex items-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined">add_circle</span>
+                    添加 TOTP
+                </button>
+<div class="w-[1px] h-6 bg-outline-variant"></div>
+<button class="p-2 text-on-surface-variant hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined">qr_code_scanner</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined">key</span>
+</button>
+</div>
+</div>
+</main>
+<!-- Micro-interaction Script -->
+<script>
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('mousedown', () => {
+                btn.style.transform = 'scale(0.96)';
+            });
+            btn.addEventListener('mouseup', () => {
+                btn.style.transform = 'scale(1)';
+            });
+            btn.addEventListener('mouseleave', () => {
+                btn.style.transform = 'scale(1)';
+            });
+        });
+
+        // Simple timer animation logic
+        let count = 30;
+        setInterval(() => {
+            count--;
+            if(count < 0) count = 30;
+            const rings = document.querySelectorAll('.timer-ring');
+            rings.forEach(ring => {
+                const offset = (count / 30) * 88;
+                ring.style.strokeDashoffset = 88 - offset;
+                // Update text
+                const text = ring.parentElement.nextElementSibling;
+                if(text) text.innerText = count + 's';
+
+                // Color change warning
+                if(count < 5) {
+                    ring.style.stroke = '#ffb4ab'; // error color
+                    text.style.color = '#ffb4ab';
+                } else {
+                    ring.style.stroke = '#adc6ff'; // primary color
+                    text.style.color = '#adc6ff';
+                }
+            });
+        }, 1000);
+
+        // Copy feedback
+        document.querySelectorAll('[title="复制验证码"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const originalIcon = btn.innerHTML;
+                btn.innerHTML = '<span class="material-symbols-outlined text-green-400">check</span>';
+                setTimeout(() => {
+                    btn.innerHTML = originalIcon;
+                }, 2000);
+            });
+        });
+    </script>
+
+
+</body></html>

@@ -24,11 +24,11 @@ CredVaultix 用于集中整理 Google / Microsoft 主账号、密码、恢复资
 
 | 主账号与恢复资料 | 服务信息与 API Key |
 |---|---|
-| ![主账号管理](docs/images/01_accounts.png) | ![服务信息管理](docs/images/02_service_info.png) |
+| ![主账号管理](Designer/v1/2026-07-27_v1.2.0/readme/01_accounts.png) | ![服务信息管理](Designer/v1/2026-07-27_v1.2.0/readme/02_service_info.png) |
 
 | TOTP / HOTP 验证器 | 账号与服务统一回收站 |
 |---|---|
-| ![2FA 验证器](docs/images/03_two_factor.png) | ![统一回收站](docs/images/04_recycle_bin.png) |
+| ![2FA 验证器](Designer/v1/2026-07-27_v1.2.0/readme/03_two_factor.png) | ![统一回收站](Designer/v1/2026-07-27_v1.2.0/readme/04_recycle_bin.png) |
 
 ## 功能
 

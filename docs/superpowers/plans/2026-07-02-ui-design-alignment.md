@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Align the existing CredVaultix desktop UI with the HTML designs in `F:\AI\AIMadeupTools\01_DesktopApps\CredVaultix\New设计` without adding design-only features or changing stored user data.
+**Goal:** Align the existing CredVaultix desktop UI with the archived HTML designs in `Designer/v1/2026-07-02_v1.0.0/prototypes/` without adding design-only features or changing stored user data.
 
 **Architecture:** Keep the current React, MUI, Zustand, Electron IPC, and SQLite-backed data flow intact. Restrict changes to visual styling and component layout in the renderer; do not modify schemas, migrations, IPC method contracts, or import/export behavior.
 
@@ -28,7 +28,7 @@
 - Do not add Google OAuth, Google One, avatar sync, subscription status, security score, activity logs, cloud sync, analytics, or settings screens.
 - Do not add built-in service/vendor templates.
 - Do not change database schema, migrations, or existing data import/export logic.
-- Do not stage files from the main worktree such as backups, diff files, or the `New设计` HTML files.
+- Do not stage unrelated files from the main worktree such as backups, diff files, or temporary design drafts outside the curated `Designer/` archive.
 - Keep every runnable slice committed with a Chinese commit message.
 
 ---
