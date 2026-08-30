@@ -31,6 +31,10 @@ import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined'
 import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt'
 import { useStore } from '../stores/useStore'
 import type { UpdateSnapshot } from '../types'
+import {
+  RUNTIME_DATA_PROFILE_LABELS,
+  type RuntimeDataInfo,
+} from '../../shared/runtimeData'
 
 interface SettingsPanelProps {
   open: boolean
@@ -82,6 +86,7 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const latestUpdateRevision = useRef(-1)
   const [importConfirmOpen, setImportConfirmOpen] = useState(false)
   const [clipboardAutoClear, setClipboardAutoClear] = useState(true)
+  const [runtimeDataInfo, setRuntimeDataInfo] = useState<RuntimeDataInfo | null>(null)
   const [notice, setNotice] = useState<{ severity: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   useEffect(() => {
@@ -89,6 +94,9 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     let active = true
     window.electronAPI.getAppPreferences().then((preferences) => {
       if (active) setClipboardAutoClear(preferences.clipboardAutoClear !== false)
+    }).catch(() => undefined)
+    window.electronAPI.getRuntimeDataInfo().then((info) => {
+      if (active) setRuntimeDataInfo(info)
     }).catch(() => undefined)
     return () => { active = false }
   }, [open, dataRevision])
@@ -312,6 +320,31 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               </Box>
               <Typography variant="subtitle2">数据</Typography>
             </Box>
+            {runtimeDataInfo && (
+              <Box sx={{ mb: 1.5, minWidth: 0 }}>
+                <Box sx={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {RUNTIME_DATA_PROFILE_LABELS[runtimeDataInfo.profile]}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {runtimeDataInfo.counts.accounts} 条账号记录 · {runtimeDataInfo.counts.totpAccounts} 条 2FA · {runtimeDataInfo.counts.services} 条服务记录
+                  </Typography>
+                </Box>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  title={runtimeDataInfo.databasePath}
+                  sx={{ display: 'block', mt: 0.5, fontFamily: 'monospace', overflowWrap: 'anywhere' }}
+                >
+                  {runtimeDataInfo.databasePath}
+                </Typography>
+              </Box>
+            )}
+            {runtimeDataInfo && runtimeDataInfo.profile !== 'production' && (
+              <Alert severity="warning" variant="outlined" sx={{ mb: 1.5 }}>
+                当前使用{RUNTIME_DATA_PROFILE_LABELS[runtimeDataInfo.profile]}，不会读写正式数据库。
+              </Alert>
+            )}
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
               <Button
                 startIcon={<FileUploadIcon />}

@@ -65,6 +65,7 @@ const electronAPI = {
   reorderSecretFields: (data: any) => ipcRenderer.invoke('serviceInfo:reorderFields', data),
   openDataDirectory: () => ipcRenderer.invoke('app:openDataDirectory'),
   openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
+  getRuntimeDataInfo: () => ipcRenderer.invoke('app:getRuntimeDataInfo'),
 
   // Preferences
   getAppPreferences: () => ipcRenderer.invoke('preferences:get'),

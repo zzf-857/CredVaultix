@@ -1,5 +1,6 @@
 import type { AccountPlatform } from './utils/accountPlatform'
 import type { UpdateActionResult, UpdateSnapshot } from '../shared/update'
+import type { RuntimeDataInfo } from '../shared/runtimeData'
 import type {
   ModelProviderProfileCommand,
   ModelProviderProfileDetail,
@@ -85,6 +86,7 @@ export interface ElectronAPI {
   reorderSecretFields: (data: { orderedIds: string[]; groupId: string | null }) => Promise<{ success: boolean }>
   openDataDirectory: () => Promise<{ success: boolean }>
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
+  getRuntimeDataInfo: () => Promise<RuntimeDataInfo>
   getAppPreferences: () => Promise<AppPreferences>
   updateAppPreferences: (patch: Partial<AppPreferences>) => Promise<AppPreferences>
   resetAppPreferences: () => Promise<AppPreferences>

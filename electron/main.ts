@@ -55,6 +55,7 @@ import { addAccountField, deleteAccountField, updateAccountField } from './accou
 import { hardDeleteAccountRecord, moveAccountToTrash, restoreAccountFromTrash } from './accountLifecycleRepository'
 import { UpdaterController } from './updaterController'
 import { createUpdaterLogger } from './updaterLogger'
+import { resolveUserDataProfile, type UserDataProfile } from './userDataProfile'
 import {
   read as readUpdateAttempt,
   reconcile as reconcileUpdateAttempt,
@@ -62,6 +63,7 @@ import {
   write as writeUpdateAttempt,
 } from './updaterStateStore'
 import type { UpdateSnapshot } from '../shared/update'
+import type { RuntimeDataInfo } from '../shared/runtimeData'
 import fs from 'fs'
 import Papa from 'papaparse'
 import { v4 as uuidv4 } from 'uuid'
@@ -76,7 +78,7 @@ const CLIPBOARD_AUTO_CLEAR_MS = 30_000
 let isQuittingForUpdate = false
 let updaterController: UpdaterController | null = null
 let updateSnapshot: UpdateSnapshot | null = null
-let usesExplicitUserDataDirectory = false
+let activeUserDataProfile: UserDataProfile
 let hasUnsavedRendererChanges = false
 
 function prepareTotpQrImage(input: TotpQrImageInput | null | undefined) {
@@ -105,13 +107,14 @@ app.setName(APP_NAME)
 function configureAppIdentity() {
   app.setName(APP_NAME)
   app.setAppUserModelId(APP_ID)
-  const userDataArgument = process.argv.find((argument) => argument.startsWith('--user-data-dir='))
-  const explicitUserDataPath = userDataArgument?.slice('--user-data-dir='.length).trim()
-  usesExplicitUserDataDirectory = Boolean(explicitUserDataPath)
-  app.setPath(
-    'userData',
-    explicitUserDataPath ? path.resolve(explicitUserDataPath) : path.join(app.getPath('appData'), APP_NAME)
-  )
+  activeUserDataProfile = resolveUserDataProfile({
+    appDataPath: app.getPath('appData'),
+    cwd: process.cwd(),
+    argv: process.argv,
+    env: process.env,
+    isPackaged: app.isPackaged,
+  })
+  app.setPath('userData', activeUserDataProfile.path)
 }
 
 configureAppIdentity()
@@ -491,7 +494,7 @@ function createWindow() {
 
 if (hasSingleInstanceLock) {
   app.whenReady().then(async () => {
-    if (!usesExplicitUserDataDirectory) {
+    if (activeUserDataProfile.shouldMigrateLegacyData) {
       try {
         await migrateLegacyUserDataToCredVaultix()
       } catch (error) {
@@ -528,6 +531,17 @@ function registerIpcHandlers() {
   let db = getDatabase()
   const updateServiceInfoDatabase = registerServiceInfoIpc(db)
 
+  ipcMain.handle('app:getRuntimeDataInfo', (): RuntimeDataInfo => ({
+    version: app.getVersion(),
+    profile: activeUserDataProfile.kind,
+    dataDirectory: app.getPath('userData'),
+    databasePath: path.join(app.getPath('userData'), DATABASE_FILE_NAME),
+    counts: {
+      accounts: (db.prepare('SELECT COUNT(*) AS count FROM accounts').get() as { count: number }).count,
+      totpAccounts: (db.prepare('SELECT COUNT(*) AS count FROM totp_accounts').get() as { count: number }).count,
+      services: (db.prepare('SELECT COUNT(*) AS count FROM secret_services').get() as { count: number }).count,
+    },
+  }))
   ipcMain.handle('preferences:get', () => readPreferences(app.getPath('userData')))
   ipcMain.handle('preferences:update', (_event, patch: Record<string, unknown>) =>
     updatePreferences(app.getPath('userData'), patch)

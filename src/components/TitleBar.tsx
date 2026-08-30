@@ -1,10 +1,14 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { Box, IconButton, Tooltip, Typography } from '@mui/material'
 import MinimizeIcon from '@mui/icons-material/Remove'
 import CropSquareIcon from '@mui/icons-material/CropSquare'
 import CloseIcon from '@mui/icons-material/Close'
 import appIcon from '../../assets/app.png'
 import { useStore } from '../stores/useStore'
+import {
+  RUNTIME_DATA_PROFILE_LABELS,
+  type RuntimeDataInfo,
+} from '../../shared/runtimeData'
 
 const viewLabels = {
   accounts: '账号管理',
@@ -15,6 +19,15 @@ const viewLabels = {
 
 export default function TitleBar() {
   const activeView = useStore((state) => state.activeView)
+  const [runtimeDataInfo, setRuntimeDataInfo] = useState<RuntimeDataInfo | null>(null)
+
+  useEffect(() => {
+    let active = true
+    window.electronAPI.getRuntimeDataInfo().then((info) => {
+      if (active) setRuntimeDataInfo(info)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
 
   return (
     <Box
@@ -39,6 +52,28 @@ export default function TitleBar() {
         <Typography variant="caption" color="text.secondary" noWrap>
           {viewLabels[activeView]}
         </Typography>
+        {runtimeDataInfo && runtimeDataInfo.profile !== 'production' && (
+          <Tooltip title={runtimeDataInfo.databasePath} enterDelay={500}>
+            <Box
+              className="no-drag"
+              sx={{
+                height: 22,
+                display: 'inline-flex',
+                alignItems: 'center',
+                px: 0.8,
+                border: '1px solid',
+                borderColor: 'warning.main',
+                borderRadius: 1,
+                color: 'warning.main',
+                fontSize: 11,
+                lineHeight: 1,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {RUNTIME_DATA_PROFILE_LABELS[runtimeDataInfo.profile]}
+            </Box>
+          </Tooltip>
+        )}
       </Box>
 
       <Box sx={{ flex: 1 }} />

@@ -108,7 +108,7 @@ npm run electron:build   # 构建 Windows NSIS 安装包
 
 ## 数据位置与备份
 
-默认数据目录：
+正式版默认数据目录：
 
 ```text
 %APPDATA%\CredVaultix\
@@ -118,6 +118,10 @@ npm run electron:build   # 构建 Windows NSIS 安装包
 ├── preferences.json
 └── credvaultix-before-*.db
 ```
+
+开发环境使用 `%APPDATA%\CredVaultix-Development\`，从 Codex 等工具环境启动已打包程序时使用 `%APPDATA%\CredVaultix-Tooling\`。这两种隔离配置不会自动复制或迁移正式数据。Windows 可能将 MSIX 子进程的 AppData 访问重定向到 `LocalCache\Roaming`，因此请以设置页显示的“数据配置、记录数和数据库路径”为准。
+
+需要临时使用独立数据时，可传入 `--user-data-dir=<目录>` 或设置 `CREDVAULTIX_USER_DATA_DIR`；显式目录始终优先，且不会触发旧数据迁移。
 
 不要只复制正在运行时的单个 `credvaultix.db`。优先使用设置中的“导出数据库”，它会创建一致性 SQLite 备份或结构化 JSON 备份。
 

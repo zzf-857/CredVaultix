@@ -11,6 +11,7 @@ import settingsPanelSource from '../components/SettingsPanel.tsx?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
 import titleBarSource from '../components/TitleBar.tsx?raw'
 import typesSource from '../types.ts?raw'
+import userDataProfileSource from '../../electron/userDataProfile.ts?raw'
 
 describe('CredVaultix update flow wiring', () => {
   it('keeps the service information vault module wired while adding updates', () => {
@@ -23,6 +24,20 @@ describe('CredVaultix update flow wiring', () => {
     expect(mainSource).toContain('registerServiceInfoIpc(db)')
     expect(preloadSource).toContain('getServiceInfo')
     expect(typesSource).toContain('ServiceInfoPayload')
+  })
+
+  it('isolates non-production data and exposes the active database identity', () => {
+    expect(mainSource).toContain('resolveUserDataProfile')
+    expect(mainSource).toContain('activeUserDataProfile.shouldMigrateLegacyData')
+    expect(userDataProfileSource).toContain("'CredVaultix-Development'")
+    expect(userDataProfileSource).toContain("'CredVaultix-Tooling'")
+    expect(userDataProfileSource).toContain('CREDVAULTIX_USER_DATA_DIR')
+    expect(mainSource).toContain("ipcMain.handle('app:getRuntimeDataInfo'")
+    expect(preloadSource).toContain("ipcRenderer.invoke('app:getRuntimeDataInfo')")
+    expect(settingsPanelSource).toContain('runtimeDataInfo.databasePath')
+    expect(settingsPanelSource).toContain('不会读写正式数据库')
+    expect(titleBarSource).toContain('RUNTIME_DATA_PROFILE_LABELS')
+    expect(typesSource).toContain('getRuntimeDataInfo')
   })
 
   it('registers electron-updater with packaged and portable safeguards', () => {
@@ -169,13 +184,13 @@ describe('CredVaultix update flow wiring', () => {
     expect(mainSource).toContain('function getAppIconPath()')
     expect(mainSource).toContain("path.join(process.resourcesPath, 'assets', 'app.ico')")
     expect(mainSource).toContain('icon: getAppIconPath()')
-    expect(mainSource).toContain('app.setPath(')
-    expect(mainSource).toContain("argument.startsWith('--user-data-dir=')")
+    expect(mainSource).toContain("app.setPath('userData', activeUserDataProfile.path)")
+    expect(userDataProfileSource).toContain("'--user-data-dir'")
     expect(mainSource).toContain('app.requestSingleInstanceLock()')
     expect(mainSource).toContain("app.on('second-instance'")
     expect(mainSource.indexOf('\nconfigureAppIdentity()\n')).toBeLessThan(mainSource.indexOf('app.requestSingleInstanceLock()'))
-    expect(mainSource).toContain('if (!usesExplicitUserDataDirectory)')
-    expect(mainSource).toContain("path.join(app.getPath('appData'), APP_NAME)")
+    expect(mainSource).toContain('if (activeUserDataProfile.shouldMigrateLegacyData)')
+    expect(userDataProfileSource).toContain("path.join(options.appDataPath, 'CredVaultix')")
     expect(databaseSource).toContain("'credvaultix.db'")
     expect(mainSource).toContain("'account-manager.db'")
     expect(mainSource).toContain("'account-manager'")
