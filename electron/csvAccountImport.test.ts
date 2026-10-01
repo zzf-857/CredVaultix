@@ -50,5 +50,8 @@ describe('normalizeCsvAccountRow', () => {
   it('trims and lowercases platform values', () => {
     expect(normalizeCsvAccountRow({ name: 'Mail', platform: 'Google' })?.platform).toBe('google')
     expect(normalizeCsvAccountRow({ name: 'Work', platform: ' MICROSOFT ' })?.platform).toBe('microsoft')
+    expect(normalizeCsvAccountRow({ name: 'Code', platform: ' GitHub ' })?.platform).toBe('github')
+    expect(normalizeCsvAccountRow({ name: 'QQ demo', type: 'QQ' })?.platform).toBe('qq')
+    expect(normalizeCsvAccountRow({ name: 'Apple demo', platform: ' Apple ' })?.platform).toBe('apple')
   })
 })

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { ACCOUNT_PLATFORMS } from '../shared/accountPlatform'
 import { applyDatabaseSchema, hasCurrentDatabaseSchema } from './databaseSchema'
 import { TestSqliteDatabase } from './testSqlite'
 
@@ -92,6 +93,31 @@ describe('database schema migration', () => {
         counter: 0,
         source: '',
       })
+  })
+
+  it('preserves supported platforms during startup normalization and repairs only invalid values', () => {
+    applyDatabaseSchema(db as any, { encryptIfNeeded: (value) => value })
+    const insertAccount = db.prepare('INSERT INTO accounts (id, name, platform) VALUES (?, ?, ?)')
+    for (const platform of ACCOUNT_PLATFORMS) {
+      insertAccount.run(platform, `${platform} demo`, platform)
+    }
+    expect(hasCurrentDatabaseSchema(db as any)).toBe(true)
+
+    insertAccount.run('unknown', 'Unknown demo', 'unsupported')
+    insertAccount.run('null', 'Unmarked demo', null)
+    expect(hasCurrentDatabaseSchema(db as any)).toBe(false)
+
+    applyDatabaseSchema(db as any, { encryptIfNeeded: (value) => value })
+
+    expect(hasCurrentDatabaseSchema(db as any)).toBe(true)
+    for (const platform of ACCOUNT_PLATFORMS) {
+      expect(db.prepare('SELECT platform FROM accounts WHERE id = ?').get(platform))
+        .toEqual({ platform })
+    }
+    expect(db.prepare("SELECT platform FROM accounts WHERE id IN ('unknown', 'null')").all())
+      .toEqual([{ platform: 'other' }, { platform: 'other' }])
+    expect(db.pragma('integrity_check', { simple: true })).toBe('ok')
+    expect(db.pragma('foreign_key_check')).toEqual([])
   })
 
   it('rolls back every schema and data change when a migration step fails', () => {

@@ -84,6 +84,39 @@ function makeSingleColumnLegacyDatabase(dbPath: string) {
 }
 
 describe('database file initialization', () => {
+  it('keeps new platform markers after closing and reopening the database without a migration', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'credvaultix-platform-reopen-'))
+    const dbPath = join(userDataPath, 'credvaultix.db')
+    try {
+      const options = { dbPath, userDataPath, openDatabase, encryptIfNeeded: (value: string) => value }
+      const db = initializeDatabaseFile(options)
+      try {
+        const insertAccount = db.prepare('INSERT INTO accounts (id, name, platform) VALUES (?, ?, ?)')
+        for (const platform of ['github', 'qq', 'apple']) {
+          insertAccount.run(`demo-${platform}`, `${platform} demo`, platform)
+        }
+      } finally {
+        db.close()
+      }
+
+      const reopened = initializeDatabaseFile(options)
+      try {
+        expect(reopened.prepare('SELECT id, platform FROM accounts ORDER BY id').all()).toEqual([
+          { id: 'demo-apple', platform: 'apple' },
+          { id: 'demo-github', platform: 'github' },
+          { id: 'demo-qq', platform: 'qq' },
+        ])
+        expect(reopened.pragma('integrity_check', { simple: true })).toBe('ok')
+        expect(reopened.pragma('foreign_key_check')).toEqual([])
+      } finally {
+        reopened.close()
+      }
+      expect(readdirSync(userDataPath).filter((name) => name.includes('before-migration'))).toEqual([])
+    } finally {
+      rmSync(userDataPath, { recursive: true, force: true })
+    }
+  })
+
   it('backs up and migrates a database that is missing only one legacy column', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'credvaultix-initialize-'))
     const dbPath = join(userDataPath, 'credvaultix.db')

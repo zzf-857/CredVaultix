@@ -21,8 +21,6 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber'
 import FlashOnIcon from '@mui/icons-material/FlashOn'
 import FormatAlignLeftIcon from '@mui/icons-material/FormatAlignLeft'
 import FormatAlignCenterIcon from '@mui/icons-material/FormatAlignCenter'
-import GoogleIcon from '@mui/icons-material/Google'
-import MicrosoftIcon from '@mui/icons-material/Microsoft'
 import AppsIcon from '@mui/icons-material/Apps'
 import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
@@ -37,6 +35,7 @@ import { isOtpAuthMigrationUri, parseOtpAuthMigrationUri } from '../utils/otpAut
 import { decodeTotpQrImage } from '../utils/qrImage'
 import {
   applyTotpGroupOrder,
+  groupTotpAccountsByPlatform,
   groupTotpAccountsBySource,
   moveTotpGroupId,
   normalizeTotpSource,
@@ -47,12 +46,14 @@ import {
   toggleTotpGroupCollapsed,
   totpSourceGroupId,
 } from '../utils/totpSource'
+import { getAccountPlatformLabel } from '../utils/accountPlatform'
 
 import { isValidOtpSecret } from '../utils/otpSnapshot'
 import EmptyState from './common/EmptyState'
 import PageHeader from './common/PageHeader'
 import SectionLabel from './common/SectionLabel'
 import { OtpTypeBadge, TempTotpDisplay, TotpCard } from './two-factor/OtpDisplays'
+import PlatformIcon from './accounts/PlatformIcon'
 
 const TOTP_GROUP_DRAG_TYPE = 'application/x-credvaultix-totp-group'
 
@@ -545,51 +546,6 @@ export default function TwoFactorPanel() {
     void loadPanelData()
   }, [loadAllAccounts, loadTotpAccounts])
 
-  // Identify platform for grouping (Google, Microsoft, Others) with safe accessors
-  const getAccountPlatform = (acc: TotpAccountRow) => {
-    if (!acc) return 'other'
-
-    if (acc.linked_account_id && Array.isArray(accounts)) {
-      try {
-        const parentAcc = accounts.find(a => a && a.id === acc.linked_account_id)
-        if (parentAcc) {
-          return parentAcc.platform
-        }
-      } catch (e) {
-        console.error('Failed to find parent account platform:', e)
-      }
-    }
-    
-    const labelLower = (acc.label || '').toLowerCase()
-    const issuerLower = (acc.issuer || '').toLowerCase()
-    
-    if (
-      labelLower.includes('@gmail.com') ||
-      labelLower.includes('gmail') ||
-      labelLower.includes('google') ||
-      issuerLower.includes('google') ||
-      issuerLower.includes('gmail')
-    ) {
-      return 'google'
-    }
-    
-    if (
-      labelLower.includes('@outlook.com') ||
-      labelLower.includes('@hotmail.com') ||
-      labelLower.includes('@live.com') ||
-      labelLower.includes('outlook') ||
-      labelLower.includes('hotmail') ||
-      labelLower.includes('microsoft') ||
-      issuerLower.includes('microsoft') ||
-      issuerLower.includes('outlook') ||
-      issuerLower.includes('hotmail')
-    ) {
-      return 'microsoft'
-    }
-    
-    return 'other'
-  }
-
   const safeTotpAccounts = Array.isArray(totpAccounts) ? totpAccounts : []
   const normalizedSearchQuery = searchQuery.trim().toLowerCase()
   const filteredTotpAccounts = normalizedSearchQuery
@@ -603,9 +559,7 @@ export default function TwoFactorPanel() {
     () => groupTotpAccountsBySource(filteredTotpAccounts),
     [filteredTotpAccounts]
   )
-  const googleAccounts = unsourced.filter(acc => getAccountPlatform(acc) === 'google')
-  const outlookAccounts = unsourced.filter(acc => getAccountPlatform(acc) === 'microsoft')
-  const otherAccounts = unsourced.filter(acc => getAccountPlatform(acc) === 'other')
+  const platformGroups = groupTotpAccountsByPlatform(unsourced, Array.isArray(accounts) ? accounts : [])
   const visibleGroups = [
     ...sourceGroups.map((group) => ({
       id: group.groupId,
@@ -615,30 +569,24 @@ export default function TwoFactorPanel() {
       jumpIcon: <QrCode2Icon sx={{ fontSize: 22 }} />,
       color: 'primary.main',
     })),
-    ...(googleAccounts.length > 0 ? [{
-      id: 'group-google',
-      title: 'Google / Gmail 账户',
-      accounts: googleAccounts,
-      icon: <GoogleIcon sx={{ fontSize: 16, color: 'success.main' }} />,
-      jumpIcon: <GoogleIcon sx={{ fontSize: 22 }} />,
-      color: 'success.main',
-    }] : []),
-    ...(outlookAccounts.length > 0 ? [{
-      id: 'group-microsoft',
-      title: 'Microsoft / Outlook 账户',
-      accounts: outlookAccounts,
-      icon: <MicrosoftIcon sx={{ fontSize: 16, color: 'info.main' }} />,
-      jumpIcon: <MicrosoftIcon sx={{ fontSize: 22 }} />,
-      color: 'info.main',
-    }] : []),
-    ...(otherAccounts.length > 0 ? [{
-      id: 'group-other',
-      title: '其他应用账户',
-      accounts: otherAccounts,
-      icon: <AppsIcon sx={{ fontSize: 16, color: 'text.secondary' }} />,
-      jumpIcon: <AppsIcon sx={{ fontSize: 22 }} />,
-      color: 'text.primary',
-    }] : []),
+    ...platformGroups.map((group) => ({
+      id: group.groupId,
+      title: group.platform === 'google'
+        ? 'Google / Gmail 账户'
+        : group.platform === 'microsoft'
+          ? 'Microsoft / Outlook 账户'
+          : group.platform === 'other'
+            ? '其他应用账户'
+            : `${getAccountPlatformLabel(group.platform)} 账户`,
+      accounts: group.accounts,
+      icon: group.platform === 'other'
+        ? <AppsIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+        : <PlatformIcon platform={group.platform} size={16} />,
+      jumpIcon: group.platform === 'other'
+        ? <AppsIcon sx={{ fontSize: 22 }} />
+        : <PlatformIcon platform={group.platform} size={22} />,
+      color: group.platform === 'google' ? 'success.main' : group.platform === 'microsoft' ? 'info.main' : 'text.primary',
+    })),
   ]
   const visibleGroupIds = applyTotpGroupOrder(visibleGroups.map((group) => group.id), groupOrder)
   const orderedGroups = visibleGroupIds
@@ -795,7 +743,7 @@ export default function TwoFactorPanel() {
     const collapsed = Boolean(groupId && collapsedGroupIds.includes(groupId))
 
     return (
-      <Box id={groupId} sx={{ minWidth: 0, scrollMarginTop: 16 }}>
+      <Box key={groupId} id={groupId} sx={{ minWidth: 0, scrollMarginTop: 16 }}>
         <SectionLabel
           meta={`${groupAccounts.length} 个账户`}
           collapsed={collapsed}
@@ -2051,7 +1999,7 @@ export default function TwoFactorPanel() {
         fullWidth
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <GoogleIcon sx={{ color: 'primary.main' }} />
+          <PlatformIcon platform="google" size={24} />
           导入 Google Authenticator
         </DialogTitle>
         <DialogContent>

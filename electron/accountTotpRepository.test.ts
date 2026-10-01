@@ -100,6 +100,18 @@ describe('account and linked 2FA repository', () => {
     })
   })
 
+  it.each(['github', 'qq', 'apple'])('updates the %s platform without changing account or linked 2FA data', (platform) => {
+    insertAccount(db)
+    insertTotp(db)
+
+    updateAccountRecord(db as any, 'account-1', { platform }, deps)
+
+    expect(db.prepare("SELECT platform, username, totp_secret FROM accounts WHERE id = 'account-1'").get())
+      .toEqual({ platform, username: 'enc:user@example.com', totp_secret: `enc:${OLD_SECRET}` })
+    expect(db.prepare("SELECT secret, linked_account_id FROM totp_accounts WHERE id = 'totp-1'").get())
+      .toEqual({ secret: `enc:${OLD_SECRET}`, linked_account_id: 'account-1' })
+  })
+
   it('updates both copies atomically and preserves URI metadata', () => {
     insertAccount(db)
     insertTotp(db)

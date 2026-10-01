@@ -18,10 +18,14 @@ import {
   type AccountPlatform,
 } from '../../utils/accountPlatform'
 import { accountFieldRowSx } from './accountStyles'
+import PlatformIcon from './PlatformIcon'
 
 export const ACCOUNT_PLATFORM_ACCENTS: Record<AccountPlatform, string> = {
   google: '#8ddc9f',
   microsoft: '#adc6ff',
+  github: '#b9a8ed',
+  qq: '#73c9ed',
+  apple: '#b4bbc5',
   other: '#8fa3ba',
 }
 
@@ -31,14 +35,16 @@ export function AccountPlatformChip({ platform }: { platform: AccountPlatform })
     <Chip
       size="small"
       label={getAccountPlatformLabel(platform)}
+      icon={<PlatformIcon platform={platform} size={15} />}
       sx={{
         height: 24,
         fontWeight: 600,
         bgcolor: `${accent}22`,
-        color: accent,
+        color: 'text.primary',
         border: '1px solid',
         borderColor: `${accent}55`,
         '& .MuiChip-label': { px: 1 },
+        '& .MuiChip-icon': { ml: 0.75 },
       }}
     />
   )

@@ -19,6 +19,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import { useStore } from '../stores/useStore'
 import type { AccountTagUsageRow } from '../types'
 import { TAG_COLOR_PALETTE } from '../utils/tagColors'
+import PlatformIcon from './accounts/PlatformIcon'
 
 const MAX_ACCOUNT_TAG_LENGTH = 64
 
@@ -209,6 +210,13 @@ export default function TagManagerDialog({
                       value={draft.name}
                       disabled={busy}
                       inputProps={{ maxLength: MAX_ACCOUNT_TAG_LENGTH, 'aria-label': `编辑标签 ${tag.name}` }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <PlatformIcon name={draft.name} size={18} />
+                          </InputAdornment>
+                        ),
+                      }}
                       onChange={(event) => setDrafts((current) => ({
                         ...current,
                         [tag.id]: { ...draft, name: event.target.value },

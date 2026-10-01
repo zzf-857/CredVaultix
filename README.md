@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" />
 </p>
 
-CredVaultix 用于集中整理 Google / Microsoft 主账号、密码、恢复资料、TOTP/HOTP 验证码，以及 API Key、服务器、MCP、云厂商等自由结构的服务信息。应用不依赖自建服务器，不加载第三方字体或统计脚本，不包含遥测，数据保存在当前 Windows 用户目录。
+CredVaultix 用于集中整理 Google、Microsoft、GitHub、QQ 和 Apple 主账号、密码、恢复资料、TOTP/HOTP 验证码，以及 API Key、服务器、MCP、云厂商等自由结构的服务信息。应用不依赖自建服务器，不加载第三方字体或统计脚本，不包含遥测，数据保存在当前 Windows 用户目录。
 
 ## 界面预览
 
@@ -24,18 +24,19 @@ CredVaultix 用于集中整理 Google / Microsoft 主账号、密码、恢复资
 
 | 主账号与恢复资料 | 服务信息与 API Key |
 |---|---|
-| ![主账号管理](Designer/v1/2026-07-27_v1.2.0/readme/01_accounts.png) | ![服务信息管理](Designer/v1/2026-07-27_v1.2.0/readme/02_service_info.png) |
+| ![主账号管理](Designer/v1/2026-10-01_v1.6.0/readme/01_accounts.png) | ![服务信息管理](Designer/v1/2026-07-27_v1.2.0/readme/02_service_info.png) |
 
 | TOTP / HOTP 验证器 | 账号与服务统一回收站 |
 |---|---|
-| ![2FA 验证器](Designer/v1/2026-07-27_v1.2.0/readme/03_two_factor.png) | ![统一回收站](Designer/v1/2026-07-27_v1.2.0/readme/04_recycle_bin.png) |
+| ![2FA 验证器](Designer/v1/2026-10-01_v1.6.0/readme/03_two_factor.png) | ![统一回收站](Designer/v1/2026-07-27_v1.2.0/readme/04_recycle_bin.png) |
 
 ## 功能
 
 ### 主账号管理
 
+- 支持 Google、Microsoft、GitHub、QQ 和 Apple 主账号，新增选项、平台筛选和账号标记显示对应平台图标。
 - 保存账号名称、登录邮箱、密码、手机号、备用邮箱、2FA 密钥和备注。
-- 使用全局复用标签记录 GitHub、Discord、Notion、OpenAI 等注册平台，并可在标签管理面板中批量改名、改颜色或删除。
+- 使用全局复用标签记录 GitHub、Discord、Notion、OpenAI 等注册平台，常见平台显示本地图标，并可在标签管理面板中批量改名、改颜色或删除。
 - 自定义字段支持普通值与敏感值、编辑、复制和默认遮罩。
 - 支持平台筛选、解密后搜索、置顶、自定义排序和 CSV 导入（兼容常见账号列与 OTP URI）。
 - 删除账号先进入回收站，可恢复或彻底删除。

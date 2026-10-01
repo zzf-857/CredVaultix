@@ -46,7 +46,6 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'
 import ShieldIcon from '@mui/icons-material/Shield'
 import LabelOutlinedIcon from '@mui/icons-material/LabelOutlined'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
-import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import { v4 as uuidv4 } from 'uuid'
@@ -59,8 +58,11 @@ import SectionLabel from './common/SectionLabel'
 import { useStore } from '../stores/useStore'
 import { AccountRow, AccountTagUsageRow, CustomFieldRow, TagRow, UpdateAccountData } from '../types'
 import {
+  ACCOUNT_PLATFORM_OPTIONS,
+  getAccountPlatformDefaultName,
   AccountPlatform,
 } from '../utils/accountPlatform'
+import PlatformIcon from './accounts/PlatformIcon'
 import {
   ACCOUNT_TAG_INPUT_CONTROL_HEIGHT,
   getAccountDetailSectionOrder,
@@ -720,17 +722,15 @@ function AccountDetail({
               setEditData({ ...editData, platform: event.target.value as AccountPlatform })
             }
             sx={{ mb: 1.5 }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <PublicOutlinedIcon sx={{ fontSize: 18 }} />
-                </InputAdornment>
-              ),
-            }}
           >
-            <MenuItem value="google">Google</MenuItem>
-            <MenuItem value="microsoft">Microsoft</MenuItem>
-            <MenuItem value="other">其他</MenuItem>
+            {[...ACCOUNT_PLATFORM_OPTIONS, { platform: 'other', label: '其他' }].map((option) => (
+              <MenuItem key={option.platform} value={option.platform}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <PlatformIcon platform={option.platform as AccountPlatform} size={18} />
+                  {option.label}
+                </Box>
+              </MenuItem>
+            ))}
           </TextField>
         ) : (
           <Box sx={fieldBoxSx}>
@@ -746,7 +746,7 @@ function AccountDetail({
                 flexShrink: 0,
               }}
             >
-              <PublicOutlinedIcon sx={{ fontSize: 18 }} />
+              <PlatformIcon platform={account.platform} size={18} />
             </Box>
             <Box>
               <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 600 }}>
@@ -849,6 +849,7 @@ function AccountDetail({
                 <Tooltip key={tag.id} title={`点击 × 从当前账号移除“${tag.name}”；右键管理标签`} arrow>
                   <Chip
                     label={tag.name}
+                    icon={<PlatformIcon name={tag.name} size={18} />}
                     aria-label={`从当前账号移除标签 ${tag.name}`}
                     disabled={Boolean(tagBusy)}
                     onContextMenu={(event) => handleTagContextMenu(event, catalogTag)}
@@ -920,6 +921,7 @@ function AccountDetail({
                 <Tooltip key={tag.id} title="单击添加；右键管理标签" arrow>
                   <Chip
                     label={tag.name}
+                    icon={<PlatformIcon name={tag.name} size={16} />}
                     variant="outlined"
                     disabled={Boolean(tagBusy)}
                     onClick={() => void handleAddTag(tag.name)}
@@ -1243,7 +1245,7 @@ function AccountDetail({
             flexShrink: 0,
           }}
         >
-          <AccountBoxIcon sx={{ fontSize: 21 }} />
+          <PlatformIcon platform={editing ? editData.platform : account.platform} size={24} />
         </Box>
         {editing ? (
           <TextField
@@ -1785,11 +1787,7 @@ export default function AccountsView() {
 
   const createAccountForPlatform = async (platform: AccountPlatform) => {
     if (createBusy) return
-    const defaultName = platform === 'google'
-      ? 'Google 账号'
-      : platform === 'microsoft'
-        ? 'Microsoft 账号'
-        : '新账号'
+    const defaultName = getAccountPlatformDefaultName(platform)
     setCreateBusy(true)
     try {
       const result = await createAccount(defaultName, platform)
@@ -1965,22 +1963,22 @@ export default function AccountsView() {
             }}
           />
 
-          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.9, overflowX: 'auto', pb: 0.1 }}>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.9, pb: 0.1 }}>
             {([
               ['all', '全部'],
-              ['google', 'Google'],
-              ['microsoft', 'Microsoft'],
+              ...ACCOUNT_PLATFORM_OPTIONS.map(({ platform, label }) => [platform, label]),
               ['other', '其他'],
             ] as Array<[AccountPlatform | 'all', string]>).map(([value, label]) => (
               <Chip
                 key={value}
                 label={label}
+                icon={value === 'all' ? undefined : <PlatformIcon platform={value} size={15} />}
                 variant={accountPlatformFilter === value ? 'filled' : 'outlined'}
                 color={accountPlatformFilter === value ? 'primary' : 'default'}
                 aria-pressed={accountPlatformFilter === value}
                 disabled={Boolean(navigationBlockReason)}
                 onClick={() => setAccountPlatformFilter(value)}
-                sx={{ height: 24, flexShrink: 0 }}
+                sx={{ height: 24, flexShrink: 0, '& .MuiChip-icon': { ml: 0.75 } }}
               />
             ))}
           </Box>
@@ -2089,7 +2087,7 @@ export default function AccountsView() {
                       borderColor: `${PLATFORM_ACCENTS[account.platform]}55`,
                     }}
                   >
-                    <AccountBoxIcon sx={{ fontSize: 19 }} />
+                    <PlatformIcon platform={account.platform} size={21} />
                   </Box>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.55, mb: 0.25 }}>
@@ -2109,6 +2107,7 @@ export default function AccountsView() {
                           <Chip
                             key={tag.id}
                             label={tag.name}
+                            icon={<PlatformIcon name={tag.name} size={13} />}
                             size="small"
                             sx={{
                               height: 21,
@@ -2219,7 +2218,7 @@ export default function AccountsView() {
           <EmptyState
             icon={<LockIcon sx={{ fontSize: 22 }} />}
             title="选择或创建一个主账号"
-            description="管理 Google / Microsoft 账号、2FA 密钥和注册平台标签。"
+            description="管理 Google、Microsoft、GitHub、QQ 和 Apple 账号、2FA 密钥及注册平台标签。"
             action={(
               <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setPlatformDialogOpen(true)}>
                 添加主账号

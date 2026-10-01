@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { ACCOUNT_PLATFORMS } from '../shared/accountPlatform'
 import { hasPlaintextTotpSecrets, hasTable } from './databaseSafety'
 
 export interface DatabaseMigrationDependencies {
@@ -203,6 +204,8 @@ const DATABASE_SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_model_provider_keys_sort ON model_provider_key_metadata(sort_order);
 `
 
+const ACCOUNT_PLATFORM_PLACEHOLDERS = ACCOUNT_PLATFORMS.map(() => '?').join(', ')
+
 function getTableColumns(db: Database.Database, tableName: string) {
   return new Set(
     (db.pragma(`table_info(${tableName})`) as Array<{ name: string }>).map((row) => row.name)
@@ -232,9 +235,9 @@ export function hasCurrentDatabaseSchema(db: Database.Database) {
   const invalidPlatform = db.prepare(`
     SELECT 1
     FROM accounts
-    WHERE platform IS NULL OR platform NOT IN ('google', 'microsoft', 'other')
+    WHERE platform IS NULL OR platform NOT IN (${ACCOUNT_PLATFORM_PLACEHOLDERS})
     LIMIT 1
-  `).get()
+  `).get(...ACCOUNT_PLATFORMS)
 
   return !invalidPlatform && !hasPlaintextTotpSecrets(db)
 }
@@ -251,8 +254,8 @@ export function applyDatabaseSchema(
     db.prepare(`
       UPDATE accounts
       SET platform = 'other'
-      WHERE platform IS NULL OR platform NOT IN ('google', 'microsoft', 'other')
-    `).run()
+      WHERE platform IS NULL OR platform NOT IN (${ACCOUNT_PLATFORM_PLACEHOLDERS})
+    `).run(...ACCOUNT_PLATFORMS)
 
     const plaintextTotpRows = db
       .prepare('SELECT id, secret FROM totp_accounts WHERE secret <> ?')

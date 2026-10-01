@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3'
+import { normalizeAccountPlatform } from '../shared/accountPlatform'
 import { normalizeOtpInput } from '../shared/otpAuth'
 import { normalizeTotpSource } from '../shared/totpSource'
 import {
@@ -64,9 +65,7 @@ interface LinkedTotpRow {
   linked_account_id: string | null
 }
 
-export function normalizeAccountPlatform(value?: string | null) {
-  return value === 'google' || value === 'microsoft' || value === 'other' ? value : 'other'
-}
+export { normalizeAccountPlatform } from '../shared/accountPlatform'
 
 export function normalizeOtpAlgorithm(value?: string | null) {
   const algorithm = String(value || 'SHA1').toUpperCase().replace(/[^A-Z0-9]/g, '')

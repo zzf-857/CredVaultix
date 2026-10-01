@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import {
   Box,
   Button,
@@ -13,7 +13,9 @@ import {
 } from '@mui/material'
 import AccountCircleOutlinedIcon from '@mui/icons-material/AccountCircleOutlined'
 import CloseIcon from '@mui/icons-material/Close'
-import type { AccountPlatform } from '../utils/accountPlatform'
+import { ACCOUNT_PLATFORM_OPTIONS, type AccountPlatform } from '../utils/accountPlatform'
+import PlatformIcon from './accounts/PlatformIcon'
+import { ACCOUNT_PLATFORM_ACCENTS } from './accounts/AccountFields'
 
 interface AccountPlatformDialogProps {
   open: boolean
@@ -22,32 +24,14 @@ interface AccountPlatformDialogProps {
   busy?: boolean
 }
 
-const OPTIONS: Array<{
-  platform: AccountPlatform
-  title: string
-  description: string
-  accent: string
-}> = [
-  {
-    platform: 'google',
-    title: 'Google 主账号',
-    description: '适合记录 Gmail、Google 登录、Google Cloud 和用 Google 登录的平台。',
-    accent: '#81c995',
-  },
-  {
-    platform: 'microsoft',
-    title: 'Microsoft 主账号',
-    description: '适合记录 Outlook、Microsoft 登录、Azure 和相关平台访问。',
-    accent: '#a8c7fa',
-  },
-]
-
 export default function AccountPlatformDialog({
   open,
   onClose,
   onSelect,
   busy = false,
 }: AccountPlatformDialogProps) {
+  const firstOptionRef = useRef<HTMLButtonElement>(null)
+
   return (
     <Dialog
       open={open}
@@ -55,6 +39,7 @@ export default function AccountPlatformDialog({
       maxWidth="sm"
       fullWidth
       PaperProps={{ sx: { maxWidth: 600 } }}
+      TransitionProps={{ onEntered: () => { if (!busy) firstOptionRef.current?.focus() } }}
     >
       <DialogTitle
         sx={{
@@ -96,12 +81,13 @@ export default function AccountPlatformDialog({
       </DialogTitle>
       <DialogContent sx={{ px: 2.5, pt: 2, pb: 2.25 }}>
         <Box sx={{ display: 'grid', gap: 1 }}>
-          {OPTIONS.map((option, index) => (
+          {ACCOUNT_PLATFORM_OPTIONS.map((option, index) => (
             <ButtonBase
               key={option.platform}
+              ref={index === 0 ? firstOptionRef : undefined}
               type="button"
               autoFocus={index === 0}
-              aria-label={`选择${option.title}`}
+              aria-label={`选择${option.label} 主账号`}
               aria-describedby={`account-platform-${option.platform}-description`}
               disabled={busy}
               onClick={() => { if (!busy) onSelect(option.platform) }}
@@ -109,7 +95,7 @@ export default function AccountPlatformDialog({
                 width: '100%',
                 px: 1.75,
                 py: 1.5,
-                minHeight: 84,
+                minHeight: 76,
                 display: 'block',
                 textAlign: 'left',
                 color: 'text.primary',
@@ -120,13 +106,14 @@ export default function AccountPlatformDialog({
                 bgcolor: 'surface.raised',
                 transition: 'background-color 0.16s ease, border-color 0.16s ease',
                 '&:hover': {
-                  borderColor: option.accent,
+                  borderColor: 'primary.main',
                   bgcolor: 'action.hover',
                 },
                 '&.Mui-focusVisible': {
                   borderColor: 'primary.main',
                   bgcolor: 'action.hover',
                 },
+                '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
               }}
             >
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -135,19 +122,18 @@ export default function AccountPlatformDialog({
                     width: 40,
                     height: 40,
                     borderRadius: 1,
-                    bgcolor: `${option.accent}22`,
-                    color: option.accent,
+                    bgcolor: `${ACCOUNT_PLATFORM_ACCENTS[option.platform]}22`,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     flexShrink: 0,
                   }}
                 >
-                  <AccountCircleOutlinedIcon fontSize="small" />
+                  <PlatformIcon platform={option.platform} size={24} />
                 </Box>
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="subtitle2" sx={{ mb: 0.35 }}>
-                    {option.title}
+                    {option.label} 主账号
                   </Typography>
                   <Typography id={`account-platform-${option.platform}-description`} variant="body2" sx={{ color: 'text.secondary' }}>
                     {option.description}
